@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Direct Firebase Storage Upload Test</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .log {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        input, button {
+            margin: 5px;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Direct Firebase Storage Upload Test</h1>
+    
+    <div class="section">
+        <h2>1. Firebase Configuration</h2>
+        <input type="text" id="apiKey" placeholder="Firebase API Key" style="width: 100%;">
+        <input type="text" id="authDomain" placeholder="Auth Domain" style="width: 100%;">
+        <input type="text" id="projectId" placeholder="Project ID" style="width: 100%;">
+        <input type="text" id="storageBucket" placeholder="Storage Bucket" style="width: 100%;">
+        <input type="text" id="messagingSenderId" placeholder="Messaging Sender ID" style="width: 100%;">
+        <input type="text" id="appId" placeholder="App ID" style="width: 100%;">
+        <button onclick="initializeFirebase()">Initialize Firebase</button>
+        <div id="initLog" class="log"></div>
+    </div>
+    
+    <div class="section">
+        <h2>2. Upload Test</h2>
+        <input type="file" id="fileInput">
+        <input type="text" id="uploadPath" placeholder="Upload path (e.g., test/files)" value="test/files">
+        <button onclick="uploadFile()" id="uploadBtn" disabled>Upload to Firebase</button>
+        <div id="uploadLog" class="log"></div>
+    </div>
+    
+    <div class="section">
+        <h2>3. Test Express Endpoint</h2>
+        <input type="text" id="expressUrl" placeholder="Express URL" value="http://localhost:5000/api/storage/files">
+        <input type="text" id="authToken" placeholder="Bearer Token" style="width: 100%;">
+        <input type="text" id="tenantId" placeholder="Tenant ID" value="93c99d86-c396-43f5-a0c0-7d645639dcbe">
+        <button onclick="testExpressUpload()">Test Express Upload</button>
+        <div id="expressLog" class="log"></div>
+    </div>
+
+    <script>
+        let app = null;
+        let storage = null;
+        
+        function log(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const className = isError ? 'error' : (message.includes('Success') ? 'success' : '');
+            element.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+        }
+        
+        async function initializeFirebase() {
+            try {
+                const config = {
+                    apiKey: document.getElementById('apiKey').value,
+                    authDomain: document.getElementById('authDomain').value,
+                    projectId: document.getElementById('projectId').value,
+                    storageBucket: document.getElementById('storageBucket').value,
+                    messagingSenderId: document.getElementById('messagingSenderId').value,
+                    appId: document.getElementById('appId').value
+                };
+                
+                log('initLog', 'Initializing Firebase with config...');
+                log('initLog', JSON.stringify(config, null, 2));
+                
+                app = firebase.initializeApp(config);
+                storage = firebase.storage();
+                
+                log('initLog', 'Success! Firebase initialized.', false);
+                document.getElementById('uploadBtn').disabled = false;
+                
+                // Test storage access
+                const testRef = storage.ref('test.txt');
+                log('initLog', `Storage bucket: ${config.storageBucket}`);
+                
+            } catch (error) {
+                log('initLog', `Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const uploadPath = document.getElementById('uploadPath').value;
+            
+            if (!fileInput.files[0]) {
+                log('uploadLog', 'Please select a file', true);
+                return;
+            }
+            
+            if (!storage) {
+                log('uploadLog', 'Firebase not initialized', true);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const fileName = `${Date.now()}_${file.name}`;
+            const fullPath = `${uploadPath}/${fileName}`;
+            
+            try {
+                log('uploadLog', `Uploading file: ${file.name}`);
+                log('uploadLog', `Size: ${file.size} bytes`);
+                log('uploadLog', `Type: ${file.type}`);
+                log('uploadLog', `Path: ${fullPath}`);
+                
+                // Create storage reference
+                const storageRef = storage.ref(fullPath);
+                
+                // Upload file
+                const uploadTask = storageRef.put(file);
+                
+                // Monitor upload progress
+                uploadTask.on('state_changed', 
+                    (snapshot) => {
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        log('uploadLog', `Upload progress: ${progress.toFixed(2)}%`);
+                    },
+                    (error) => {
+                        log('uploadLog', `Upload error: ${error.message}`, true);
+                        console.error('Upload error:', error);
+                    },
+                    async () => {
+                        // Upload completed successfully
+                        log('uploadLog', 'Upload completed successfully!');
+                        
+                        // Get download URL
+                        const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                        log('uploadLog', `Download URL: ${downloadURL}`);
+                    }
+                );
+                
+            } catch (error) {
+                log('uploadLog', `Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        async function testExpressUpload() {
+            const fileInput = document.getElementById('fileInput');
+            const expressUrl = document.getElementById('expressUrl').value;
+            const authToken = document.getElementById('authToken').value;
+            const tenantId = document.getElementById('tenantId').value;
+            
+            if (!fileInput.files[0]) {
+                log('expressLog', 'Please select a file', true);
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('category', 'documents');
+            
+            try {
+                log('expressLog', `Testing Express upload to: ${expressUrl}`);
+                log('expressLog', `File: ${file.name} (${file.size} bytes)`);
+                
+                // Log FormData contents
+                for (let [key, value] of formData.entries()) {
+                    if (value instanceof File) {
+                        log('expressLog', `FormData[${key}]: File(${value.name}, ${value.size} bytes)`);
+                    } else {
+                        log('expressLog', `FormData[${key}]: ${value}`);
+                    }
+                }
+                
+                const response = await fetch(expressUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'x-tenant-id': tenantId
+                        // NO Content-Type header
+                    },
+                    body: formData
+                });
+                
+                log('expressLog', `Response status: ${response.status}`);
+                
+                const responseText = await response.text();
+                let responseData;
+                try {
+                    responseData = JSON.parse(responseText);
+                    log('expressLog', `Response: ${JSON.stringify(responseData, null, 2)}`);
+                } catch (e) {
+                    log('expressLog', `Response (text): ${responseText}`);
+                }
+                
+                if (response.ok) {
+                    log('expressLog', 'Success! File uploaded via Express.');
+                } else {
+                    log('expressLog', `Error: ${responseData?.error || responseText}`, true);
+                }
+                
+            } catch (error) {
+                log('expressLog', `Error: ${error.message}`, true);
+                console.error(error);
+            }
+        }
+        
+        // Load Firebase config from localStorage if available
+        window.onload = () => {
+            const savedConfig = localStorage.getItem('firebaseConfig');
+            if (savedConfig) {
+                const config = JSON.parse(savedConfig);
+                document.getElementById('apiKey').value = config.apiKey || '';
+                document.getElementById('authDomain').value = config.authDomain || '';
+                document.getElementById('projectId').value = config.projectId || '';
+                document.getElementById('storageBucket').value = config.storageBucket || '';
+                document.getElementById('messagingSenderId').value = config.messagingSenderId || '';
+                document.getElementById('appId').value = config.appId || '';
+            }
+        };
+        
+        // Save config when initializing
+        function saveConfig() {
+            const config = {
+                apiKey: document.getElementById('apiKey').value,
+                authDomain: document.getElementById('authDomain').value,
+                projectId: document.getElementById('projectId').value,
+                storageBucket: document.getElementById('storageBucket').value,
+                messagingSenderId: document.getElementById('messagingSenderId').value,
+                appId: document.getElementById('appId').value
+            };
+            localStorage.setItem('firebaseConfig', JSON.stringify(config));
+        }
+        
+        // Override initialize to save config
+        const originalInit = initializeFirebase;
+        initializeFirebase = function() {
+            saveConfig();
+            return originalInit();
+        };
+    </script>
+</body>
+</html>
