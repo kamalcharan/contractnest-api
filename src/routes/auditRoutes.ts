@@ -167,7 +167,7 @@ router.get('/audit-logs/export', async (req: Request, res: Response) => {
         filters
       },
       success: true,
-      severity: 'warning' // Exports are sensitive operations
+      severity: AuditSeverity.WARNING // Exports are sensitive operations
     });
     
     // Set appropriate headers

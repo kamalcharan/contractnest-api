@@ -2,22 +2,38 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { captureException } from '../utils/sentry';
 import * as admin from 'firebase-admin';
-import { SUPABASE_URL } from '../utils/config';
+import { SUPABASE_URL } from '../utils/supabaseConfig';
 
 // Initialize Firebase Admin SDK - Do this only once in your application
-try {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID || '',
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n') || ''
-    }),
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || ''
-  });
-} catch (error) {
-  console.error('Firebase admin initialization error:', error);
-  // App might have been initialized already
-}
+let adminInitialized = false;
+
+const initializeFirebaseAdmin = () => {
+  if (adminInitialized) {
+    return;
+  }
+
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.VITE_FIREBASE_PROJECT_ID || '',
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n') || ''
+      }),
+      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || ''
+    });
+    adminInitialized = true;
+    console.log('✅ Firebase Admin SDK initialized');
+  } catch (error: any) {
+    console.error('❌ Firebase admin initialization error:', error);
+    // App might have been initialized already
+    if (error.code === 'app/duplicate-app') {
+      adminInitialized = true;
+    }
+  }
+};
+
+// Initialize on module load
+initializeFirebaseAdmin();
 
 // Extend Request type to include user property
 interface AuthRequest extends Request {
@@ -40,12 +56,12 @@ export const getDiagnosticInfo = async (req: AuthRequest, res: Response) => {
     
     // Verify Firebase configuration in our backend
     const firebaseConfig = {
-      apiKey: process.env.FIREBASE_API_KEY,
-      authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-      appId: process.env.FIREBASE_APP_ID
+      apiKey: process.env.VITE_FIREBASE_API_KEY,
+      authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: process.env.VITE_FIREBASE_APP_ID
     };
     
     // Check for missing config
@@ -88,7 +104,8 @@ export const getDiagnosticInfo = async (req: AuthRequest, res: Response) => {
         firebase: {
           configured: missingConfig.length === 0,
           missingConfig: missingConfig.length > 0 ? missingConfig : null,
-          storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'Not set'
+          storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || 'Not set',
+          adminInitialized
         },
         results: [
           {
@@ -127,6 +144,9 @@ export const testTenantStructure = async (req: AuthRequest, res: Response) => {
     if (!tenantId) {
       return res.status(400).json({ error: 'tenantId is required' });
     }
+
+    // Ensure Firebase Admin is initialized
+    initializeFirebaseAdmin();
     
     // Get storage instance
     const storage = admin.storage().bucket();
@@ -211,6 +231,9 @@ export const createTenantStructure = async (req: AuthRequest, res: Response) => 
     if (!tenantId) {
       return res.status(400).json({ error: 'tenantId is required' });
     }
+
+    // Ensure Firebase Admin is initialized
+    initializeFirebaseAdmin();
     
     // Get storage instance
     const storage = admin.storage().bucket();

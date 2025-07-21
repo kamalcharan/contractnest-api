@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=development
+      - PORT=5000
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./dist:/app/dist
+    depends_on:
+      - redis
+    networks:
+      - contractnest-network
+
+  # Redis for caching and queues (future use)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - contractnest-network
+
+  # Future: N8N Workflow Automation
+  # n8n:
+  #   image: n8nio/n8n:latest
+  #   ports:
+  #     - "5678:5678"
+  #   environment:
+  #     - N8N_BASIC_AUTH_ACTIVE=true
+  #     - N8N_BASIC_AUTH_USER=admin
+  #     - N8N_BASIC_AUTH_PASSWORD=changeme
+  #   volumes:
+  #     - n8n_data:/home/node/.n8n
+  #   networks:
+  #     - contractnest-network
+
+  # Future: LangChain Python Service
+  # langchain:
+  #   build: ./langchain-service
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
+  #   networks:
+  #     - contractnest-network
+
+volumes:
+  redis_data:
+  # n8n_data:
+
+networks:
+  contractnest-network:
+    driver: bridge

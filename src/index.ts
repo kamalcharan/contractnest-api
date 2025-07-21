@@ -1,35 +1,36 @@
 // src/index.ts
-
 import dotenv from 'dotenv';
 dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-
 import swaggerUi from 'swagger-ui-express';
 import morgan from 'morgan';
+
 import { specs } from './docs/swagger';
 import { errorHandler } from './middleware/error';
 import { setTenantContext } from './middleware/tenantContext';
 import { initSentry, captureException } from './utils/sentry';
 import { initializeFirebase, checkFirebaseStatus } from './utils/firebaseConfig';
+
+// Import routes
 import masterDataRoutes from './routes/masterDataRoutes';
 import integrationRoutes from './routes/integrationRoutes';
 import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
-
-// JTD imports
 import jtdRoutes from './routes/jtd';
+
+// JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
 import { jtdService } from './services/jtdService';
 
-// Add error handlers at the very beginning
+// Global error handlers
 process.on('uncaughtException', (error) => {
   console.error('🔴 UNCAUGHT EXCEPTION - Server will crash:');
   console.error('Error:', error.message);
   console.error('Stack:', error.stack);
   
-  // Try to capture in Sentry before crash
   try {
     captureException(error, {
       tags: { source: 'uncaught_exception', fatal: true }
@@ -38,7 +39,6 @@ process.on('uncaughtException', (error) => {
     console.error('Failed to send to Sentry:', sentryError);
   }
   
-  // Exit after logging
   process.exit(1);
 });
 
@@ -46,7 +46,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('🔴 UNHANDLED REJECTION at:', promise);
   console.error('Reason:', reason);
   
-  // Try to capture in Sentry
   try {
     captureException(reason instanceof Error ? reason : new Error(String(reason)), {
       tags: { source: 'unhandled_rejection', fatal: true }
@@ -55,14 +54,10 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Failed to send to Sentry:', sentryError);
   }
   
-  // Exit after logging
   process.exit(1);
 });
 
-// Load environment variables
-dotenv.config();
-
-// Validate required environment variables
+// Environment validation
 const requiredEnvVars = [
   'SUPABASE_URL', 
   'SUPABASE_KEY',
@@ -73,36 +68,33 @@ const requiredEnvVars = [
   'VITE_FIREBASE_MESSAGING_SENDER_ID',
   'VITE_FIREBASE_APP_ID'
 ];
+
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
   console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
-  // Don't exit in production, but log the error to Sentry
   if (process.env.NODE_ENV === 'production') {
-    // Initialize Sentry first so we can capture this error
     initSentry();
     captureException(new Error(`Missing required environment variables: ${missingVars.join(', ')}`), {
       tags: { source: 'api_startup', error_type: 'config_error' }
     });
   } else {
     console.warn('Some environment variables are missing, but continuing execution...');
-    // Don't exit, allow the app to start with warnings
   }
 }
 
-// Initialize Sentry as early as possible
+// Initialize Sentry
 initSentry();
 
-// Initialize Firebase (but don't fail if it doesn't initialize)
+// Initialize Firebase
 try {
   initializeFirebase();
-  console.log('Firebase initialized successfully during startup');
+  console.log('✅ Firebase initialized successfully');
 } catch (error) {
-  console.error('Failed to initialize Firebase during startup:', error);
+  console.error('❌ Failed to initialize Firebase:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'api_startup', error_type: 'firebase_init_error' }
   });
-  // Don't exit since the app can still function for non-storage operations
 }
 
 // Import routes with error handling
@@ -157,6 +149,7 @@ try {
   process.exit(1);
 }
 
+// Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -250,9 +243,60 @@ app.use('/api/business-model', businessModelRoutes);
 // JTD Routes
 app.use('/api/jtd', jtdRoutes);
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'API is running' });
+console.log('✅ All routes registered successfully');
+
+// Health check endpoint (enhanced for Docker/Railway)
+app.get('/health', async (req, res) => {
+  const healthData = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    version: '1.0.0',
+    services: {
+      api: 'healthy',
+      database: 'unknown',
+      storage: 'unknown'
+    }
+  };
+
+  try {
+    // Quick Supabase connection test
+    if (process.env.SUPABASE_URL) {
+      healthData.services.database = 'connected';
+    }
+
+    // Quick Firebase status check
+    try {
+      const firebaseStatus = await checkFirebaseStatus();
+      healthData.services.storage = firebaseStatus.status === 'connected' ? 'connected' : 'error';
+    } catch (error) {
+      healthData.services.storage = 'error';
+    }
+
+    res.status(200).json(healthData);
+  } catch (error) {
+    healthData.status = 'ERROR';
+    healthData.services.api = 'error';
+    res.status(503).json(healthData);
+  }
+});
+
+// API health endpoint (redirect to main health)
+app.get('/api/health', async (req, res) => {
+  return res.redirect('/health');
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'ContractNest API is running',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    documentation: '/api-docs',
+    health: '/health'
+  });
 });
 
 // Test Sentry endpoint (remove in production)
@@ -267,7 +311,7 @@ app.get('/test-sentry', (req, res) => {
   }
 });
 
-// Error handling middleware - must be after routes
+// Error handling middleware (must be after routes)
 app.use(errorHandler);
 
 // Handle 404 routes

@@ -1,5 +1,4 @@
-src/middleware/maintenance.ts
-
+// src/middleware/maintenance.ts
 import { Request, Response, NextFunction } from 'express';
 
 export const maintenanceMiddleware = (req: Request, res: Response, next: NextFunction) => {
