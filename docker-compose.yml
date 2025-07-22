@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   api:
+    container_name: contractnest-api  # Add this line for better naming
     build: 
       context: .
       dockerfile: Dockerfile
@@ -14,14 +15,18 @@ services:
       - .env
     volumes:
       - ./src:/app/src
-      - ./dist:/app/dist
+      # - ./dist:/app/dist
+      # Add node_modules to prevent overwriting
+      - /app/node_modules
     depends_on:
       - redis
     networks:
       - contractnest-network
+    restart: unless-stopped  # Add this for auto-restart
 
-  # Redis for caching and queues (future use)
+  # Redis for caching and queues
   redis:
+    container_name: contractnest-redis  # Add proper name
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -29,23 +34,27 @@ services:
       - redis_data:/data
     networks:
       - contractnest-network
+    restart: unless-stopped
 
-  # Future: N8N Workflow Automation
-  # n8n:
-  #   image: n8nio/n8n:latest
-  #   ports:
-  #     - "5678:5678"
-  #   environment:
-  #     - N8N_BASIC_AUTH_ACTIVE=true
-  #     - N8N_BASIC_AUTH_USER=admin
-  #     - N8N_BASIC_AUTH_PASSWORD=changeme
-  #   volumes:
-  #     - n8n_data:/home/node/.n8n
-  #   networks:
-  #     - contractnest-network
+  # N8N Workflow Automation (you already have this running)
+  n8n:
+    container_name: contractnest-n8n
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - contractnest-network
+    restart: unless-stopped
 
   # Future: LangChain Python Service
   # langchain:
+  #   container_name: contractnest-langchain
   #   build: ./langchain-service
   #   ports:
   #     - "8000:8000"
@@ -56,7 +65,7 @@ services:
 
 volumes:
   redis_data:
-  # n8n_data:
+  n8n_data:  # Uncomment this since n8n is running
 
 networks:
   contractnest-network:

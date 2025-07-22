@@ -158,7 +158,17 @@ const PORT = process.env.PORT || 5000;
 // ====================
 
 // 1. CORS - needed for all routes
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5173',  // Vite default port
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-request-id', 'x-session-id', 'x-environment']
+}));
 
 // 2. Helmet - security headers
 app.use(helmet({ contentSecurityPolicy: false }));
