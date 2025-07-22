@@ -2,11 +2,11 @@
   "name": "contractnest-api",
   "version": "1.0.0",
   "description": "ContractNest API",
-  "main": "dist/index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "start": "node dist/index.js",
+    "start": "ts-node src/index.ts",
     "dev": "nodemon --exec ts-node src/index.ts",
-    "build": "tsc",
+    "build": "echo 'Skipping TypeScript compilation - using ts-node'",
     "build:docker": "docker build -t contractnest-api .",
     "docker:run": "docker run -p 5000:5000 --env-file .env contractnest-api",
     "docker:dev": "docker-compose up --build",
@@ -32,7 +32,9 @@
     "multer": "^1.4.5-lts.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -44,9 +46,6 @@
     "@types/node": "^20.19.9",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
-    "nodemon": "^3.1.9",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "nodemon": "^3.1.9"
   }
 }
-
