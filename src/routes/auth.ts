@@ -1,23 +1,6 @@
 // src/routes/auth.ts
-
 import express from 'express';
-import {
-  login,
-  register,
-  registerWithInvitation,
-  refreshToken,
-  signout,
-  resetPassword,
-  changePassword,
-  verifyPassword,
-  completeRegistration,
-  getUserProfile,
-  linkGoogleAccount,
-  unlinkGoogleAccount,
-  initiateGoogleAuth,     
-  handleGoogleCallback,   
-  updateUserPreferences
-} from '../controllers/authController';
+import authController from '../controllers/authController';
 import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
@@ -44,7 +27,7 @@ const router = express.Router();
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', login);
+router.post('/login', authController.login);
 
 /**
  * @swagger
@@ -64,7 +47,7 @@ router.post('/login', login);
  *       400:
  *         description: Invalid input data
  */
-router.post('/register', register);
+router.post('/register', authController.register);
 
 /**
  * @swagger
@@ -110,7 +93,7 @@ router.post('/register', register);
  *       400:
  *         description: Invalid input data or invitation
  */
-router.post('/register-with-invitation', registerWithInvitation);
+router.post('/register-with-invitation', authController.registerWithInvitation);
 
 /**
  * @swagger
@@ -135,7 +118,7 @@ router.post('/register-with-invitation', registerWithInvitation);
  *       401:
  *         description: Invalid refresh token
  */
-router.post('/refresh-token', refreshToken);
+router.post('/refresh-token', authController.refreshToken);
 
 /**
  * @swagger
@@ -151,7 +134,7 @@ router.post('/refresh-token', refreshToken);
  *       401:
  *         description: Not authenticated
  */
-router.post('/signout', authenticate, signout);
+router.post('/signout', authenticate, authController.signout);
 
 /**
  * @swagger
@@ -175,7 +158,7 @@ router.post('/signout', authenticate, signout);
  *       200:
  *         description: Password reset email sent
  */
-router.post('/reset-password', resetPassword);
+router.post('/reset-password', authController.resetPassword);
 
 /**
  * @swagger
@@ -207,7 +190,7 @@ router.post('/reset-password', resetPassword);
  *       401:
  *         description: Not authenticated or incorrect current password
  */
-router.post('/change-password', authenticate, changePassword);
+router.post('/change-password', authenticate, authController.changePassword);
 
 /**
  * @swagger
@@ -242,7 +225,7 @@ router.post('/change-password', authenticate, changePassword);
  *       401:
  *         description: Not authenticated
  */
-router.post('/verify-password', authenticate, verifyPassword);
+router.post('/verify-password', authenticate, authController.verifyPassword);
 
 /**
  * @swagger
@@ -271,7 +254,7 @@ router.post('/verify-password', authenticate, verifyPassword);
  *       401:
  *         description: Not authenticated
  */
-router.post('/complete-registration', authenticate, completeRegistration);
+router.post('/complete-registration', authenticate, authController.completeRegistration);
 
 /**
  * @swagger
@@ -287,7 +270,7 @@ router.post('/complete-registration', authenticate, completeRegistration);
  *       401:
  *         description: Not authenticated
  */
-router.get('/user', authenticate, getUserProfile);
+router.get('/user', authenticate, authController.getUserProfile);
 
 /**
  * @swagger
@@ -328,7 +311,7 @@ router.get('/user', authenticate, getUserProfile);
  *       500:
  *         description: Failed to update preferences
  */
-router.patch('/preferences', authenticate, updateUserPreferences);
+router.patch('/preferences', authenticate, authController.updateUserPreferences);
 console.log('✅ Auth preferences route registered at /preferences');
 
 // Google account linking routes
@@ -368,7 +351,7 @@ console.log('✅ Auth preferences route registered at /preferences');
  *       500:
  *         description: Failed to link account
  */
-router.post('/google-link', authenticate, linkGoogleAccount);
+router.post('/google-link', authenticate, authController.linkGoogleAccount);
 
 /**
  * @swagger
@@ -386,7 +369,7 @@ router.post('/google-link', authenticate, linkGoogleAccount);
  *       500:
  *         description: Failed to unlink account
  */
-router.post('/google-unlink', authenticate, unlinkGoogleAccount);
+router.post('/google-unlink', authenticate, authController.unlinkGoogleAccount);
 
 /**
  * @swagger
@@ -398,7 +381,7 @@ router.post('/google-unlink', authenticate, unlinkGoogleAccount);
  *       200:
  *         description: OAuth URL returned
  */
-router.post('/google', initiateGoogleAuth);
+router.post('/google', authController.initiateGoogleAuth);
 
 /**
  * @swagger
@@ -410,7 +393,7 @@ router.post('/google', initiateGoogleAuth);
  *       200:
  *         description: Authentication successful
  */
-router.post('/google-callback', handleGoogleCallback);
+router.post('/google-callback', authController.handleGoogleCallback);
 
 // Debug: Log all registered routes
 console.log('🔍 All auth routes:', router.stack.map(r => r.route?.path).filter(Boolean));
