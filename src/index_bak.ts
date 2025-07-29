@@ -20,10 +20,16 @@ import integrationRoutes from './routes/integrationRoutes';
 import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
 import jtdRoutes from './routes/jtd';
+import taxSettingsRoutes from './routes/taxSettingsRoutes';
 
 // JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
 import { jtdService } from './services/jtdService';
+
+// GraphQL
+import graphqlRoutes from './graphql/routes/graphqlRoute';
+import { initializeGraphQLServer } from './graphql/routes/graphqlRoute';
+
 
 // Global error handlers
 process.on('uncaughtException', (error) => {
@@ -99,7 +105,7 @@ try {
 
 // Import routes with error handling
 console.log('📦 Loading route modules...');
-let authRoutes, tenantRoutes, tenantProfileRoutes, storageRoutes, invitationRoutes, userRoutes, catalogRoutes, taxSettingsRoutes;
+let authRoutes, tenantRoutes, tenantProfileRoutes, storageRoutes, invitationRoutes, userRoutes;
 
 try {
   authRoutes = require('./routes/auth').default;
@@ -149,35 +155,6 @@ try {
   process.exit(1);
 }
 
-// Load Catalog routes with error handling
-try {
-  catalogRoutes = require('./routes/catalogRoutes').default;
-  console.log('✅ Catalog routes loaded');
-} catch (error) {
-  console.error('❌ Failed to load catalog routes:', error);
-  // Don't exit for catalog routes during development - allow API to start without catalog
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  } else {
-    console.warn('⚠️  Continuing without catalog routes...');
-    catalogRoutes = null;
-  }
-}
-
-// Load Tax Settings routes with error handling
-try {
-  taxSettingsRoutes = require('./routes/taxSettingsRoutes').default;
-  console.log('✅ Tax settings routes loaded');
-} catch (error) {
-  console.error('❌ Failed to load tax settings routes:', error);
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  } else {
-    console.warn('⚠️  Continuing without tax settings routes...');
-    taxSettingsRoutes = null;
-  }
-}
-
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -206,9 +183,10 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(setTenantContext);
 
 // 4. CRITICAL: Mount storage routes BEFORE body parsing middleware
-// FIX: Changed to mount only on /api/storage instead of all /api routes
 console.log('🚨 Mounting storage routes BEFORE body parsers...');
-app.use('/api/storage', storageRoutes);
+const storageRouter = express.Router();
+storageRouter.use(storageRoutes);
+app.use('/api', storageRouter);
 
 // 5. NOW apply morgan (after storage routes in case it's reading bodies)
 app.use(morgan('dev'));
@@ -248,6 +226,13 @@ try {
 }
 
 try {
+  app.use('/api/tax-settings', taxSettingsRoutes);
+  console.log('✅ Tax settings routes registered');
+} catch (error) {
+  console.error('❌ Failed to register tax settings routes:', error);
+}
+
+try {
   app.use('/api', tenantProfileRoutes);
   console.log('✅ Tenant profile routes registered');
 } catch (error) {
@@ -275,36 +260,6 @@ try {
   console.error('❌ Failed to register user routes:', error);
 }
 
-// Register Catalog routes with error handling
-try {
-  if (catalogRoutes) {
-    app.use('/api/catalog', catalogRoutes);
-    console.log('✅ Catalog routes registered');
-  } else {
-    console.log('⚠️  Catalog routes skipped (not loaded)');
-  }
-} catch (error) {
-  console.error('❌ Failed to register catalog routes:', error);
-  captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'catalog' }
-  });
-}
-
-// Register Tax Settings routes with error handling
-try {
-  if (taxSettingsRoutes) {
-    app.use('/api/tax-settings', taxSettingsRoutes);
-    console.log('✅ Tax settings routes registered');
-  } else {
-    console.log('⚠️  Tax settings routes skipped (not loaded)');
-  }
-} catch (error) {
-  console.error('❌ Failed to register tax settings routes:', error);
-  captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'tax_settings' }
-  });
-}
-
 // ✅ FIXED: Changed from '/api/businessmodel' to '/api/business-model'
 app.use('/api/business-model', businessModelRoutes);
 
@@ -324,9 +279,7 @@ app.get('/health', async (req, res) => {
     services: {
       api: 'healthy',
       database: 'unknown',
-      storage: 'unknown',
-      catalog: catalogRoutes ? 'loaded' : 'not_loaded',
-      taxSettings: taxSettingsRoutes ? 'loaded' : 'not_loaded'
+      storage: 'unknown'
     }
   };
 
@@ -342,25 +295,6 @@ app.get('/health', async (req, res) => {
       healthData.services.storage = firebaseStatus.status === 'connected' ? 'connected' : 'error';
     } catch (error) {
       healthData.services.storage = 'error';
-    }
-
-    // Check catalog service health if available
-    if (catalogRoutes) {
-      try {
-        // This would call the catalog health endpoint internally
-        healthData.services.catalog = 'healthy';
-      } catch (error) {
-        healthData.services.catalog = 'error';
-      }
-    }
-
-    // Check tax settings service health if available
-    if (taxSettingsRoutes) {
-      try {
-        healthData.services.taxSettings = 'healthy';
-      } catch (error) {
-        healthData.services.taxSettings = 'error';
-      }
     }
 
     res.status(200).json(healthData);
@@ -384,11 +318,7 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     documentation: '/api-docs',
-    health: '/health',
-    services: {
-      catalog: catalogRoutes ? 'available' : 'not_available',
-      taxSettings: taxSettingsRoutes ? 'available' : 'not_available'
-    }
+    health: '/health'
   });
 });
 
@@ -446,7 +376,6 @@ const initializeJTD = async () => {
 const server = app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`📚 API Documentation available at http://localhost:${PORT}/api-docs`);
-  
   console.log('📍 Registered business model routes:');
   console.log('- GET  /api/business-model/plans');
   console.log('- POST /api/business-model/plans');
@@ -454,61 +383,19 @@ const server = app.listen(PORT, () => {
   console.log('- PUT  /api/business-model/plans/:id');
   console.log('- GET  /api/business-model/plan-versions');
   console.log('- POST /api/business-model/plan-versions');
-  
+  console.log('📍 Tax settings routes:');
+  console.log('- GET  /api/tax-settings');
+  console.log('- POST /api/tax-settings/settings');
+  console.log('- GET  /api/tax-settings/rates');
+  console.log('- POST /api/tax-settings/rates');
+  console.log('- PUT  /api/tax-settings/rates/:id');
+  console.log('- DELETE /api/tax-settings/rates/:id');
+  console.log('- POST /api/tax-settings/rates/:id/activate');
   console.log('📍 JTD routes:');
   console.log('- POST /api/jtd/events');
   console.log('- GET  /api/jtd/events/:eventId');
   console.log('- POST /api/jtd/webhooks/gupshup');
   console.log('- POST /api/jtd/webhooks/sendgrid');
-  
-  // Log catalog routes if available
-  if (catalogRoutes) {
-    console.log('📍 Catalog routes:');
-    console.log('- GET  /api/catalog                         # List catalog items');
-    console.log('- POST /api/catalog                         # Create catalog item');
-    console.log('- GET  /api/catalog/:id                     # Get catalog item by ID');
-    console.log('- PUT  /api/catalog/:id                     # Update catalog item');
-    console.log('- DELETE /api/catalog/:id                   # Delete catalog item');
-    console.log('- POST /api/catalog/restore/:id             # Restore deleted item');
-    console.log('- GET  /api/catalog/versions/:id            # Get version history');
-    console.log('- POST /api/catalog/pricing/:catalogId      # Add/Update pricing');
-    console.log('- GET  /api/catalog/pricing/:catalogId      # Get pricing');
-    console.log('- DELETE /api/catalog/pricing/:catalogId/:pricingId # Delete pricing');
-    console.log('📋 Catalog features:');
-    console.log('  ✅ CRUD operations with versioning');
-    console.log('  ✅ Multi-currency pricing support');
-    console.log('  ✅ Soft delete and restore');
-    console.log('  ✅ Advanced filtering & pagination');
-    console.log('  ✅ Idempotency support');
-    console.log('  ✅ Rate limiting protection');
-    console.log('  ✅ Complete audit trail');
-  } else {
-    console.log('⚠️  Catalog routes not available');
-  }
-  
-  // Log tax settings routes if available
-  if (taxSettingsRoutes) {
-    console.log('📍 Tax Settings routes:');
-    console.log('- GET    /api/tax-settings                  # Get settings and rates');
-    console.log('- POST   /api/tax-settings/settings         # Create/update settings');
-    console.log('- GET    /api/tax-settings/rates            # Get all rates');
-    console.log('- POST   /api/tax-settings/rates            # Create new rate');
-    console.log('- PUT    /api/tax-settings/rates/:id        # Update rate');
-    console.log('- DELETE /api/tax-settings/rates/:id        # Delete rate');
-    console.log('- POST   /api/tax-settings/rates/:id/activate # Activate rate');
-    console.log('📋 Tax Settings features:');
-    console.log('  ✅ Display mode configuration (including/excluding tax)');
-    console.log('  ✅ Tax rates management with CRUD operations');
-    console.log('  ✅ Default rate designation');
-    console.log('  ✅ Soft delete functionality');
-    console.log('  ✅ Sequence ordering for display');
-    console.log('  ✅ Optimistic locking for concurrent updates');
-    console.log('  ✅ Idempotency support');
-    console.log('  ✅ Complete audit trail');
-  } else {
-    console.log('⚠️  Tax Settings routes not available');
-  }
-  
   console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
   console.log('📁 Storage upload: POST /api/storage/files');
   
