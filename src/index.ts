@@ -99,7 +99,7 @@ try {
 
 // Import routes with error handling
 console.log('📦 Loading route modules...');
-let authRoutes, tenantRoutes, tenantProfileRoutes, storageRoutes, invitationRoutes, userRoutes, catalogRoutes, taxSettingsRoutes;
+let authRoutes, tenantRoutes, tenantProfileRoutes, storageRoutes, invitationRoutes, userRoutes, catalogRoutes;
 
 try {
   authRoutes = require('./routes/auth').default;
@@ -149,13 +149,53 @@ try {
   process.exit(1);
 }
 
-// Load Catalog routes with error handling
+// Load Contact routes with error handling
+let contactRoutes;
 try {
-  catalogRoutes = require('./routes/catalogRoutes').default;
-  console.log('✅ Catalog routes loaded');
+  contactRoutes = require('./routes/contactRoutes').default;
+  console.log('✅ Contact routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load contact routes:', error);
+  process.exit(1);
+}
+
+// Load Catalog routes with enhanced error handling and better diagnostics
+try {
+  console.log('📦 Loading catalog routes...');
+  const catalogRouteModule = require('./routes/catalogRoutes');
+  catalogRoutes = catalogRouteModule.default || catalogRouteModule;
+  
+  if (!catalogRoutes) {
+    throw new Error('Catalog routes module did not export routes');
+  }
+  
+  console.log('✅ Catalog routes loaded successfully');
+  console.log('📋 Catalog routes type:', typeof catalogRoutes);
+  
+  // Test if it's a valid Express router
+  if (typeof catalogRoutes !== 'function') {
+    console.warn('⚠️  Warning: catalog routes is not a function, might not be a valid Express router');
+  }
+  
 } catch (error) {
   console.error('❌ Failed to load catalog routes:', error);
-  // Don't exit for catalog routes during development - allow API to start without catalog
+  console.error('📍 Stack trace:', (error as Error).stack);
+  
+  // Check if the file exists
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const catalogRoutesPath = path.join(__dirname, 'routes', 'catalogRoutes.ts');
+    const catalogRoutesJsPath = path.join(__dirname, 'routes', 'catalogRoutes.js');
+    
+    console.log('📁 Checking catalog routes file existence:');
+    console.log(`  - ${catalogRoutesPath} exists: ${fs.existsSync(catalogRoutesPath)}`);
+    console.log(`  - ${catalogRoutesJsPath} exists: ${fs.existsSync(catalogRoutesJsPath)}`);
+    
+  } catch (fsError) {
+    console.error('❌ Error checking file system:', fsError);
+  }
+  
   if (process.env.NODE_ENV === 'production') {
     process.exit(1);
   } else {
@@ -165,6 +205,7 @@ try {
 }
 
 // Load Tax Settings routes with error handling
+let taxSettingsRoutes;
 try {
   taxSettingsRoutes = require('./routes/taxSettingsRoutes').default;
   console.log('✅ Tax settings routes loaded');
@@ -178,12 +219,27 @@ try {
   }
 }
 
+// Load Block routes with error handling
+let blockRoutes;
+try {
+  blockRoutes = require('./routes/blockRoutes').default;
+  console.log('✅ Block routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load block routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without block routes...');
+    blockRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ====================
-// CRITICAL FIX: Apply middleware in correct order
+// MIDDLEWARE SETUP
 // ====================
 
 // 1. CORS - needed for all routes
@@ -206,7 +262,6 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(setTenantContext);
 
 // 4. CRITICAL: Mount storage routes BEFORE body parsing middleware
-// FIX: Changed to mount only on /api/storage instead of all /api routes
 console.log('🚨 Mounting storage routes BEFORE body parsers...');
 app.use('/api/storage', storageRoutes);
 
@@ -223,63 +278,82 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 // 8. System routes
 app.use('/api', systemRoutes);
 
-// 9. All other routes (these can use body parsing)
-console.log('🔧 Registering remaining routes...');
+// ====================
+// REGISTER ALL OTHER ROUTES
+// ====================
+
+console.log('🔧 Registering routes...');
 
 try {
   app.use('/api/auth', authRoutes);
-  console.log('✅ Auth routes registered');
+  console.log('✅ Auth routes registered at /api/auth');
 } catch (error) {
   console.error('❌ Failed to register auth routes:', error);
 }
 
 try {
   app.use('/api/tenants', tenantRoutes);
-  console.log('✅ Tenant routes registered');
+  console.log('✅ Tenant routes registered at /api/tenants');
 } catch (error) {
   console.error('❌ Failed to register tenant routes:', error);
 }
 
 try {
   app.use('/api/masterdata', masterDataRoutes);
-  console.log('✅ Master data routes registered');
+  console.log('✅ Master data routes registered at /api/masterdata');
 } catch (error) {
   console.error('❌ Failed to register master data routes:', error);
 }
 
 try {
   app.use('/api', tenantProfileRoutes);
-  console.log('✅ Tenant profile routes registered');
+  console.log('✅ Tenant profile routes registered at /api');
 } catch (error) {
   console.error('❌ Failed to register tenant profile routes:', error);
 }
 
 try {
   app.use('/api', integrationRoutes);
-  console.log('✅ Integration routes registered');
+  console.log('✅ Integration routes registered at /api');
 } catch (error) {
   console.error('❌ Failed to register integration routes:', error);
 }
 
 try {
   app.use('/api/users', invitationRoutes);
-  console.log('✅ Invitation routes registered');
+  console.log('✅ Invitation routes registered at /api/users');
 } catch (error) {
   console.error('❌ Failed to register invitation routes:', error);
 }
 
 try {
   app.use('/api/users', userRoutes);
-  console.log('✅ User routes registered');
+  console.log('✅ User routes registered at /api/users');
 } catch (error) {
   console.error('❌ Failed to register user routes:', error);
 }
 
-// Register Catalog routes with error handling
+// Register Contact routes
+try {
+  app.use('/api/contacts', contactRoutes);
+  console.log('✅ Contact routes registered at /api/contacts');
+} catch (error) {
+  console.error('❌ Failed to register contact routes:', error);
+}
+
+// Register Catalog routes with enhanced error handling and diagnostics
 try {
   if (catalogRoutes) {
+    console.log('🔧 Registering catalog routes at /api/catalog...');
     app.use('/api/catalog', catalogRoutes);
-    console.log('✅ Catalog routes registered');
+    console.log('✅ Catalog routes registered successfully at /api/catalog');
+    
+    // Test if the routes are working by checking the router stack
+    if (catalogRoutes.stack && catalogRoutes.stack.length > 0) {
+      console.log(`📋 Catalog router has ${catalogRoutes.stack.length} route(s) registered`);
+    } else {
+      console.warn('⚠️  Warning: Catalog router appears to be empty');
+    }
   } else {
     console.log('⚠️  Catalog routes skipped (not loaded)');
   }
@@ -294,7 +368,7 @@ try {
 try {
   if (taxSettingsRoutes) {
     app.use('/api/tax-settings', taxSettingsRoutes);
-    console.log('✅ Tax settings routes registered');
+    console.log('✅ Tax settings routes registered at /api/tax-settings');
   } else {
     console.log('⚠️  Tax settings routes skipped (not loaded)');
   }
@@ -305,11 +379,28 @@ try {
   });
 }
 
-// ✅ FIXED: Changed from '/api/businessmodel' to '/api/business-model'
+// Register Block routes with error handling
+try {
+  if (blockRoutes) {
+    app.use('/api/service-contracts/blocks', blockRoutes);
+    console.log('✅ Block routes registered at /api/service-contracts/blocks');
+  } else {
+    console.log('⚠️  Block routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register block routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'blocks' }
+  });
+}
+
+// Business model routes
 app.use('/api/business-model', businessModelRoutes);
+console.log('✅ Business model routes registered at /api/business-model');
 
 // JTD Routes
 app.use('/api/jtd', jtdRoutes);
+console.log('✅ JTD routes registered at /api/jtd');
 
 console.log('✅ All routes registered successfully');
 
@@ -326,7 +417,9 @@ app.get('/health', async (req, res) => {
       database: 'unknown',
       storage: 'unknown',
       catalog: catalogRoutes ? 'loaded' : 'not_loaded',
-      taxSettings: taxSettingsRoutes ? 'loaded' : 'not_loaded'
+      taxSettings: taxSettingsRoutes ? 'loaded' : 'not_loaded',
+      contacts: contactRoutes ? 'loaded' : 'not_loaded',
+      blocks: blockRoutes ? 'loaded' : 'not_loaded'
     }
   };
 
@@ -347,7 +440,6 @@ app.get('/health', async (req, res) => {
     // Check catalog service health if available
     if (catalogRoutes) {
       try {
-        // This would call the catalog health endpoint internally
         healthData.services.catalog = 'healthy';
       } catch (error) {
         healthData.services.catalog = 'error';
@@ -360,6 +452,24 @@ app.get('/health', async (req, res) => {
         healthData.services.taxSettings = 'healthy';
       } catch (error) {
         healthData.services.taxSettings = 'error';
+      }
+    }
+
+    // Check contacts service health if available
+    if (contactRoutes) {
+      try {
+        healthData.services.contacts = 'healthy';
+      } catch (error) {
+        healthData.services.contacts = 'error';
+      }
+    }
+
+    // Check blocks service health if available
+    if (blockRoutes) {
+      try {
+        healthData.services.blocks = 'healthy';
+      } catch (error) {
+        healthData.services.blocks = 'error';
       }
     }
 
@@ -387,7 +497,9 @@ app.get('/', (req, res) => {
     health: '/health',
     services: {
       catalog: catalogRoutes ? 'available' : 'not_available',
-      taxSettings: taxSettingsRoutes ? 'available' : 'not_available'
+      taxSettings: taxSettingsRoutes ? 'available' : 'not_available',
+      contacts: contactRoutes ? 'available' : 'not_available',
+      blocks: blockRoutes ? 'available' : 'not_available'
     }
   });
 });
@@ -461,19 +573,53 @@ const server = app.listen(PORT, () => {
   console.log('- POST /api/jtd/webhooks/gupshup');
   console.log('- POST /api/jtd/webhooks/sendgrid');
   
+  // Log contact routes
+  if (contactRoutes) {
+    console.log('📍 Contact routes:');
+    console.log('- GET    /api/contacts                      # List contacts with filters');
+    console.log('- POST   /api/contacts                      # Create new contact');
+    console.log('- GET    /api/contacts/:id                  # Get contact by ID');
+    console.log('- PUT    /api/contacts/:id                  # Update contact');
+    console.log('- PATCH  /api/contacts/:id/status           # Update contact status');
+    console.log('- DELETE /api/contacts/:id                  # Delete/archive contact');
+    console.log('- POST   /api/contacts/search               # Advanced contact search');
+    console.log('- POST   /api/contacts/duplicates           # Check for duplicates');
+    console.log('- POST   /api/contacts/:id/invite           # Send user invitation');
+    console.log('- GET    /api/contacts/stats                # Get contact statistics');
+    console.log('- GET    /api/contacts/health               # Contact service health');
+    console.log('- GET    /api/contacts/constants            # Contact form constants');
+    console.log('📋 Contact features:');
+    console.log('  ✅ Individual & Corporate contact types');
+    console.log('  ✅ Multiple contact channels & addresses');
+    console.log('  ✅ Compliance numbers for corporate entities');
+    console.log('  ✅ Contact persons for corporate contacts');
+    console.log('  ✅ Advanced search & duplicate detection');
+    console.log('  ✅ User invitation integration');
+    console.log('  ✅ Status management (active/inactive/archived)');
+    console.log('  ✅ Classification system (buyer/seller/vendor/partner)');
+    console.log('  ✅ Complete audit trail & rate limiting');
+  } else {
+    console.log('⚠️  Contact routes not available');
+  }
+  
   // Log catalog routes if available
   if (catalogRoutes) {
     console.log('📍 Catalog routes:');
-    console.log('- GET  /api/catalog                         # List catalog items');
-    console.log('- POST /api/catalog                         # Create catalog item');
-    console.log('- GET  /api/catalog/:id                     # Get catalog item by ID');
-    console.log('- PUT  /api/catalog/:id                     # Update catalog item');
+    console.log('- GET    /api/catalog                       # List catalog items');
+    console.log('- POST   /api/catalog                       # Create catalog item');
+    console.log('- GET    /api/catalog/:id                   # Get catalog item by ID');
+    console.log('- PUT    /api/catalog/:id                   # Update catalog item');
     console.log('- DELETE /api/catalog/:id                   # Delete catalog item');
-    console.log('- POST /api/catalog/restore/:id             # Restore deleted item');
-    console.log('- GET  /api/catalog/versions/:id            # Get version history');
-    console.log('- POST /api/catalog/pricing/:catalogId      # Add/Update pricing');
-    console.log('- GET  /api/catalog/pricing/:catalogId      # Get pricing');
-    console.log('- DELETE /api/catalog/pricing/:catalogId/:pricingId # Delete pricing');
+    console.log('- POST   /api/catalog/restore/:id           # Restore deleted item');
+    console.log('- GET    /api/catalog/versions/:id          # Get version history');
+    console.log('- GET    /api/catalog/multi-currency        # Get tenant currencies');
+    console.log('- GET    /api/catalog/multi-currency/:catalogId # Get pricing details');
+    console.log('- POST   /api/catalog/multi-currency        # Create/update multi-currency pricing');
+    console.log('- PUT    /api/catalog/multi-currency/:catalogId/:currency # Update currency pricing');
+    console.log('- DELETE /api/catalog/multi-currency/:catalogId/:currency # Delete currency pricing');
+    console.log('- POST   /api/catalog/pricing/:catalogId    # Add/Update pricing (legacy)');
+    console.log('- GET    /api/catalog/pricing/:catalogId    # Get pricing (legacy)');
+    console.log('- DELETE /api/catalog/pricing/:catalogId/:currency # Delete pricing (legacy)');
     console.log('📋 Catalog features:');
     console.log('  ✅ CRUD operations with versioning');
     console.log('  ✅ Multi-currency pricing support');
@@ -507,6 +653,29 @@ const server = app.listen(PORT, () => {
     console.log('  ✅ Complete audit trail');
   } else {
     console.log('⚠️  Tax Settings routes not available');
+  }
+  
+  // Log block routes if available
+  if (blockRoutes) {
+    console.log('📍 Service Contracts Block routes:');
+    console.log('- GET    /api/service-contracts/blocks/categories                    # List block categories');
+    console.log('- GET    /api/service-contracts/blocks/masters                      # List block masters');
+    console.log('- GET    /api/service-contracts/blocks/masters/:masterId/variants   # List variants for master');
+    console.log('- GET    /api/service-contracts/blocks/hierarchy                    # Complete block hierarchy');
+    console.log('- GET    /api/service-contracts/blocks/variant/:variantId           # Get variant details');
+    console.log('- GET    /api/service-contracts/blocks/template-builder             # Blocks for template builder');
+    console.log('- GET    /api/service-contracts/blocks/search                       # Search blocks');
+    console.log('- GET    /api/service-contracts/blocks/stats                        # Block system statistics');
+    console.log('📋 Block System features:');
+    console.log('  ✅ Read-only block data API (Categories → Masters → Variants)');
+    console.log('  ✅ Complete hierarchy with joined relationships');
+    console.log('  ✅ Template builder optimization');
+    console.log('  ✅ Block search and filtering');
+    console.log('  ✅ Dependency tracking and validation metadata');
+    console.log('  ✅ Statistics and health monitoring');
+    console.log('  ✅ HMAC-secured communication with Edge Functions');
+  } else {
+    console.log('⚠️  Block routes not available');
   }
   
   console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');

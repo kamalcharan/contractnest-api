@@ -1,4 +1,7 @@
 // src/services/catalogService.ts
+// Express API service layer for communicating with Supabase Edge Functions
+// CLEAN VERSION - Fixed and aligned with Edge Functions
+
 import axios, { AxiosError } from 'axios';
 import crypto from 'crypto';
 import { 
@@ -18,29 +21,21 @@ import type {
   CreateMultiCurrencyPricingRequest,
   CatalogPricing,
   PriceAttributes,
-  TaxConfig
+  TaxConfig,
+  EdgeResponse,
+  CatalogListParams,
+  CatalogListResponse,
+  TenantCurrenciesResponse,
+  CatalogPricingDetailsResponse,
+  CatalogItemEdge,
+  CatalogPricingEdge
 } from '../types/catalogTypes';
 
-// Type definitions for API communication
-interface CatalogListParams {
-  catalogType?: number;
-  includeInactive?: boolean;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
+// =================================================================
+// TYPE MAPPINGS FOR API COMMUNICATION
+// =================================================================
 
-interface CatalogListResponse {
-  items: any[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
-
-// Map our frontend catalog types to API catalog types
+// Map frontend catalog types to API catalog types
 export const CATALOG_TYPE_TO_API: Record<CatalogItemType, number> = {
   [CATALOG_ITEM_TYPES.SERVICE]: 1,
   [CATALOG_ITEM_TYPES.ASSET]: 2,
@@ -56,7 +51,7 @@ export const API_TO_CATALOG_TYPE: Record<number, CatalogItemType> = {
   4: CATALOG_ITEM_TYPES.EQUIPMENT
 };
 
-// Map frontend pricing types to API format (only 4 types)
+// Map frontend pricing types to API format
 export const PRICING_TYPE_TO_API: Record<PricingType, string> = {
   [PRICING_TYPES.FIXED]: 'Fixed',
   [PRICING_TYPES.UNIT_PRICE]: 'Unit Price',
@@ -71,6 +66,10 @@ export const API_TO_PRICING_TYPE: Record<string, PricingType> = {
   'Hourly': PRICING_TYPES.HOURLY,
   'Daily': PRICING_TYPES.DAILY
 };
+
+// =================================================================
+// MAIN SERVICE CLASS
+// =================================================================
 
 class CatalogService {
   private readonly baseUrl: string;
@@ -92,6 +91,10 @@ class CatalogService {
     console.log(`[CatalogService] Has internal secret: ${!!this.internalSecret}`);
   }
 
+  // =================================================================
+  // PRIVATE HELPER METHODS
+  // =================================================================
+
   /**
    * Generate HMAC signature for internal API calls
    */
@@ -107,45 +110,81 @@ class CatalogService {
   }
 
   /**
-   * Make authenticated request to Edge function
+   * Handle Edge function response format consistently
+   */
+  private handleEdgeResponse<T>(response: any): T {
+    // Handle Edge function response format
+    if (response.success === false) {
+      const error = response.error || 'Request failed';
+      const errorMessage = typeof error === 'string' ? error : error.message;
+      const errorCode = typeof error === 'object' ? error.code : 'UNKNOWN_ERROR';
+      
+      console.error('[CatalogService] Edge function error:', { code: errorCode, message: errorMessage });
+      throw new Error(errorMessage);
+    }
+    
+    // Return data field if exists, otherwise return whole response
+    return response.data || response;
+  }
+
+  /**
+   * Make authenticated request to Edge function with enhanced error handling
    */
   private async makeRequest<T>(
     method: string,
     endpoint: string,
     data?: any,
-    headers: Record<string, string> = {}
+    headers: Record<string, string> = {},
+    retryCount: number = 0
   ): Promise<T> {
     try {
       const url = `${this.baseUrl}${endpoint}`;
       const body = data ? JSON.stringify(data) : '';
       
+      // Build headers
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': this.supabaseAnonKey,
+        ...headers
+      };
+
       // Add signature for non-GET requests
       if (method !== 'GET' && this.internalSecret) {
-        headers['x-internal-signature'] = this.generateSignature(body);
+        requestHeaders['x-internal-signature'] = this.generateSignature(body);
+        console.log('[CatalogService] Added signature for', method, 'request');
       }
-
-      // IMPORTANT: Always include the apikey header (anon key)
-      headers['apikey'] = this.supabaseAnonKey;
 
       console.log(`[CatalogService] Making request to: ${method} ${url}`);
       console.log(`[CatalogService] Headers:`, {
-        ...headers,
-        Authorization: headers.Authorization ? `Bearer ${headers.Authorization.substring(7, 17)}...` : 'None',
-        apikey: headers.apikey ? `${headers.apikey.substring(0, 10)}...` : 'None'
+        ...requestHeaders,
+        Authorization: requestHeaders.Authorization ? `Bearer ${requestHeaders.Authorization.substring(7, 17)}...` : 'None',
+        apikey: requestHeaders.apikey ? `${requestHeaders.apikey.substring(0, 10)}...` : 'None',
+        hasSignature: !!requestHeaders['x-internal-signature']
       });
 
       const response = await axios({
         method,
         url,
         data: data || undefined,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers
-        },
+        headers: requestHeaders,
         validateStatus: null // Handle all status codes
       });
 
       console.log(`[CatalogService] Response status: ${response.status}`);
+      
+      // Handle rate limiting with exponential backoff
+      if (response.status === 429) {
+        const resetTime = response.headers['x-ratelimit-reset'];
+        const retryAfter = resetTime ? parseInt(resetTime) - Date.now() : 1000 * (retryCount + 1);
+        
+        if (retryCount < 3) {
+          console.log(`[CatalogService] Rate limited, retrying in ${retryAfter}ms (attempt ${retryCount + 1})`);
+          await new Promise(resolve => setTimeout(resolve, Math.min(retryAfter, 5000)));
+          return this.makeRequest(method, endpoint, data, headers, retryCount + 1);
+        } else {
+          throw new Error(`Rate limit exceeded. Reset time: ${new Date(parseInt(resetTime)).toISOString()}`);
+        }
+      }
       
       // Handle non-2xx responses
       if (response.status >= 400) {
@@ -169,19 +208,19 @@ class CatalogService {
   }
 
   /**
-   * Transform API response to frontend format
+   * Transform Edge API response to frontend format
    */
-  private transformCatalogItem(apiItem: any): CatalogItemDetailed {
-    // Handle both old single pricing and new multi-currency pricing
-    const pricingList = apiItem.t_tenant_catalog_pricing || apiItem.pricing_list || [];
+  private transformCatalogItem(apiItem: CatalogItemEdge): CatalogItemDetailed {
+    // Handle pricing data
+    const pricingList = apiItem.t_tenant_catalog_pricing || [];
     const pricingArray = Array.isArray(pricingList) ? pricingList : [pricingList].filter(Boolean);
     
-    // Find base currency pricing for backward compatibility
-    const basePricing = pricingArray.find((p: any) => p.is_base_currency) || pricingArray[0] || {};
+    // Find base currency pricing
+    const basePricing = pricingArray.find((p: CatalogPricingEdge) => p.is_base_currency) || pricingArray[0] || {};
     
     // Get all active currencies
-    const currencies = [...new Set(pricingArray.map((p: any) => p.currency))];
-    const baseCurrency = pricingArray.find((p: any) => p.is_base_currency)?.currency || currencies[0] || 'INR';
+    const currencies = [...new Set(pricingArray.map((p: CatalogPricingEdge) => p.currency))];
+    const baseCurrency = pricingArray.find((p: CatalogPricingEdge) => p.is_base_currency)?.currency || currencies[0] || 'INR';
     
     return {
       id: apiItem.catalog_id,
@@ -194,6 +233,8 @@ class CatalogService {
       short_description: apiItem.description?.substring(0, 500),
       description_format: 'markdown',
       description_content: apiItem.description,
+      terms_format: 'markdown',
+      terms_content: apiItem.service_terms,
       is_variant: false,
       variant_attributes: apiItem.attributes || {},
       
@@ -219,7 +260,7 @@ class CatalogService {
       updated_at: apiItem.updated_at,
       variant_count: 0,
       original_id: apiItem.parent_id || apiItem.catalog_id,
-      total_versions: apiItem.total_versions || 1,
+      total_versions: 1,
       
       // Legacy fields for compatibility
       pricing_type: API_TO_PRICING_TYPE[basePricing.price_type] || PRICING_TYPES.FIXED,
@@ -231,35 +272,49 @@ class CatalogService {
       environment_label: 'live',
       
       // Multi-currency support
-      pricing_list: pricingArray,
+      pricing_list: pricingArray.map(p => ({
+        id: p.id,
+        catalog_id: p.catalog_id,
+        price_type: p.price_type,
+        currency: p.currency,
+        price: p.price,
+        tax_included: p.tax_included,
+        tax_rate_id: p.tax_rate_id,
+        is_base_currency: p.is_base_currency,
+        is_active: p.is_active,
+        attributes: p.attributes,
+        created_at: p.created_at,
+        updated_at: p.updated_at
+      })),
       pricing_summary: {
         currencies: currencies,
         base_currency: baseCurrency,
         count: pricingArray.length,
-        id: apiItem.catalog_id // Fixed: Added missing id property
+        id: apiItem.catalog_id
       }
     };
   }
 
   /**
-   * Transform frontend data to API format
+   * Transform frontend data to Edge API format
    */
   private transformToApiFormat(data: CreateCatalogItemRequest | UpdateCatalogItemRequest): any {
     const isCreate = 'type' in data;
     
     const apiData: any = {
       name: data.name,
-      description: data.description_content || data.short_description || data.description,
-      service_terms: data.terms_content,
+      description: data.description_content || data.short_description || (data as any).description,
+      service_terms: data.terms_content || (data as any).service_terms,
       attributes: {
         ...data.metadata,
         ...data.specifications,
-        ...(data.variant_attributes || {})
+        ...(data.variant_attributes || {}),
+        ...((data as any).attributes || {})
       }
     };
     
     // Only include catalog_type for create
-    if (isCreate) {
+    if (isCreate && (data as CreateCatalogItemRequest).type) {
       apiData.catalog_type = CATALOG_TYPE_TO_API[(data as CreateCatalogItemRequest).type];
     }
     
@@ -271,12 +326,22 @@ class CatalogService {
         price: data.price_attributes.base_amount,
         tax_included: !data.tax_config?.use_tenant_default,
         tax_rate_id: data.tax_config?.specific_tax_rates?.[0] || null,
-        is_base_currency: true // Single currency is always base
+        is_base_currency: true
       }];
+    }
+    
+    // Add existing pricing data if provided (type assertion for backward compatibility)
+    const dataWithPricing = data as any;
+    if (dataWithPricing.pricing) {
+      apiData.pricing = dataWithPricing.pricing;
     }
     
     return apiData;
   }
+
+  // =================================================================
+  // PUBLIC API METHODS
+  // =================================================================
 
   /**
    * List catalog items with filtering and pagination
@@ -293,10 +358,12 @@ class CatalogService {
     if (params.search) queryParams.append('search', params.search);
     if (params.page) queryParams.append('page', params.page.toString());
     if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+    if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
 
     const endpoint = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
-    return this.makeRequest<CatalogListResponse>(
+    const response = await this.makeRequest<EdgeResponse<CatalogListResponse>>(
       'GET',
       endpoint,
       undefined,
@@ -305,6 +372,8 @@ class CatalogService {
         'x-tenant-id': tenantId
       }
     );
+
+    return this.handleEdgeResponse<CatalogListResponse>(response);
   }
 
   /**
@@ -315,7 +384,7 @@ class CatalogService {
     tenantId: string,
     catalogId: string
   ): Promise<CatalogItemDetailed> {
-    const response = await this.makeRequest<any>(
+    const response = await this.makeRequest<EdgeResponse<CatalogItemEdge>>(
       'GET',
       `/${catalogId}`,
       undefined,
@@ -325,7 +394,8 @@ class CatalogService {
       }
     );
 
-    return this.transformCatalogItem(response.data || response);
+    const data = this.handleEdgeResponse<CatalogItemEdge>(response);
+    return this.transformCatalogItem(data);
   }
 
   /**
@@ -348,14 +418,15 @@ class CatalogService {
 
     const apiData = this.transformToApiFormat(data);
 
-    const response = await this.makeRequest<any>(
+    const response = await this.makeRequest<EdgeResponse<CatalogItemEdge>>(
       'POST',
       '',
       apiData,
       headers
     );
 
-    return this.transformCatalogItem(response.data || response);
+    const responseData = this.handleEdgeResponse<CatalogItemEdge>(response);
+    return this.transformCatalogItem(responseData);
   }
 
   /**
@@ -384,14 +455,15 @@ class CatalogService {
       apiData.version_reason = data.version_reason;
     }
 
-    const response = await this.makeRequest<any>(
+    const response = await this.makeRequest<EdgeResponse<CatalogItemEdge>>(
       'PUT',
       `/${catalogId}`,
       apiData,
       headers
     );
 
-    return this.transformCatalogItem(response.data || response);
+    const responseData = this.handleEdgeResponse<CatalogItemEdge>(response);
+    return this.transformCatalogItem(responseData);
   }
 
   /**
@@ -402,7 +474,7 @@ class CatalogService {
     tenantId: string,
     catalogId: string
   ): Promise<{ success: boolean; message: string }> {
-    return this.makeRequest(
+    const response = await this.makeRequest<EdgeResponse<{ success: boolean; message: string }>>(
       'DELETE',
       `/${catalogId}`,
       undefined,
@@ -411,6 +483,8 @@ class CatalogService {
         'x-tenant-id': tenantId
       }
     );
+
+    return this.handleEdgeResponse<{ success: boolean; message: string }>(response);
   }
 
   /**
@@ -431,14 +505,15 @@ class CatalogService {
       headers['idempotency-key'] = idempotencyKey;
     }
 
-    const response = await this.makeRequest<any>(
+    const response = await this.makeRequest<EdgeResponse<CatalogItemEdge>>(
       'POST',
       `/restore/${catalogId}`,
       undefined,
       headers
     );
 
-    return this.transformCatalogItem(response.data || response);
+    const data = this.handleEdgeResponse<CatalogItemEdge>(response);
+    return this.transformCatalogItem(data);
   }
 
   /**
@@ -449,10 +524,10 @@ class CatalogService {
     tenantId: string,
     catalogId: string
   ): Promise<{
-    root: CatalogItemDetailed | null; // Fixed: Allow null return
+    root: CatalogItemDetailed | null;
     versions: CatalogItemDetailed[];
   }> {
-    const response = await this.makeRequest<any>(
+    const response = await this.makeRequest<EdgeResponse<CatalogItemEdge[]>>(
       'GET',
       `/versions/${catalogId}`,
       undefined,
@@ -462,23 +537,28 @@ class CatalogService {
       }
     );
 
+    const data = this.handleEdgeResponse<CatalogItemEdge[]>(response);
+    
     return {
-      root: response.root ? this.transformCatalogItem(response.root) : null,
-      versions: (response.versions || response.data || []).map((v: any) => this.transformCatalogItem(v))
+      root: data.length > 0 ? this.transformCatalogItem(data[0]) : null,
+      versions: data.map((v: CatalogItemEdge) => this.transformCatalogItem(v))
     };
   }
 
+  // =================================================================
+  // MULTI-CURRENCY PRICING METHODS
+  // =================================================================
+
   /**
-   * Get catalog pricing - returns multi-currency data
+   * Get tenant currencies
    */
-  async getCatalogPricing(
+  async getTenantCurrencies(
     authHeader: string,
-    tenantId: string,
-    catalogId: string
-  ): Promise<CatalogPricing[]> {
-    const response = await this.makeRequest<any>(
+    tenantId: string
+  ): Promise<TenantCurrenciesResponse> {
+    const response = await this.makeRequest<EdgeResponse<TenantCurrenciesResponse>>(
       'GET',
-      `/multi-currency/${catalogId}`,
+      '/multi-currency',
       undefined,
       {
         'Authorization': authHeader,
@@ -486,35 +566,18 @@ class CatalogService {
       }
     );
 
-    // Handle both legacy and new response format
-    if (response.data?.pricing_list) {
-      return response.data.pricing_list;
-    } else if (response.pricing_list) {
-      return response.pricing_list;
-    } else if (Array.isArray(response.data)) {
-      return response.data;
-    } else if (Array.isArray(response)) {
-      return response;
-    }
-    
-    return [];
+    return this.handleEdgeResponse<TenantCurrenciesResponse>(response);
   }
 
   /**
-   * Get catalog pricing details with multi-currency info
+   * Get catalog pricing details
    */
   async getCatalogPricingDetails(
     authHeader: string,
     tenantId: string,
     catalogId: string
-  ): Promise<{
-    catalog_id: string;
-    base_currency: string;
-    currencies: string[];
-    pricing_by_currency: Record<string, CatalogPricing>;
-    pricing_list: CatalogPricing[];
-  }> {
-    const response = await this.makeRequest<any>(
+  ): Promise<CatalogPricingDetailsResponse> {
+    const response = await this.makeRequest<EdgeResponse<CatalogPricingDetailsResponse>>(
       'GET',
       `/multi-currency/${catalogId}`,
       undefined,
@@ -524,36 +587,11 @@ class CatalogService {
       }
     );
 
-    // If it's already in the detailed format
-    if (response.data?.pricing_by_currency || response.pricing_by_currency) {
-      return response.data || response;
-    }
-    
-    // Transform if needed
-    const pricingList = response.data?.pricing_list || response.pricing_list || response.data || response || [];
-    const pricingByCurrency: Record<string, CatalogPricing> = {};
-    let baseCurrency = 'INR';
-    const currencies: string[] = [];
-    
-    pricingList.forEach((pricing: CatalogPricing) => {
-      pricingByCurrency[pricing.currency] = pricing;
-      currencies.push(pricing.currency);
-      if (pricing.is_base_currency) {
-        baseCurrency = pricing.currency;
-      }
-    });
-    
-    return {
-      catalog_id: catalogId,
-      base_currency: baseCurrency,
-      currencies: [...new Set(currencies)],
-      pricing_by_currency: pricingByCurrency,
-      pricing_list: pricingList
-    };
+    return this.handleEdgeResponse<CatalogPricingDetailsResponse>(response);
   }
 
   /**
-   * Create or update multi-currency pricing
+   * Create/update multi-currency pricing
    */
   async upsertMultiCurrencyPricing(
     authHeader: string,
@@ -576,7 +614,7 @@ class CatalogService {
       headers['idempotency-key'] = idempotencyKey;
     }
 
-    // Transform pricing types to API format with proper type checking
+    // Transform pricing types to API format
     const priceType = PRICING_TYPE_TO_API[pricingData.price_type as keyof typeof PRICING_TYPE_TO_API] || pricingData.price_type;
     
     const apiData = {
@@ -588,12 +626,19 @@ class CatalogService {
       }))
     };
     
-    return this.makeRequest(
+    const response = await this.makeRequest<EdgeResponse<{
+      catalog_id: string;
+      price_type: string;
+      updated_currencies: string[];
+      pricing: CatalogPricing[];
+    }>>(
       'POST',
       '/multi-currency',
       apiData,
       headers
     );
+
+    return this.handleEdgeResponse(response);
   }
 
   /**
@@ -621,7 +666,7 @@ class CatalogService {
       price_type: priceType
     };
 
-    return this.makeRequest(
+    const response = await this.makeRequest<EdgeResponse<CatalogPricing>>(
       'PUT',
       `/multi-currency/${catalogId}/${currency}`,
       apiData,
@@ -630,6 +675,8 @@ class CatalogService {
         'x-tenant-id': tenantId
       }
     );
+
+    return this.handleEdgeResponse<CatalogPricing>(response);
   }
 
   /**
@@ -642,7 +689,7 @@ class CatalogService {
     currency: string,
     priceType: string = 'Fixed'
   ): Promise<void> {
-    await this.makeRequest(
+    const response = await this.makeRequest<EdgeResponse<void>>(
       'DELETE',
       `/multi-currency/${catalogId}/${currency}?price_type=${priceType}`,
       undefined,
@@ -651,27 +698,24 @@ class CatalogService {
         'x-tenant-id': tenantId
       }
     );
+
+    this.handleEdgeResponse<void>(response);
   }
 
+  // =================================================================
+  // BACKWARD COMPATIBILITY METHODS
+  // =================================================================
+
   /**
-   * Get all currencies used by tenant
+   * Get catalog pricing - returns multi-currency data
    */
-  async getTenantCurrencies(
+  async getCatalogPricing(
     authHeader: string,
-    tenantId: string
-  ): Promise<{
-    currencies: string[];
-    statistics: Record<string, number>;
-  }> {
-    return this.makeRequest(
-      'GET',
-      '/multi-currency',
-      undefined,
-      {
-        'Authorization': authHeader,
-        'x-tenant-id': tenantId
-      }
-    );
+    tenantId: string,
+    catalogId: string
+  ): Promise<CatalogPricing[]> {
+    const response = await this.getCatalogPricingDetails(authHeader, tenantId, catalogId);
+    return response.pricing_list || [];
   }
 
   /**
@@ -708,26 +752,9 @@ class CatalogService {
     return response.pricing[0];
   }
 
-  /**
-   * Delete pricing (legacy - deletes all currencies)
-   */
-  async deletePricing(
-    authHeader: string,
-    tenantId: string,
-    catalogId: string,
-    pricingId: string
-  ): Promise<void> {
-    // Legacy endpoint - might need to update based on your API
-    await this.makeRequest(
-      'DELETE',
-      `/pricing/${catalogId}/${pricingId}`,
-      undefined,
-      {
-        'Authorization': authHeader,
-        'x-tenant-id': tenantId
-      }
-    );
-  }
+  // =================================================================
+  // VALIDATION METHODS
+  // =================================================================
 
   /**
    * Validate catalog data before sending to Edge function
@@ -746,7 +773,7 @@ class CatalogService {
     }
 
     // Check name
-    if ('name' in data) {
+    if ('name' in data && data.name !== undefined) {
       if (!data.name || data.name.trim().length === 0) {
         errors.push('Name is required and cannot be empty');
       } else if (data.name.length > 255) {
@@ -755,7 +782,7 @@ class CatalogService {
     }
 
     // Check description
-    if ('description' in data && data.description) {
+    if ('description' in data && data.description !== undefined) {
       if (!data.description || data.description.trim().length === 0) {
         errors.push('Description is required and cannot be empty');
       }
