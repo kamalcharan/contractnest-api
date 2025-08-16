@@ -5,8 +5,10 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import swaggerUi from 'swagger-ui-express';
 import morgan from 'morgan';
+import { createServer } from 'http';
 
 import { specs } from './docs/swagger';
 import { errorHandler } from './middleware/error';
@@ -20,6 +22,7 @@ import integrationRoutes from './routes/integrationRoutes';
 import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
 import jtdRoutes from './routes/jtd';
+import resourcesRoutes from './routes/resourcesRoutes';
 
 // JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
@@ -99,7 +102,7 @@ try {
 
 // Import routes with error handling
 console.log('📦 Loading route modules...');
-let authRoutes, tenantRoutes, tenantProfileRoutes, storageRoutes, invitationRoutes, userRoutes, catalogRoutes;
+let authRoutes, tenantRoutes, tenantProfileRoutes, storageRoutes, invitationRoutes, userRoutes;
 
 try {
   authRoutes = require('./routes/auth').default;
@@ -159,51 +162,6 @@ try {
   process.exit(1);
 }
 
-// Load Catalog routes with enhanced error handling and better diagnostics
-try {
-  console.log('📦 Loading catalog routes...');
-  const catalogRouteModule = require('./routes/catalogRoutes');
-  catalogRoutes = catalogRouteModule.default || catalogRouteModule;
-  
-  if (!catalogRoutes) {
-    throw new Error('Catalog routes module did not export routes');
-  }
-  
-  console.log('✅ Catalog routes loaded successfully');
-  console.log('📋 Catalog routes type:', typeof catalogRoutes);
-  
-  // Test if it's a valid Express router
-  if (typeof catalogRoutes !== 'function') {
-    console.warn('⚠️  Warning: catalog routes is not a function, might not be a valid Express router');
-  }
-  
-} catch (error) {
-  console.error('❌ Failed to load catalog routes:', error);
-  console.error('📍 Stack trace:', (error as Error).stack);
-  
-  // Check if the file exists
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const catalogRoutesPath = path.join(__dirname, 'routes', 'catalogRoutes.ts');
-    const catalogRoutesJsPath = path.join(__dirname, 'routes', 'catalogRoutes.js');
-    
-    console.log('📁 Checking catalog routes file existence:');
-    console.log(`  - ${catalogRoutesPath} exists: ${fs.existsSync(catalogRoutesPath)}`);
-    console.log(`  - ${catalogRoutesJsPath} exists: ${fs.existsSync(catalogRoutesJsPath)}`);
-    
-  } catch (fsError) {
-    console.error('❌ Error checking file system:', fsError);
-  }
-  
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  } else {
-    console.warn('⚠️  Continuing without catalog routes...');
-    catalogRoutes = null;
-  }
-}
-
 // Load Tax Settings routes with error handling
 let taxSettingsRoutes;
 try {
@@ -248,38 +206,73 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:5173',  // Vite default port
     'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173'
+    'http://127.0.0.1:5173',
+    'https://contractnest-ui-production.up.railway.app',  
+    'https://contractnest.com',                           
+    'https://*.up.railway.app'              
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id', 'x-request-id', 'x-session-id', 'x-environment', 'idempotency-key']
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'x-tenant-id', 
+    'x-request-id', 
+    'x-session-id', 
+    'x-environment',
+    'x-user-id',
+    'x-user-role',
+    'x-client-version',
+    'x-hmac-signature',
+    'x-timestamp',
+    'idempotency-key',
+    'x-idempotency-key',
+    'x-internal-signature'
+  ]
 }));
 
 // 2. Helmet - security headers
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({ 
+  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
+    }
+  } : false
+}));
 
-// 3. Tenant context - only reads headers, doesn't touch body
+// 3. Compression middleware
+app.use(compression());
+
+// 4. Tenant context - only reads headers, doesn't touch body
 app.use(setTenantContext);
 
-// 4. CRITICAL: Mount storage routes BEFORE body parsing middleware
+// 5. CRITICAL: Mount storage routes BEFORE body parsing middleware
 console.log('🚨 Mounting storage routes BEFORE body parsers...');
 app.use('/api/storage', storageRoutes);
 
-// 5. NOW apply morgan (after storage routes in case it's reading bodies)
-app.use(morgan('dev'));
+// 6. NOW apply morgan (after storage routes in case it's reading bodies)
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// 6. NOW apply body parsing middleware (after storage routes are mounted)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// 7. NOW apply body parsing middleware (after storage routes are mounted)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 7. API Documentation
+// 8. API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
-// 8. System routes
+// 9. System routes
 app.use('/api', systemRoutes);
 
 // ====================
-// REGISTER ALL OTHER ROUTES
+// REGISTER ALL ROUTES
 // ====================
 
 console.log('🔧 Registering routes...');
@@ -341,26 +334,14 @@ try {
   console.error('❌ Failed to register contact routes:', error);
 }
 
-// Register Catalog routes with enhanced error handling and diagnostics
+// Register Resources routes
 try {
-  if (catalogRoutes) {
-    console.log('🔧 Registering catalog routes at /api/catalog...');
-    app.use('/api/catalog', catalogRoutes);
-    console.log('✅ Catalog routes registered successfully at /api/catalog');
-    
-    // Test if the routes are working by checking the router stack
-    if (catalogRoutes.stack && catalogRoutes.stack.length > 0) {
-      console.log(`📋 Catalog router has ${catalogRoutes.stack.length} route(s) registered`);
-    } else {
-      console.warn('⚠️  Warning: Catalog router appears to be empty');
-    }
-  } else {
-    console.log('⚠️  Catalog routes skipped (not loaded)');
-  }
+  app.use('/api/resources', resourcesRoutes);
+  console.log('✅ Resources routes registered at /api/resources');
 } catch (error) {
-  console.error('❌ Failed to register catalog routes:', error);
+  console.error('❌ Failed to register resources routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'catalog' }
+    tags: { source: 'route_registration', route_type: 'resources' }
   });
 }
 
@@ -404,7 +385,7 @@ console.log('✅ JTD routes registered at /api/jtd');
 
 console.log('✅ All routes registered successfully');
 
-// Health check endpoint (enhanced for Docker/Railway)
+// Health check endpoint
 app.get('/health', async (req, res) => {
   const healthData = {
     status: 'OK',
@@ -416,10 +397,16 @@ app.get('/health', async (req, res) => {
       api: 'healthy',
       database: 'unknown',
       storage: 'unknown',
-      catalog: catalogRoutes ? 'loaded' : 'not_loaded',
+      resources: 'loaded',
       taxSettings: taxSettingsRoutes ? 'loaded' : 'not_loaded',
       contacts: contactRoutes ? 'loaded' : 'not_loaded',
       blocks: blockRoutes ? 'loaded' : 'not_loaded'
+    },
+    features: {
+      resources_api: true,
+      contact_management: contactRoutes !== null,
+      tax_settings: taxSettingsRoutes !== null,
+      block_system: blockRoutes !== null
     }
   };
 
@@ -435,15 +422,6 @@ app.get('/health', async (req, res) => {
       healthData.services.storage = firebaseStatus.status === 'connected' ? 'connected' : 'error';
     } catch (error) {
       healthData.services.storage = 'error';
-    }
-
-    // Check catalog service health if available
-    if (catalogRoutes) {
-      try {
-        healthData.services.catalog = 'healthy';
-      } catch (error) {
-        healthData.services.catalog = 'error';
-      }
     }
 
     // Check tax settings service health if available
@@ -496,10 +474,14 @@ app.get('/', (req, res) => {
     documentation: '/api-docs',
     health: '/health',
     services: {
-      catalog: catalogRoutes ? 'available' : 'not_available',
+      resources: 'available',
       taxSettings: taxSettingsRoutes ? 'available' : 'not_available',
       contacts: contactRoutes ? 'available' : 'not_available',
       blocks: blockRoutes ? 'available' : 'not_available'
+    },
+    endpoints: {
+      rest_api: '/api/*',
+      resources: '/api/resources'
     }
   });
 });
@@ -526,7 +508,13 @@ app.use((req, res) => {
     status: 'error', 
     message: 'Route not found',
     path: req.originalUrl,
-    method: req.method
+    method: req.method,
+    availableEndpoints: {
+      health: '/health',
+      docs: '/api-docs',
+      contacts: '/api/contacts',
+      resources: '/api/resources'
+    }
   });
 });
 
@@ -554,172 +542,166 @@ const initializeJTD = async () => {
   }
 };
 
+// Create HTTP server
+const httpServer = createServer(app);
+
 // Start the server
-const server = app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📚 API Documentation available at http://localhost:${PORT}/api-docs`);
-  
-  console.log('📍 Registered business model routes:');
-  console.log('- GET  /api/business-model/plans');
-  console.log('- POST /api/business-model/plans');
-  console.log('- GET  /api/business-model/plans/:id');
-  console.log('- PUT  /api/business-model/plans/:id');
-  console.log('- GET  /api/business-model/plan-versions');
-  console.log('- POST /api/business-model/plan-versions');
-  
-  console.log('📍 JTD routes:');
-  console.log('- POST /api/jtd/events');
-  console.log('- GET  /api/jtd/events/:eventId');
-  console.log('- POST /api/jtd/webhooks/gupshup');
-  console.log('- POST /api/jtd/webhooks/sendgrid');
-  
-  // Log contact routes
-  if (contactRoutes) {
-    console.log('📍 Contact routes:');
-    console.log('- GET    /api/contacts                      # List contacts with filters');
-    console.log('- POST   /api/contacts                      # Create new contact');
-    console.log('- GET    /api/contacts/:id                  # Get contact by ID');
-    console.log('- PUT    /api/contacts/:id                  # Update contact');
-    console.log('- PATCH  /api/contacts/:id/status           # Update contact status');
-    console.log('- DELETE /api/contacts/:id                  # Delete/archive contact');
-    console.log('- POST   /api/contacts/search               # Advanced contact search');
-    console.log('- POST   /api/contacts/duplicates           # Check for duplicates');
-    console.log('- POST   /api/contacts/:id/invite           # Send user invitation');
-    console.log('- GET    /api/contacts/stats                # Get contact statistics');
-    console.log('- GET    /api/contacts/health               # Contact service health');
-    console.log('- GET    /api/contacts/constants            # Contact form constants');
-    console.log('📋 Contact features:');
-    console.log('  ✅ Individual & Corporate contact types');
-    console.log('  ✅ Multiple contact channels & addresses');
-    console.log('  ✅ Compliance numbers for corporate entities');
-    console.log('  ✅ Contact persons for corporate contacts');
-    console.log('  ✅ Advanced search & duplicate detection');
-    console.log('  ✅ User invitation integration');
-    console.log('  ✅ Status management (active/inactive/archived)');
-    console.log('  ✅ Classification system (buyer/seller/vendor/partner)');
-    console.log('  ✅ Complete audit trail & rate limiting');
-  } else {
-    console.log('⚠️  Contact routes not available');
-  }
-  
-  // Log catalog routes if available
-  if (catalogRoutes) {
-    console.log('📍 Catalog routes:');
-    console.log('- GET    /api/catalog                       # List catalog items');
-    console.log('- POST   /api/catalog                       # Create catalog item');
-    console.log('- GET    /api/catalog/:id                   # Get catalog item by ID');
-    console.log('- PUT    /api/catalog/:id                   # Update catalog item');
-    console.log('- DELETE /api/catalog/:id                   # Delete catalog item');
-    console.log('- POST   /api/catalog/restore/:id           # Restore deleted item');
-    console.log('- GET    /api/catalog/versions/:id          # Get version history');
-    console.log('- GET    /api/catalog/multi-currency        # Get tenant currencies');
-    console.log('- GET    /api/catalog/multi-currency/:catalogId # Get pricing details');
-    console.log('- POST   /api/catalog/multi-currency        # Create/update multi-currency pricing');
-    console.log('- PUT    /api/catalog/multi-currency/:catalogId/:currency # Update currency pricing');
-    console.log('- DELETE /api/catalog/multi-currency/:catalogId/:currency # Delete currency pricing');
-    console.log('- POST   /api/catalog/pricing/:catalogId    # Add/Update pricing (legacy)');
-    console.log('- GET    /api/catalog/pricing/:catalogId    # Get pricing (legacy)');
-    console.log('- DELETE /api/catalog/pricing/:catalogId/:currency # Delete pricing (legacy)');
-    console.log('📋 Catalog features:');
-    console.log('  ✅ CRUD operations with versioning');
-    console.log('  ✅ Multi-currency pricing support');
-    console.log('  ✅ Soft delete and restore');
-    console.log('  ✅ Advanced filtering & pagination');
-    console.log('  ✅ Idempotency support');
-    console.log('  ✅ Rate limiting protection');
-    console.log('  ✅ Complete audit trail');
-  } else {
-    console.log('⚠️  Catalog routes not available');
-  }
-  
-  // Log tax settings routes if available
-  if (taxSettingsRoutes) {
-    console.log('📍 Tax Settings routes:');
-    console.log('- GET    /api/tax-settings                  # Get settings and rates');
-    console.log('- POST   /api/tax-settings/settings         # Create/update settings');
-    console.log('- GET    /api/tax-settings/rates            # Get all rates');
-    console.log('- POST   /api/tax-settings/rates            # Create new rate');
-    console.log('- PUT    /api/tax-settings/rates/:id        # Update rate');
-    console.log('- DELETE /api/tax-settings/rates/:id        # Delete rate');
-    console.log('- POST   /api/tax-settings/rates/:id/activate # Activate rate');
-    console.log('📋 Tax Settings features:');
-    console.log('  ✅ Display mode configuration (including/excluding tax)');
-    console.log('  ✅ Tax rates management with CRUD operations');
-    console.log('  ✅ Default rate designation');
-    console.log('  ✅ Soft delete functionality');
-    console.log('  ✅ Sequence ordering for display');
-    console.log('  ✅ Optimistic locking for concurrent updates');
-    console.log('  ✅ Idempotency support');
-    console.log('  ✅ Complete audit trail');
-  } else {
-    console.log('⚠️  Tax Settings routes not available');
-  }
-  
-  // Log block routes if available
-  if (blockRoutes) {
-    console.log('📍 Service Contracts Block routes:');
-    console.log('- GET    /api/service-contracts/blocks/categories                    # List block categories');
-    console.log('- GET    /api/service-contracts/blocks/masters                      # List block masters');
-    console.log('- GET    /api/service-contracts/blocks/masters/:masterId/variants   # List variants for master');
-    console.log('- GET    /api/service-contracts/blocks/hierarchy                    # Complete block hierarchy');
-    console.log('- GET    /api/service-contracts/blocks/variant/:variantId           # Get variant details');
-    console.log('- GET    /api/service-contracts/blocks/template-builder             # Blocks for template builder');
-    console.log('- GET    /api/service-contracts/blocks/search                       # Search blocks');
-    console.log('- GET    /api/service-contracts/blocks/stats                        # Block system statistics');
-    console.log('📋 Block System features:');
-    console.log('  ✅ Read-only block data API (Categories → Masters → Variants)');
-    console.log('  ✅ Complete hierarchy with joined relationships');
-    console.log('  ✅ Template builder optimization');
-    console.log('  ✅ Block search and filtering');
-    console.log('  ✅ Dependency tracking and validation metadata');
-    console.log('  ✅ Statistics and health monitoring');
-    console.log('  ✅ HMAC-secured communication with Edge Functions');
-  } else {
-    console.log('⚠️  Block routes not available');
-  }
-  
-  console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
-  console.log('📁 Storage upload: POST /api/storage/files');
-  
-  // Initialize JTD after server starts
-  initializeJTD();
-});
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
-  
-  // Stop JTD listener
+const startServer = async () => {
   try {
-    await jtdRealtimeListener.stop();
-    console.log('JTD Realtime Listener stopped');
-  } catch (error) {
-    console.error('Error stopping JTD listener:', error);
-  }
-  
-  // Close server
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
-  });
-});
+    // Start HTTP server
+    const server = httpServer.listen(PORT, () => {
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`📚 API Documentation available at http://localhost:${PORT}/api-docs`);
+      
+      console.log('📍 Registered business model routes:');
+      console.log('- GET  /api/business-model/plans');
+      console.log('- POST /api/business-model/plans');
+      console.log('- GET  /api/business-model/plans/:id');
+      console.log('- PUT  /api/business-model/plans/:id');
+      console.log('- GET  /api/business-model/plan-versions');
+      console.log('- POST /api/business-model/plan-versions');
+      
+      console.log('📍 JTD routes:');
+      console.log('- POST /api/jtd/events');
+      console.log('- GET  /api/jtd/events/:eventId');
+      console.log('- POST /api/jtd/webhooks/gupshup');
+      console.log('- POST /api/jtd/webhooks/sendgrid');
+      
+      // Resources API routes
+      console.log('📍 Resources API routes:');
+      console.log('- GET    /api/resources/health              # Resources health check');
+      console.log('- GET    /api/resources/resource-types      # Get all resource types');
+      console.log('- GET    /api/resources                     # List resources with filters');
+      console.log('- POST   /api/resources                     # Create new resource');
+      console.log('- GET    /api/resources/:id                 # Get resource by ID');
+      console.log('- PATCH  /api/resources/:id                 # Update resource');
+      console.log('- DELETE /api/resources/:id                 # Delete resource (soft)');
+      console.log('📋 Resources API features:');
+      console.log('  ✅ Complete CRUD operations for catalog resources');
+      console.log('  ✅ Internal signature verification with edge functions');
+      console.log('  ✅ Multi-tenant resource management');
+      console.log('  ✅ Resource type validation and contact integration');
+      console.log('  ✅ Sequence number management');
+      console.log('  ✅ Idempotency support for safe retries');
+      console.log('  ✅ Comprehensive Swagger documentation');
+      console.log('  ✅ Rate limiting and error handling');
+      console.log('  ✅ Complete validation and middleware protection');
+      
+      // Log contact routes
+      if (contactRoutes) {
+        console.log('📍 Contact routes:');
+        console.log('- GET    /api/contacts                      # List contacts with filters');
+        console.log('- POST   /api/contacts                      # Create new contact');
+        console.log('- GET    /api/contacts/:id                  # Get contact by ID');
+        console.log('- PUT    /api/contacts/:id                  # Update contact');
+        console.log('- PATCH  /api/contacts/:id/status           # Update contact status');
+        console.log('- DELETE /api/contacts/:id                  # Delete/archive contact');
+        console.log('- POST   /api/contacts/search               # Advanced contact search');
+        console.log('- POST   /api/contacts/duplicates           # Check for duplicates');
+        console.log('- POST   /api/contacts/:id/invite           # Send user invitation');
+        console.log('- GET    /api/contacts/stats                # Get contact statistics');
+        console.log('- GET    /api/contacts/health               # Contact service health');
+        console.log('- GET    /api/contacts/constants            # Contact form constants');
+        console.log('📋 Contact features:');
+        console.log('  ✅ Individual & Corporate contact types');
+        console.log('  ✅ Multiple contact channels & addresses');
+        console.log('  ✅ Compliance numbers for corporate entities');
+        console.log('  ✅ Contact persons for corporate contacts');
+        console.log('  ✅ Advanced search & duplicate detection');
+        console.log('  ✅ User invitation integration');
+        console.log('  ✅ Status management (active/inactive/archived)');
+        console.log('  ✅ Classification system (buyer/seller/vendor/partner/team_member)');
+        console.log('  ✅ Complete audit trail & rate limiting');
+      } else {
+        console.log('⚠️  Contact routes not available');
+      }
+      
+      // Log tax settings routes if available
+      if (taxSettingsRoutes) {
+        console.log('📍 Tax Settings routes:');
+        console.log('- GET    /api/tax-settings                  # Get settings and rates');
+        console.log('- POST   /api/tax-settings/settings         # Create/update settings');
+        console.log('- GET    /api/tax-settings/rates            # Get all rates');
+        console.log('- POST   /api/tax-settings/rates            # Create new rate');
+        console.log('- PUT    /api/tax-settings/rates/:id        # Update rate');
+        console.log('- DELETE /api/tax-settings/rates/:id        # Delete rate');
+        console.log('- POST   /api/tax-settings/rates/:id/activate # Activate rate');
+        console.log('📋 Tax Settings features:');
+        console.log('  ✅ Display mode configuration (including/excluding tax)');
+        console.log('  ✅ Tax rates management with CRUD operations');
+        console.log('  ✅ Default rate designation');
+        console.log('  ✅ Soft delete functionality');
+        console.log('  ✅ Sequence ordering for display');
+        console.log('  ✅ Optimistic locking for concurrent updates');
+        console.log('  ✅ Idempotency support');
+        console.log('  ✅ Complete audit trail');
+      } else {
+        console.log('⚠️  Tax Settings routes not available');
+      }
+      
+      // Log block routes if available
+      if (blockRoutes) {
+        console.log('📍 Service Contracts Block routes:');
+        console.log('- GET    /api/service-contracts/blocks/categories                    # List block categories');
+        console.log('- GET    /api/service-contracts/blocks/masters                      # List block masters');
+        console.log('- GET    /api/service-contracts/blocks/masters/:masterId/variants   # List variants for master');
+        console.log('- GET    /api/service-contracts/blocks/hierarchy                    # Complete block hierarchy');
+        console.log('- GET    /api/service-contracts/blocks/variant/:variantId           # Get variant details');
+        console.log('- GET    /api/service-contracts/blocks/template-builder             # Blocks for template builder');
+        console.log('- GET    /api/service-contracts/blocks/search                       # Search blocks');
+        console.log('- GET    /api/service-contracts/blocks/stats                        # Block system statistics');
+        console.log('📋 Block System features:');
+        console.log('  ✅ Read-only block data API (Categories → Masters → Variants)');
+        console.log('  ✅ Complete hierarchy with joined relationships');
+        console.log('  ✅ Template builder optimization');
+        console.log('  ✅ Block search and filtering');
+        console.log('  ✅ Dependency tracking and validation metadata');
+        console.log('  ✅ Statistics and health monitoring');
+        console.log('  ✅ HMAC-secured communication with Edge Functions');
+      } else {
+        console.log('⚠️  Block routes not available');
+      }
+      
+      console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
+      console.log('📁 Storage upload: POST /api/storage/files');
+      
+      // Initialize JTD after server starts
+      initializeJTD();
+    });
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  
-  // Stop JTD listener
-  try {
-    await jtdRealtimeListener.stop();
-    console.log('JTD Realtime Listener stopped');
+    // Graceful shutdown
+    const gracefulShutdown = async (signal: string) => {
+      console.log(`${signal} received, shutting down gracefully...`);
+      
+      // Stop JTD listener
+      try {
+        await jtdRealtimeListener.stop();
+        console.log('JTD Realtime Listener stopped');
+      } catch (error) {
+        console.error('Error stopping JTD listener:', error);
+      }
+      
+      // Close HTTP server
+      server.close(() => {
+        console.log('HTTP server closed');
+        process.exit(0);
+      });
+    };
+
+    // Graceful shutdown handlers
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
   } catch (error) {
-    console.error('Error stopping JTD listener:', error);
+    console.error('❌ Failed to start server:', error);
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'server_startup' }
+    });
+    process.exit(1);
   }
-  
-  // Close server
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
-  });
-});
+};
+
+// Start the server
+startServer();
 
 export default app;

@@ -1,4 +1,4 @@
-// src/utils/constants/contacts.ts - Complete Clean Version
+// src/utils/constants/contacts.ts - UPDATED with team_member classification
 // Contact-specific constants for the first release
 
 export const CONTACT_FORM_TYPES = {
@@ -37,15 +37,16 @@ export const CONTACT_STATUS_LABELS = {
   [CONTACT_STATUS.ARCHIVED]: 'Archived'
 } as const;
 
-// Updated Contact Classifications - Only 4 Types (requirement #1)
+// UPDATED: Contact Classifications - Now 5 Types (added team_member)
 export const CONTACT_CLASSIFICATIONS = {
   BUYER: 'buyer',
   SELLER: 'seller',
   VENDOR: 'vendor',
-  PARTNER: 'partner'
+  PARTNER: 'partner',
+  TEAM_MEMBER: 'team_member' // ADDED: New classification
 } as const;
 
-// Classification Configuration
+// UPDATED: Classification Configuration with team_member
 export const CONTACT_CLASSIFICATION_CONFIG = [
   { 
     id: 'buyer', 
@@ -74,7 +75,14 @@ export const CONTACT_CLASSIFICATION_CONFIG = [
     description: 'Business collaboration partner', 
     color: 'orange',
     icon: '🤝'
-  }
+  },
+  { 
+    id: 'team_member', 
+    label: 'Team Member', 
+    description: 'Internal team member or employee', 
+    color: 'indigo',
+    icon: '👥'
+  } // ADDED: New classification config
 ] as const;
 
 // Contact Channel Types
@@ -301,7 +309,7 @@ export const AUDIT_EVENTS = {
   DUPLICATE_RESOLVED: 'duplicate_resolved'
 } as const;
 
-// Filter Options for Contact Lists
+// UPDATED: Filter Options for Contact Lists with team_member
 export const FILTER_OPTIONS = {
   status: [
     { value: 'active', label: 'Active', count: 0 },
@@ -316,7 +324,8 @@ export const FILTER_OPTIONS = {
     { value: 'buyer', label: 'Buyer', count: 0 },
     { value: 'seller', label: 'Seller', count: 0 },
     { value: 'vendor', label: 'Vendor', count: 0 },
-    { value: 'partner', label: 'Partner', count: 0 }
+    { value: 'partner', label: 'Partner', count: 0 },
+    { value: 'team_member', label: 'Team Member', count: 0 } // ADDED: New filter option
   ],
   duplicates: [
     { value: 'has_duplicates', label: 'Has Potential Duplicates', count: 0 },

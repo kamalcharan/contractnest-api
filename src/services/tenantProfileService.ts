@@ -156,7 +156,7 @@ export const tenantProfileService = {
       
       // In a real implementation, you would use the file buffer
       // This is a simplified version that would need to be adapted based on your file handling
-      const blob = new Blob([file.buffer], { type: file.mimetype });
+const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
       formData.append('logo', blob, file.originalname);
 
       const response = await axios.post(

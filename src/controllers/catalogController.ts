@@ -1,6 +1,6 @@
 // src/controllers/catalogController.ts
 // Express API controllers for catalog management
-// CLEAN VERSION - Aligned with catalogService and Edge Functions
+// UPDATED VERSION - Single API call pattern with enhanced validation
 
 import { Request, Response } from 'express';
 import catalogService from '../services/catalogService';
@@ -190,7 +190,7 @@ export const getCatalogItem = async (req: Request, res: Response) => {
 };
 
 /**
- * Create new catalog item
+ * ✅ UPDATED: Create new catalog item with pricing data in single call
  */
 export const createCatalogItem = async (req: Request, res: Response) => {
   try {
@@ -209,7 +209,7 @@ export const createCatalogItem = async (req: Request, res: Response) => {
       });
     }
 
-    // Validate catalog data using service validation
+    // ✅ NEW: Enhanced validation to include pricing if provided
     const validation = catalogService.validateCatalogData(data);
     if (!validation.isValid) {
       return res.status(400).json({ 
@@ -219,6 +219,41 @@ export const createCatalogItem = async (req: Request, res: Response) => {
       });
     }
 
+    // ✅ NEW: Validate pricing data if provided
+    if (data.pricing && Array.isArray(data.pricing) && data.pricing.length > 0) {
+      for (let i = 0; i < data.pricing.length; i++) {
+        const pricingValidation = catalogService.validatePricingData(data.pricing[i]);
+        if (!pricingValidation.isValid) {
+          return res.status(400).json({ 
+            success: false,
+            error: `Invalid pricing data for currency ${i + 1}`,
+            validation_errors: pricingValidation.errors
+          });
+        }
+      }
+
+      // Check for multiple base currencies
+      const baseCurrencies = data.pricing.filter(p => p.is_base_currency);
+      if (baseCurrencies.length > 1) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'Only one base currency is allowed',
+          validation_errors: ['Multiple base currencies detected']
+        });
+      }
+
+      // Check for duplicate currencies
+      const currencyCodes = data.pricing.map(p => p.currency?.toUpperCase()).filter(Boolean);
+      const uniqueCurrencies = new Set(currencyCodes);
+      if (currencyCodes.length !== uniqueCurrencies.size) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'Duplicate currencies are not allowed',
+          validation_errors: ['Duplicate currencies detected in pricing array']
+        });
+      }
+    }
+
     // Generate idempotency key if not provided
     const finalIdempotencyKey = idempotencyKey || 
       catalogService.generateIdempotencyKey('create', data);
@@ -226,9 +261,12 @@ export const createCatalogItem = async (req: Request, res: Response) => {
     console.log('[CatalogController] Creating catalog item:', { 
       name: data.name, 
       type: data.type,
-      hasIdempotencyKey: !!finalIdempotencyKey 
+      hasIdempotencyKey: !!finalIdempotencyKey,
+      hasPricing: !!(data.pricing && data.pricing.length > 0),
+      pricingCount: data.pricing ? data.pricing.length : 0
     });
 
+    // ✅ Pass all data to Edge Function (which already supports pricing)
     const result = await catalogService.createCatalogItem(
       authHeader, 
       tenantId, 
@@ -247,7 +285,8 @@ export const createCatalogItem = async (req: Request, res: Response) => {
     return handleControllerError(error, res, 'createCatalogItem', {
       tenantId: req.headers['x-tenant-id'],
       itemName: req.body?.name,
-      itemType: req.body?.type
+      itemType: req.body?.type,
+      hasPricing: !!(req.body?.pricing && req.body.pricing.length > 0)
     });
   }
 };
@@ -515,24 +554,33 @@ export const getCatalogPricing = async (req: Request, res: Response) => {
 };
 
 /**
- * Add or update pricing for catalog item (supports both single and multi-currency)
+ * ✅ UPDATED: Add or update pricing for catalog item (supports both single and multi-currency)
+ * Fixed to handle catalogId from both URL params and request body
  */
 export const upsertPricing = async (req: Request, res: Response) => {
   try {
     const { authHeader, tenantId } = extractHeaders(req);
-    const catalogId = req.params.catalogId;
     const idempotencyKey = req.headers['idempotency-key'] as string;
+
+    const data = req.body;
+    
+    // ✅ FIX: Handle both URL patterns
+    // New pattern: POST /api/catalog/multi-currency (catalogId in body)
+    // Legacy pattern: POST /api/catalog/pricing/:catalogId (catalogId in params)
+    const catalogId = data.catalog_id || req.params.catalogId;
 
     if (!catalogId) {
       return res.status(400).json({ 
         success: false,
-        error: 'Catalog ID is required' 
+        error: 'catalog_id is required (in body for multi-currency or URL for legacy)' 
       });
     }
 
-    const data = req.body;
-
-    console.log('[CatalogController] Upserting pricing for:', catalogId);
+    console.log('[CatalogController] Upserting pricing for:', catalogId, {
+      isMultiCurrency: !!(data.currencies && Array.isArray(data.currencies)),
+      priceType: data.price_type,
+      currencyCount: data.currencies ? data.currencies.length : 1
+    });
 
     // Check if this is multi-currency request
     if (data.currencies && Array.isArray(data.currencies)) {
@@ -546,6 +594,7 @@ export const upsertPricing = async (req: Request, res: Response) => {
       // Validate multi-currency data
       const validation = catalogService.validateMultiCurrencyPricingData(pricingData);
       if (!validation.isValid) {
+        console.error('[CatalogController] Multi-currency validation failed:', validation.errors);
         return res.status(400).json({ 
           success: false,
           error: 'Invalid multi-currency pricing data',
@@ -565,7 +614,7 @@ export const upsertPricing = async (req: Request, res: Response) => {
         finalIdempotencyKey
       );
 
-      return res.status(201).json({
+      return res.status(200).json({
         success: true,
         data: result,
         message: 'Multi-currency pricing updated successfully',
@@ -577,6 +626,7 @@ export const upsertPricing = async (req: Request, res: Response) => {
       // Validate pricing data
       const validation = catalogService.validatePricingData(data);
       if (!validation.isValid) {
+        console.error('[CatalogController] Single currency validation failed:', validation.errors);
         return res.status(400).json({ 
           success: false,
           error: 'Invalid pricing data',
@@ -596,7 +646,7 @@ export const upsertPricing = async (req: Request, res: Response) => {
         finalIdempotencyKey
       );
 
-      return res.status(201).json({
+      return res.status(200).json({
         success: true,
         data: result,
         message: 'Pricing updated successfully',
@@ -605,7 +655,7 @@ export const upsertPricing = async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     return handleControllerError(error, res, 'upsertPricing', {
-      catalogId: req.params.catalogId,
+      catalogId: req.body.catalog_id || req.params.catalogId,
       tenantId: req.headers['x-tenant-id'],
       isMultiCurrency: !!(req.body.currencies && Array.isArray(req.body.currencies))
     });
@@ -729,13 +779,13 @@ export const deleteCurrencyPricing = async (req: Request, res: Response) => {
 
 /**
  * Delete specific pricing by currency (legacy endpoint)
- * Note: This treats the 'pricingId' parameter as currency code for backward compatibility
+ * Note: This treats the 'currency' parameter as currency code for backward compatibility
  */
 export const deletePricing = async (req: Request, res: Response) => {
   try {
     const { authHeader, tenantId } = extractHeaders(req);
     const catalogId = req.params.catalogId;
-    const currencyCode = req.params.currency; // Changed from pricingId to currency
+    const currencyCode = req.params.currency;
     
     if (!catalogId || !currencyCode) {
       return res.status(400).json({ 
