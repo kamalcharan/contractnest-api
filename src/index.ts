@@ -11,6 +11,10 @@ import morgan from 'morgan';
 import { createServer } from 'http';
 
 import { specs } from './docs/swagger';
+
+// 🚀 GraphQL imports
+import { createApolloServer, graphqlMiddleware } from './graphql/server';
+import { authenticate } from './middleware/auth';
 import { errorHandler } from './middleware/error';
 import { setTenantContext } from './middleware/tenantContext';
 import { initSentry, captureException } from './utils/sentry';
@@ -192,6 +196,21 @@ try {
   }
 }
 
+// Load Product Master Data routes with error handling
+let productMasterdataRoutes;
+try {
+  productMasterdataRoutes = require('./routes/productMasterdataRoutes').default;
+  console.log('✅ Product master data routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load product master data routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without product master data routes...');
+    productMasterdataRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -270,6 +289,53 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // 9. System routes
 app.use('/api', systemRoutes);
+
+// =================================================================
+// 🚀 GRAPHQL SERVER SETUP
+// =================================================================
+
+let apolloServer: any;
+
+const setupGraphQL = async () => {
+  try {
+    console.log('🚀 Setting up GraphQL server...');
+    
+    // Create Apollo Server
+    apolloServer = createApolloServer();
+    
+    // Start Apollo Server
+    await apolloServer.start();
+    
+    // Apply GraphQL middleware and authentication
+    app.use('/graphql', authenticate, graphqlMiddleware);
+    
+    // Apply Apollo Server middleware
+    apolloServer.applyMiddleware({ 
+      app, 
+      path: '/graphql',
+      cors: false  // We handle CORS above
+    });
+    
+    console.log('✅ GraphQL server configured at /graphql');
+    console.log('📊 GraphQL Playground available at /graphql (development only)');
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to setup GraphQL server:', error);
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'graphql_setup' }
+    });
+    return false;
+  }
+};
+
+// Setup GraphQL (don't await - let it initialize in background)
+let graphqlReady = false;
+setupGraphQL().then((success) => {
+  graphqlReady = success;
+}).catch((error) => {
+  console.error('GraphQL setup failed:', error);
+});
 
 // ====================
 // REGISTER ALL ROUTES
@@ -375,6 +441,21 @@ try {
   });
 }
 
+// Register Product Master Data routes with error handling
+try {
+  if (productMasterdataRoutes) {
+    app.use('/api/product-masterdata', productMasterdataRoutes);
+    console.log('✅ Product master data routes registered at /api/product-masterdata');
+  } else {
+    console.log('⚠️  Product master data routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register product master data routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'product_masterdata' }
+  });
+}
+
 // Business model routes
 app.use('/api/business-model', businessModelRoutes);
 console.log('✅ Business model routes registered at /api/business-model');
@@ -397,16 +478,21 @@ app.get('/health', async (req, res) => {
       api: 'healthy',
       database: 'unknown',
       storage: 'unknown',
+      graphql: graphqlReady ? 'healthy' : 'initializing',
       resources: 'loaded',
       taxSettings: taxSettingsRoutes ? 'loaded' : 'not_loaded',
       contacts: contactRoutes ? 'loaded' : 'not_loaded',
-      blocks: blockRoutes ? 'loaded' : 'not_loaded'
+      blocks: blockRoutes ? 'loaded' : 'not_loaded',
+      productMasterdata: productMasterdataRoutes ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
+      graphql_api: graphqlReady,
+      service_catalog_graphql: graphqlReady,
       contact_management: contactRoutes !== null,
       tax_settings: taxSettingsRoutes !== null,
-      block_system: blockRoutes !== null
+      block_system: blockRoutes !== null,
+      product_masterdata: productMasterdataRoutes !== null
     }
   };
 
@@ -451,6 +537,15 @@ app.get('/health', async (req, res) => {
       }
     }
 
+    // Check product master data service health if available
+    if (productMasterdataRoutes) {
+      try {
+        healthData.services.productMasterdata = 'healthy';
+      } catch (error) {
+        healthData.services.productMasterdata = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -477,11 +572,14 @@ app.get('/', (req, res) => {
       resources: 'available',
       taxSettings: taxSettingsRoutes ? 'available' : 'not_available',
       contacts: contactRoutes ? 'available' : 'not_available',
-      blocks: blockRoutes ? 'available' : 'not_available'
+      blocks: blockRoutes ? 'available' : 'not_available',
+      productMasterdata: productMasterdataRoutes ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',
-      resources: '/api/resources'
+      graphql_api: '/graphql',
+      resources: '/api/resources',
+      productMasterdata: '/api/product-masterdata'
     }
   });
 });
@@ -513,7 +611,8 @@ app.use((req, res) => {
       health: '/health',
       docs: '/api-docs',
       contacts: '/api/contacts',
-      resources: '/api/resources'
+      resources: '/api/resources',
+      productMasterdata: '/api/product-masterdata'
     }
   });
 });
@@ -662,6 +761,68 @@ const startServer = async () => {
         console.log('⚠️  Block routes not available');
       }
       
+      // Log product master data routes if available
+      if (productMasterdataRoutes) {
+        console.log('📍 Product Master Data routes:');
+        console.log('- GET    /api/product-masterdata/health                    # Service health check');
+        console.log('- GET    /api/product-masterdata/constants                 # API constants and info');
+        console.log('- GET    /api/product-masterdata/global                    # Global master data by category');
+        console.log('- GET    /api/product-masterdata/tenant                    # Tenant master data by category');
+        console.log('- GET    /api/product-masterdata/global/categories         # All global categories');
+        console.log('- GET    /api/product-masterdata/tenant/categories         # All tenant categories');
+        console.log('📋 Product Master Data features:');
+        console.log('  ✅ Global & tenant-specific master data management');
+        console.log('  ✅ Category-based data organization (pricing_type, status_type, etc.)');
+        console.log('  ✅ Complete category listings and detailed data retrieval');
+        console.log('  ✅ Edge Function integration with HMAC security');
+        console.log('  ✅ Frontend-optimized data transformation');
+        console.log('  ✅ Comprehensive error handling and validation');
+        console.log('  ✅ Rate limiting and health monitoring');
+        console.log('  ✅ Swagger documentation with detailed schemas');
+        console.log('  ✅ Read-only API for dropdown/selection values');
+      } else {
+        console.log('⚠️  Product Master Data routes not available');
+      }
+      
+      // Log GraphQL status
+      if (graphqlReady) {
+        console.log('📍 GraphQL API:');
+        console.log('- POST   /graphql                               # GraphQL endpoint');
+        console.log('- GET    /graphql                               # GraphQL Playground (dev only)');
+        
+        console.log('📍 GraphQL Query Operations:');
+        console.log('- catalogItems                                  # List catalog items with filters');
+        console.log('- catalogItem(id)                               # Get single catalog item');
+        console.log('- resources                                     # List resources with filters');
+        console.log('- resourcesByType                               # Get resources by type');
+        console.log('- eligibleContacts                              # Get eligible contacts for resources');
+        console.log('- serviceCatalogItems                           # List service catalog items');
+        console.log('- serviceCatalogItem(id)                        # Get single service catalog item');
+        console.log('- serviceCatalogMasterData                      # Get categories, industries, currencies');
+        console.log('- availableResources                            # Get available resources for services');
+        
+        console.log('📍 GraphQL Mutation Operations:');
+        console.log('- createCatalogItem                             # Create new catalog item');
+        console.log('- bulkCreateCatalogItems                        # Bulk create catalog items');
+        console.log('- createResource                                # Create new resource');
+        console.log('- createServiceCatalogItem                      # Create service catalog item');
+        console.log('- updateServiceCatalogItem                      # Update service catalog item');
+        
+        console.log('📋 GraphQL Service Catalog features:');
+        console.log('  ✅ Complete Service Catalog CRUD operations');
+        console.log('  ✅ HMAC-signed communication with Edge Functions');
+        console.log('  ✅ Role-based access control (6 roles)');
+        console.log('  ✅ Environment segregation (production/test)');
+        console.log('  ✅ N+1 query prevention with DataLoaders');
+        console.log('  ✅ Comprehensive input validation');
+        console.log('  ✅ Bulk operations and resource associations');
+        console.log('  ✅ Master data management');
+        console.log('  ✅ Rate limiting and audit logging');
+        console.log('  ✅ 40+ GraphQL types with full type safety');
+      } else {
+        console.log('⚠️  GraphQL API not ready yet (initializing...)');
+      }
+      
       console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
       console.log('📁 Storage upload: POST /api/storage/files');
       
@@ -672,6 +833,16 @@ const startServer = async () => {
     // Graceful shutdown
     const gracefulShutdown = async (signal: string) => {
       console.log(`${signal} received, shutting down gracefully...`);
+      
+      // Stop GraphQL server
+      if (apolloServer) {
+        try {
+          await apolloServer.stop();
+          console.log('GraphQL server stopped');
+        } catch (error) {
+          console.error('Error stopping GraphQL server:', error);
+        }
+      }
       
       // Stop JTD listener
       try {

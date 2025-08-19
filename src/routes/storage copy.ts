@@ -177,7 +177,7 @@ router.use(logRequest);
  *       500:
  *         description: Server error
  */
-router.get('/stats', storageController.getStorageStats);
+router.get('/storage/stats', storageController.getStorageStats);
 
 /**
  * @swagger
@@ -206,7 +206,7 @@ router.get('/stats', storageController.getStorageStats);
  *       401:
  *         description: Unauthorized
  */
-router.post('/setup', 
+router.post('/storage/setup', 
   express.json(),
   storageController.setupStorage
 );
@@ -227,7 +227,7 @@ router.post('/setup',
  *               items:
  *                 $ref: '#/components/schemas/StorageCategory'
  */
-router.get('/categories', storageController.getStorageCategories);
+router.get('/storage/categories', storageController.getStorageCategories);
 
 /**
  * @swagger
@@ -268,7 +268,7 @@ router.get('/categories', storageController.getStorageCategories);
  *               items:
  *                 $ref: '#/components/schemas/StorageFile'
  */
-router.get('/files', storageController.listFiles);
+router.get('/storage/files', storageController.listFiles);
 
 /**
  * @swagger
@@ -319,7 +319,7 @@ router.get('/files', storageController.listFiles);
  *       413:
  *         description: File too large
  */
-router.post('/files',
+router.post('/storage/files',
   (req, res, next) => {
     console.log('=== File Upload Route Hit ===');
     console.log('Content-Type:', req.headers['content-type']);
@@ -405,7 +405,7 @@ router.post('/files',
  *                     failed:
  *                       type: integer
  */
-router.post('/files/multiple',
+router.post('/storage/files/multiple',
   (req, res, next) => {
     console.log('=== Multiple File Upload Route Hit ===');
     console.log('Content-Type:', req.headers['content-type']);
@@ -446,7 +446,7 @@ router.post('/files/multiple',
  *       404:
  *         description: File not found
  */
-router.delete('/files/:fileId', storageController.deleteFile);
+router.delete('/storage/files/:fileId', storageController.deleteFile);
 
 /**
  * @swagger
@@ -479,7 +479,7 @@ router.delete('/files/:fileId', storageController.deleteFile);
  *       207:
  *         description: Multi-status response
  */
-router.post('/files/delete-batch',
+router.post('/storage/files/delete-batch',
   express.json(),
   storageController.deleteMultipleFiles
 );
@@ -503,7 +503,7 @@ router.post('/files/delete-batch',
  *       200:
  *         description: Firebase status
  */
-router.get('/firebase/status', storageController.getFirebaseStatus);
+router.get('/storage/firebase/status', storageController.getFirebaseStatus);
 
 // Error handling for multer
 router.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

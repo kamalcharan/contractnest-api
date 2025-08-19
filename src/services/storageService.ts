@@ -191,8 +191,14 @@ export const storageService = {
       return response.data;
     } catch (error: any) {
       console.error('Error in getStorageStats:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
       
-      if (error.response?.data?.storageSetupComplete === false) {
+      // Handle cases where storage is not set up
+      if (error.response?.status === 404 || 
+          error.response?.data?.storageSetupComplete === false ||
+          error.response?.data?.error?.includes('Tenant not found') ||
+          error.response?.data?.error?.includes('Failed to fetch tenant data')) {
         return {
           storageSetupComplete: false,
           quota: 0,

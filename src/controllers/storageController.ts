@@ -133,7 +133,9 @@ export const getStorageStats = async (req: Request, res: Response) => {
     }
     
     try {
+      console.log('🔍 Attempting to get storage stats for tenant:', tenantId);
       const stats = await storageService.getStorageStats(authHeader, tenantId);
+      console.log('✅ Storage stats retrieved successfully:', stats);
       
       // Log successful stats retrieval
       await logAudit(req, {
@@ -179,7 +181,13 @@ export const getStorageStats = async (req: Request, res: Response) => {
       throw error;
     }
   } catch (error: any) {
-    console.error('Error in getStorageStats controller:', error);
+    console.error('❌ Error in getStorageStats controller:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data,
+      url: error.config?.url
+    });
     
     // Log error
     await logAudit(req, {
@@ -464,208 +472,191 @@ export const listFiles = async (req: Request, res: Response) => {
  * Upload a file for the current tenant
  */
 export const uploadFile = async (req: Request, res: Response) => {
-  // Handle file upload with multer
-  upload(req, res, async (err) => {
-    if (err) {
-      // Log multer error
+  // Multer processing is already handled in the route, no need to call it again
+  try {
+    // Validate Supabase configuration
+    if (!validateSupabaseConfig('api_storage', 'uploadFile')) {
+      await logAudit(req, {
+        action: AuditAction.SYSTEM_ERROR,
+        resource: AuditResource.STORAGE,
+        success: false,
+        error: 'Missing Supabase configuration',
+        severity: AuditSeverity.CRITICAL
+      });
+      
+      return res.status(500).json({ 
+        error: 'Server configuration error: Missing Supabase configuration' 
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+    
+    if (!authHeader) {
+      await logAudit(req, {
+        action: AuditAction.UNAUTHORIZED_ACCESS,
+        resource: AuditResource.STORAGE,
+        success: false,
+        error: 'Missing Authorization header',
+        severity: AuditSeverity.WARNING
+      });
+      
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+    
+    if (!tenantId) {
+      await logAudit(req, {
+        action: AuditAction.UNAUTHORIZED_ACCESS,
+        resource: AuditResource.STORAGE,
+        success: false,
+        error: 'Missing x-tenant-id header',
+        severity: AuditSeverity.WARNING
+      });
+      
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+    
+    // Verify storage is set up
+    const isSetup = await storageService.isStorageSetupComplete(authHeader, tenantId);
+    if (!isSetup) {
       await logAudit(req, {
         action: AuditAction.FILE_UPLOAD,
         resource: AuditResource.STORAGE,
         success: false,
-        error: err.message || 'Error uploading file',
-        severity: AuditSeverity.ERROR
+        error: 'Storage not set up',
+        severity: AuditSeverity.WARNING
       });
       
       return res.status(400).json({ 
-        error: err.message || 'Error uploading file' 
+        error: 'Storage not set up for this tenant. Please set up storage first.' 
       });
     }
     
-    try {
-      // Validate Supabase configuration
-      if (!validateSupabaseConfig('api_storage', 'uploadFile')) {
-        await logAudit(req, {
-          action: AuditAction.SYSTEM_ERROR,
-          resource: AuditResource.STORAGE,
-          success: false,
-          error: 'Missing Supabase configuration',
-          severity: AuditSeverity.CRITICAL
-        });
-        
-        return res.status(500).json({ 
-          error: 'Server configuration error: Missing Supabase configuration' 
-        });
-      }
-
-      const authHeader = req.headers.authorization;
-      const tenantId = req.headers['x-tenant-id'] as string;
-      
-      if (!authHeader) {
-        await logAudit(req, {
-          action: AuditAction.UNAUTHORIZED_ACCESS,
-          resource: AuditResource.STORAGE,
-          success: false,
-          error: 'Missing Authorization header',
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(401).json({ error: 'Authorization header is required' });
-      }
-      
-      if (!tenantId) {
-        await logAudit(req, {
-          action: AuditAction.UNAUTHORIZED_ACCESS,
-          resource: AuditResource.STORAGE,
-          success: false,
-          error: 'Missing x-tenant-id header',
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(400).json({ error: 'x-tenant-id header is required' });
-      }
-      
-      // Verify storage is set up
-      const isSetup = await storageService.isStorageSetupComplete(authHeader, tenantId);
-      if (!isSetup) {
-        await logAudit(req, {
-          action: AuditAction.FILE_UPLOAD,
-          resource: AuditResource.STORAGE,
-          success: false,
-          error: 'Storage not set up',
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(400).json({ 
-          error: 'Storage not set up for this tenant. Please set up storage first.' 
-        });
-      }
-      
-      // Check for file and category
-      if (!req.file) {
-        await logAudit(req, {
-          action: AuditAction.FILE_UPLOAD,
-          resource: AuditResource.STORAGE,
-          success: false,
-          error: 'No file provided',
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(400).json({ error: 'No file provided' });
-      }
-      
-      const category = req.body.category as string;
-      if (!category) {
-        await logAudit(req, {
-          action: AuditAction.FILE_UPLOAD,
-          resource: AuditResource.STORAGE,
-          success: false,
-          error: 'Category is required',
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(400).json({ error: 'Category is required' });
-      }
-      
-      // Extract metadata if provided
-      const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
-      
-      // Check current storage quota before uploading
-      const stats = await storageService.getStorageStats(authHeader, tenantId);
-      if (req.file.size > stats.available) {
-        await logAudit(req, {
-          action: AuditAction.STORAGE_QUOTA_EXCEEDED,
-          resource: AuditResource.STORAGE,
-          success: false,
-          metadata: {
-            fileName: req.file.originalname,
-            fileSize: req.file.size,
-            availableSpace: stats.available,
-            category
-          },
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(400).json({ 
-          error: 'Not enough storage space available',
-          availableSpace: stats.available,
-          requiredSpace: req.file.size
-        });
-      }
-      
-      // Upload the file
-      const result = await storageService.uploadFile(
-        authHeader, 
-        tenantId, 
-        req.file.buffer, 
-        req.file.originalname,
-        req.file.size,
-        req.file.mimetype,
-        category,
-        metadata
-      );
-      
-      // Log successful upload
-      await logAudit(req, {
-        action: AuditAction.FILE_UPLOAD,
-        resource: AuditResource.STORAGE,
-        resourceId: result.id,
-        success: true,
-        metadata: {
-          fileName: req.file.originalname,
-          fileSize: req.file.size,
-          fileType: req.file.mimetype,
-          category,
-          fileId: result.id,
-          downloadUrl: result.download_url,
-          metadata
-        }
-      });
-      
-      return res.status(201).json(result);
-    } catch (error: any) {
-      console.error('Error in uploadFile controller:', error.message);
-      
-      // Log error
+    // Check for file and category
+    if (!req.file) {
       await logAudit(req, {
         action: AuditAction.FILE_UPLOAD,
         resource: AuditResource.STORAGE,
         success: false,
-        error: error.message || 'Failed to upload file',
-        severity: AuditSeverity.ERROR,
-        metadata: {
-          fileName: req.file?.originalname,
-          fileSize: req.file?.size,
-          category: req.body.category,
-          errorDetails: error.response?.data || error.stack
-        }
+        error: 'No file provided',
+        severity: AuditSeverity.WARNING
       });
       
-      captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'api_storage', action: 'uploadFile' },
-        status: error.response?.status
-      });
-
-      const status = error.response?.status || 500;
-      const message = error.response?.data?.error?.message || error.message || 'An unknown error occurred';
-      
-      // Handle specific error codes
-      if (error.response?.data?.error?.code === 'RATE_LIMIT_EXCEEDED') {
-        await logAudit(req, {
-          action: AuditAction.RATE_LIMIT_EXCEEDED,
-          resource: AuditResource.STORAGE,
-          success: false,
-          severity: AuditSeverity.WARNING
-        });
-        
-        return res.status(429).json({ 
-          error: 'Rate limit exceeded. Please try again later.',
-          retryAfter: 60 // seconds
-        });
-      }
-      
-      return res.status(status).json({ error: message });
+      return res.status(400).json({ error: 'No file provided' });
     }
-  });
+    
+    const category = req.body.category as string;
+    if (!category) {
+      await logAudit(req, {
+        action: AuditAction.FILE_UPLOAD,
+        resource: AuditResource.STORAGE,
+        success: false,
+        error: 'Category is required',
+        severity: AuditSeverity.WARNING
+      });
+      
+      return res.status(400).json({ error: 'Category is required' });
+    }
+    
+    // Extract metadata if provided
+    const metadata = req.body.metadata ? JSON.parse(req.body.metadata) : {};
+    
+    // Check current storage quota before uploading
+    const stats = await storageService.getStorageStats(authHeader, tenantId);
+    if (req.file.size > stats.available) {
+      await logAudit(req, {
+        action: AuditAction.STORAGE_QUOTA_EXCEEDED,
+        resource: AuditResource.STORAGE,
+        success: false,
+        metadata: {
+          fileName: req.file.originalname,
+          fileSize: req.file.size,
+          availableSpace: stats.available,
+          category
+        },
+        severity: AuditSeverity.WARNING
+      });
+      
+      return res.status(400).json({ 
+        error: 'Not enough storage space available',
+        availableSpace: stats.available,
+        requiredSpace: req.file.size
+      });
+    }
+    
+    // Upload the file
+    const result = await storageService.uploadFile(
+      authHeader, 
+      tenantId, 
+      req.file.buffer, 
+      req.file.originalname,
+      req.file.size,
+      req.file.mimetype,
+      category,
+      metadata
+    );
+    
+    // Log successful upload
+    await logAudit(req, {
+      action: AuditAction.FILE_UPLOAD,
+      resource: AuditResource.STORAGE,
+      resourceId: result.id,
+      success: true,
+      metadata: {
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        fileType: req.file.mimetype,
+        category,
+        fileId: result.id,
+        downloadUrl: result.download_url,
+        metadata
+      }
+    });
+    
+    return res.status(201).json(result);
+  } catch (error: any) {
+    console.error('Error in uploadFile controller:', error.message);
+    
+    // Log error
+    await logAudit(req, {
+      action: AuditAction.FILE_UPLOAD,
+      resource: AuditResource.STORAGE,
+      success: false,
+      error: error.message || 'Failed to upload file',
+      severity: AuditSeverity.ERROR,
+      metadata: {
+        fileName: req.file?.originalname,
+        fileSize: req.file?.size,
+        category: req.body.category,
+        errorDetails: error.response?.data || error.stack
+      }
+    });
+    
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_storage', action: 'uploadFile' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error?.message || error.message || 'An unknown error occurred';
+    
+    // Handle specific error codes
+    if (error.response?.data?.error?.code === 'RATE_LIMIT_EXCEEDED') {
+      await logAudit(req, {
+        action: AuditAction.RATE_LIMIT_EXCEEDED,
+        resource: AuditResource.STORAGE,
+        success: false,
+        severity: AuditSeverity.WARNING
+      });
+      
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded. Please try again later.',
+        retryAfter: 60 // seconds
+      });
+    }
+    
+    return res.status(status).json({ error: message });
+  }
 };
 
 /**

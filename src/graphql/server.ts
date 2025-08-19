@@ -17,6 +17,11 @@ import { catalogResolvers } from './resolvers/catalog/catalogResolvers';
 import { resourceTypeDefs } from './schema/resource/types';
 import { resourceResolvers } from './resolvers/resource/resourceResolvers';
 
+// 🚀 NEW: Service Catalog schema imports
+import { serviceCatalogTypeDefs } from './schema/serviceCatalog/types';
+import { serviceCatalogInputs } from './schema/serviceCatalog/inputs';
+import { serviceCatalogResolvers } from './resolvers/serviceCatalog/serviceCatalogResolvers';
+
 // Service imports
 import { CatalogService } from '../services/catalogService';
 import { CatalogValidationService } from '../services/catalogValidationService';
@@ -26,6 +31,12 @@ import { CatalogServiceConfig } from '../types/catalog';
 import { ResourceService } from '../services/resourceService';
 import { ResourceValidator } from '../validators/resourceValidator';
 import { ResourceServiceConfig } from '../types/resource';
+
+// 🚀 NEW: Service Catalog service imports
+import { ServiceCatalogGraphQLService, createServiceCatalogGraphQLService } from '../services/serviceCatalogGraphQLService';
+import { ServiceCatalogDataLoaders, createServiceCatalogDataLoaders } from './resolvers/serviceCatalog/serviceCatalogDataLoaders';
+import { ServiceCatalogValidators } from '../validators/serviceCatalogValidators';
+import { createEdgeFunctionClient } from '../utils/edgeFunctionClient';
 
 // Security imports - HMAC removed for UI requests
 import { AuthRequest } from '../middleware/auth';
@@ -115,11 +126,17 @@ export interface GraphQLContext {
   userRole?: string;
   clientVersion?: string;
   
-  // Services
+  // Existing Services
   catalogService: CatalogService;
   validationService: CatalogValidationService;
   resourceService: ResourceService;
   resourceValidator: ResourceValidator;
+  
+  // 🚀 NEW: Service Catalog Services
+  serviceCatalogService: ServiceCatalogGraphQLService;
+  serviceCatalogDataLoaders: ServiceCatalogDataLoaders;
+  serviceCatalogValidators: ServiceCatalogValidators;
+  edgeFunctionClient: any;
   
   // Infrastructure
   redis: Redis;
@@ -155,7 +172,7 @@ function extractEnvironmentContext(req: AuthRequest): {
   const envHeader = req.headers['x-environment'] as string;
   const envParam = req.query.environment as string;
   
-  // Default to production if not specified
+  // Default to production if not specified  
   const environment = envHeader || envParam || 'production';
   const isLive = environment.toLowerCase() === 'production';
   const environmentLabel = isLive ? 'Production' : 'Test';
@@ -235,27 +252,56 @@ async function createContext({ req, res }: { req: AuthRequest & { ip?: string };
     is_live: envContext.isLive // ✅ CRITICAL: Environment segregation
   };
 
-  // Initialize services
+  // Initialize existing services
   const catalogService = new CatalogService(catalogConfig);
   const validationService = new CatalogValidationService(catalogConfig);
   
   // ✅ UPDATED: Initialize resource services
   const resourceService = new ResourceService(resourceConfig);
-  const resourceValidator = new ResourceValidator(resourceConfig);
+  const resourceValidator = new ResourceValidator(resourceService, resourceConfig);
 
-  console.log(`[GraphQL Context] Services initialized for ${envContext.environmentLabel} environment`);
+  // 🚀 NEW: Initialize Service Catalog services
+  const serviceCatalogService = createServiceCatalogGraphQLService({
+    environment: envContext.isLive ? 'production' : 'test',
+    enableCaching: true,
+    enableLogging: process.env.NODE_ENV !== 'production'
+  });
+
+  // Create Edge Function client for Service Catalog
+  const edgeFunctionClient = createEdgeFunctionClient({
+    environment: envContext.isLive ? 'production' : 'test'
+  });
+
+  // Create Service Catalog DataLoaders
+  const serviceCatalogDataLoaders = createServiceCatalogDataLoaders({
+    tenantId: envContext.tenantId,
+    userId: envContext.userId,
+    isLive: envContext.isLive,
+    requestId: envContext.requestId,
+    edgeFunctionClient
+  });
+
+  // Initialize Service Catalog validators (stateless)
+  const serviceCatalogValidators = ServiceCatalogValidators;
+
+  console.log(`[GraphQL Context] All services initialized for ${envContext.environmentLabel} environment`);
 
   return {
     ...envContext,
-    // Catalog services
+    // Existing services
     catalogService,
     validationService,
-    // ✅ UPDATED: Resource services
     resourceService,
     resourceValidator,
-    // Add Redis client for caching
+    
+    // 🚀 NEW: Service Catalog services
+    serviceCatalogService,
+    serviceCatalogDataLoaders,
+    serviceCatalogValidators,
+    edgeFunctionClient,
+    
+    // Infrastructure
     redis: new Redis(process.env.REDIS_URL || 'redis://localhost:6379'),
-    // Add request and response context
     req: { ...req, ip: req.ip || 'unknown' },
     res
   };
@@ -265,14 +311,17 @@ async function createContext({ req, res }: { req: AuthRequest & { ip?: string };
 // SCHEMA COMPOSITION
 // =================================================================
 
-// ✅ UPDATED: Include resource types in schema
+// ✅ UPDATED: Include all schema types including Service Catalog
 const typeDefs = [
   catalogTypeDefs,
   resourceTypeDefs,
+  // 🚀 NEW: Service Catalog schema types
+  serviceCatalogTypeDefs,
+  serviceCatalogInputs,
   // Add additional type definitions here for future modules
 ];
 
-// ✅ UPDATED: Merge all resolvers including resources
+// ✅ UPDATED: Merge all resolvers including Service Catalog
 const resolvers = {
   // Custom scalars
   DateTime: DateTimeScalar,
@@ -282,12 +331,16 @@ const resolvers = {
   Query: {
     ...catalogResolvers.Query,
     ...resourceResolvers.Query,
+    // 🚀 NEW: Service Catalog query resolvers
+    ...serviceCatalogResolvers.Query,
   },
   
   // Merge Mutation resolvers
   Mutation: {
     ...catalogResolvers.Mutation,
     ...resourceResolvers.Mutation,
+    // 🚀 NEW: Service Catalog mutation resolvers
+    ...serviceCatalogResolvers.Mutation,
   },
   
   // Include type-specific resolvers
@@ -637,6 +690,245 @@ export const exampleQueries = {
             }
           }
         }
+        environmentInfo {
+          environmentLabel
+          isLive
+        }
+      }
+    }
+  `,
+
+  // =================================================================
+  // 🚀 SERVICE CATALOG EXAMPLE QUERIES
+  // =================================================================
+
+  // Get service catalog items
+  getServiceCatalogItems: `
+    query GetServiceCatalogItems($filters: ServiceCatalogFilters, $pagination: PaginationInput, $sort: [ServiceCatalogSort!]) {
+      serviceCatalogItems(filters: $filters, pagination: $pagination, sort: $sort) {
+        success
+        data {
+          items {
+            id
+            serviceName
+            sku
+            description
+            categoryId
+            industryId
+            pricingConfig {
+              basePrice
+              currency
+              pricingModel
+              billingCycle
+            }
+            tags
+            isActive
+            createdAt
+            updatedAt
+          }
+          totalCount
+          hasNextPage
+          hasPreviousPage
+        }
+        message
+        environmentInfo {
+          environmentLabel
+          isLive
+        }
+      }
+    }
+  `,
+
+  // Get single service catalog item
+  getServiceCatalogItem: `
+    query GetServiceCatalogItem($id: ID!) {
+      serviceCatalogItem(id: $id) {
+        success
+        data {
+          id
+          serviceName
+          sku
+          description
+          categoryId
+          industryId
+          pricingConfig {
+            basePrice
+            currency
+            pricingModel
+            billingCycle
+            tiers {
+              minQuantity
+              maxQuantity
+              price
+              discountPercentage
+            }
+            discountRules {
+              ruleName
+              condition
+              action
+              value
+              isActive
+            }
+          }
+          serviceAttributes
+          durationMinutes
+          tags
+          isActive
+          sortOrder
+          requiredResources {
+            resourceId
+            quantity
+            isOptional
+            skillRequirements
+          }
+          createdAt
+          updatedAt
+        }
+        message
+        environmentInfo {
+          environmentLabel
+          isLive
+        }
+      }
+    }
+  `,
+
+  // Create service catalog item
+  createServiceCatalogItem: `
+    mutation CreateServiceCatalogItem($input: CreateServiceCatalogItemInput!) {
+      createServiceCatalogItem(input: $input) {
+        success
+        data {
+          id
+          serviceName
+          sku
+          categoryId
+          industryId
+          pricingConfig {
+            basePrice
+            currency
+            pricingModel
+          }
+          isActive
+        }
+        message
+        errors {
+          code
+          message
+          field
+          value
+        }
+        warnings {
+          code
+          message
+          field
+          value
+        }
+        environmentInfo {
+          environmentLabel
+          isLive
+        }
+      }
+    }
+  `,
+
+  // Update service catalog item
+  updateServiceCatalogItem: `
+    mutation UpdateServiceCatalogItem($id: ID!, $input: UpdateServiceCatalogItemInput!) {
+      updateServiceCatalogItem(id: $id, input: $input) {
+        success
+        data {
+          id
+          serviceName
+          sku
+          pricingConfig {
+            basePrice
+            currency
+            pricingModel
+          }
+          updatedAt
+        }
+        message
+        errors {
+          code
+          message
+          field
+          value
+        }
+        environmentInfo {
+          environmentLabel
+          isLive
+        }
+      }
+    }
+  `,
+
+  // Get service catalog master data
+  getServiceCatalogMasterData: `
+    query GetServiceCatalogMasterData {
+      serviceCatalogMasterData {
+        success
+        data {
+          categories {
+            id
+            name
+            description
+            sortOrder
+            isActive
+          }
+          industries {
+            id
+            name
+            description
+            sortOrder
+            isActive
+          }
+          currencies {
+            code
+            name
+            symbol
+            exchangeRate
+            isActive
+          }
+          taxRates {
+            id
+            name
+            rate
+            region
+            isActive
+          }
+        }
+        message
+        environmentInfo {
+          environmentLabel
+          isLive
+        }
+      }
+    }
+  `,
+
+  // Get available resources for service catalog
+  getAvailableResourcesForService: `
+    query GetAvailableResourcesForService($filters: ResourceSearchFilters) {
+      availableResources(filters: $filters) {
+        success
+        data {
+          id
+          name
+          type
+          status
+          skills
+          hourlyRate
+          availability {
+            start
+            end
+          }
+          locationType
+          rating
+          experienceYears
+          certifications
+        }
+        message
         environmentInfo {
           environmentLabel
           isLive

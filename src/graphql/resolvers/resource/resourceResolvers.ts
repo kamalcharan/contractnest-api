@@ -312,7 +312,7 @@ export const resourceResolvers = {
       try {
         const config = createServiceConfig(context);
         const resourceService = new ResourceService(config);
-        const resourceValidator = new ResourceValidator(config);
+        const resourceValidator = new ResourceValidator(resourceService, config);
         
         // Convert GraphQL input
         const processedInput = convertGraphQLEnumsToString(args.input) as CreateResourceRequest;
@@ -358,7 +358,7 @@ export const resourceResolvers = {
       try {
         const config = createServiceConfig(context);
         const resourceService = new ResourceService(config);
-        const resourceValidator = new ResourceValidator(config);
+        const resourceValidator = new ResourceValidator(resourceService, config);
         
         // Get current resource
         const currentResult = await resourceService.getResourceById(args.id);
@@ -374,7 +374,7 @@ export const resourceResolvers = {
         const processedInput = convertGraphQLEnumsToString(args.input) as UpdateResourceRequest;
         
         // Validate input
-        const validation = await resourceValidator.validateUpdateRequest(currentResult.data, processedInput);
+        const validation = await resourceValidator.validateUpdateRequest(args.id, processedInput);
         if (!validation.isValid) {
           return {
             success: false,
@@ -443,17 +443,23 @@ export const resourceResolvers = {
       try {
         const config = createServiceConfig(context);
         const resourceService = new ResourceService(config);
-        const resourceValidator = new ResourceValidator(config);
+        const resourceValidator = new ResourceValidator(resourceService, config);
         
         // Convert GraphQL inputs
         const processedInputs = args.input.map(input => convertGraphQLEnumsToString(input)) as CreateResourceRequest[];
         
-        // Validate all inputs
-        const bulkValidation = await resourceValidator.validateBulkCreateRequest(processedInputs);
-        if (!bulkValidation.isValid) {
-          const allErrors = bulkValidation.results
-            .filter(result => !result.isValid)
-            .flatMap(result => result.errors.map(error => ({
+        // Validate all inputs individually
+        const validationResults = await Promise.all(
+          processedInputs.map(async (input, index) => {
+            const validation = await resourceValidator.validateCreateRequest(input);
+            return { validation, index };
+          })
+        );
+        
+        const failedValidations = validationResults.filter(result => !result.validation.isValid);
+        if (failedValidations.length > 0) {
+          const allErrors = failedValidations
+            .flatMap(result => result.validation.errors.map((error: any) => ({
               field: `[${result.index}].${error.field}`,
               message: error.message
             })));
