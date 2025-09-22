@@ -63,6 +63,59 @@ interface CategoryListResponse {
   code?: string;
 }
 
+// NEW: Enhanced interfaces for new functionality
+interface Industry {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CategoryIndustryMap {
+  id: string;
+  category_id: string;
+  industry_id: string;
+  display_name: string;
+  display_order: number;
+  is_primary: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface PaginationMetadata {
+  current_page: number;
+  total_pages: number;
+  total_records: number;
+  limit: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+interface IndustryResponse {
+  success: boolean;
+  data?: Industry[];
+  pagination?: PaginationMetadata;
+  error?: string;
+  code?: string;
+}
+
+interface CategoryMapResponse {
+  success: boolean;
+  data?: CategoryIndustryMap[];
+  industry_id?: string;
+  filters?: {
+    is_primary_only: boolean;
+    search_applied: boolean;
+  };
+  pagination?: PaginationMetadata;
+  error?: string;
+  code?: string;
+}
+
 class ProductMasterdataService {
   private readonly edgeFunctionUrl: string;
   private readonly internalSigningSecret: string;
@@ -199,6 +252,182 @@ class ProductMasterdataService {
         data: []
       };
     }
+  }
+
+  // =================================================================
+  // NEW: Enhanced Methods for Industry-First Onboarding
+  // =================================================================
+
+  /**
+   * Get industries with pagination and search
+   */
+  async getIndustries(
+    page: number = 1,
+    limit: number = 50,
+    search: string = '',
+    isActive: boolean = true,
+    userJWT: string
+  ): Promise<IndustryResponse> {
+    try {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        search: search,
+        is_active: isActive.toString()
+      });
+
+      const url = `${this.edgeFunctionUrl}/industries?${queryParams.toString()}`;
+      
+      console.log(`🔍 Fetching industries - Page: ${page}, Limit: ${limit}, Search: "${search}"`);
+      
+      return await this.makeRequest('GET', url, null, userJWT) as IndustryResponse;
+    } catch (error) {
+      console.error('Error in getIndustries:', error);
+      return {
+        success: false,
+        error: 'Failed to get industries',
+        code: 'SERVICE_ERROR',
+        data: []
+      };
+    }
+  }
+
+  /**
+   * Get all categories with pagination and search
+   */
+  async getAllCategories(
+    page: number = 1,
+    limit: number = 50,
+    search: string = '',
+    isActive: boolean = true,
+    userJWT: string
+  ): Promise<CategoryMapResponse> {
+    try {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        search: search,
+        is_active: isActive.toString()
+      });
+
+      const url = `${this.edgeFunctionUrl}/all-categories?${queryParams.toString()}`;
+      
+      console.log(`🔍 Fetching all categories - Page: ${page}, Limit: ${limit}, Search: "${search}"`);
+      
+      return await this.makeRequest('GET', url, null, userJWT) as CategoryMapResponse;
+    } catch (error) {
+      console.error('Error in getAllCategories:', error);
+      return {
+        success: false,
+        error: 'Failed to get all categories',
+        code: 'SERVICE_ERROR',
+        data: []
+      };
+    }
+  }
+
+  /**
+   * Get industry-specific categories with filtering
+   */
+  async getIndustryCategoriesFiltered(
+    industryId: string,
+    isActive: boolean = true,
+    isPrimary: boolean = false,
+    page: number = 1,
+    limit: number = 50,
+    search: string = '',
+    userJWT: string
+  ): Promise<CategoryMapResponse> {
+    try {
+      const queryParams = new URLSearchParams({
+        industry_id: industryId,
+        is_active: isActive.toString(),
+        is_primary: isPrimary.toString(),
+        page: page.toString(),
+        limit: limit.toString(),
+        search: search
+      });
+
+      const url = `${this.edgeFunctionUrl}/industry-categories?${queryParams.toString()}`;
+      
+      console.log(`🔍 Fetching categories for industry: ${industryId}, Primary: ${isPrimary}, Page: ${page}, Limit: ${limit}, Search: "${search}"`);
+      
+      return await this.makeRequest('GET', url, null, userJWT) as CategoryMapResponse;
+    } catch (error) {
+      console.error('Error in getIndustryCategoriesFiltered:', error);
+      return {
+        success: false,
+        error: 'Failed to get industry categories',
+        code: 'SERVICE_ERROR',
+        data: []
+      };
+    }
+  }
+
+  // =================================================================
+  // Enhanced Validation Methods
+  // =================================================================
+
+  /**
+   * Validate pagination parameters
+   */
+  validatePaginationParams(page?: string, limit?: string): { valid: boolean; error?: string } {
+    const pageNum = parseInt(page || '1');
+    const limitNum = parseInt(limit || '50');
+
+    if (isNaN(pageNum) || pageNum < 1) {
+      return { valid: false, error: 'Page must be a positive integer' };
+    }
+
+    if (isNaN(limitNum) || limitNum < 1) {
+      return { valid: false, error: 'Limit must be a positive integer' };
+    }
+
+    if (limitNum > 100) {
+      return { valid: false, error: 'Limit cannot exceed 100' };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Validate search parameters
+   */
+  validateSearchParams(search?: string): { valid: boolean; error?: string } {
+    if (!search) {
+      return { valid: true }; // Empty search is valid
+    }
+
+    if (search.length > 0 && search.length < 3) {
+      return { valid: false, error: 'Search term must be at least 3 characters long' };
+    }
+
+    if (search.length > 100) {
+      return { valid: false, error: 'Search term cannot exceed 100 characters' };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Validate industry ID format
+   */
+  validateIndustryId(industryId?: string): { valid: boolean; error?: string } {
+    if (!industryId) {
+      return { valid: false, error: 'Industry ID is required' };
+    }
+
+    if (typeof industryId !== 'string') {
+      return { valid: false, error: 'Industry ID must be a string' };
+    }
+
+    // Basic UUID format validation (can be enhanced based on your ID format)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(industryId)) {
+      return { valid: false, error: 'Industry ID must be a valid UUID format' };
+    }
+
+    return { valid: true };
   }
 
   /**

@@ -104,7 +104,12 @@ export enum MasterDataErrorCodes {
   SERVICE_ERROR = 'SERVICE_ERROR',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   UNAUTHORIZED = 'UNAUTHORIZED',
-  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED'
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  // NEW: Enhanced error codes for new functionality
+  INVALID_PAGINATION_PARAMS = 'INVALID_PAGINATION_PARAMS',
+  INVALID_SEARCH_PARAMS = 'INVALID_SEARCH_PARAMS',
+  INVALID_INDUSTRY_ID = 'INVALID_INDUSTRY_ID',
+  PAGINATION_LIMIT_EXCEEDED = 'PAGINATION_LIMIT_EXCEEDED'
 }
 
 // Common category names (for reference)
@@ -205,4 +210,157 @@ export interface BulkMasterDataResponse {
   error?: string;
   code?: string;
   timestamp?: string;
+}
+
+// =================================================================
+// NEW: Industry-First Onboarding Types (Enhancement)
+// =================================================================
+
+// Industry master data
+export interface Industry {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Category-Industry mapping
+export interface CategoryIndustryMap {
+  id: string;
+  category_id: string;
+  industry_id: string;
+  display_name: string;
+  display_order: number;
+  is_primary: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Pagination metadata
+export interface PaginationMetadata {
+  current_page: number;
+  total_pages: number;
+  total_records: number;
+  limit: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
+// Enhanced response types for new endpoints
+export interface IndustryResponse extends ServiceResponse<Industry[]> {
+  pagination?: PaginationMetadata;
+}
+
+export interface CategoryMapResponse extends ServiceResponse<CategoryIndustryMap[]> {
+  industry_id?: string;
+  filters?: {
+    is_primary_only: boolean;
+    search_applied: boolean;
+  };
+  pagination?: PaginationMetadata;
+}
+
+// Enhanced request types for new endpoints
+export interface GetIndustriesRequest {
+  page?: number;
+  limit?: number;
+  search?: string;
+  is_active?: boolean;
+}
+
+export interface GetAllCategoriesRequest {
+  page?: number;
+  limit?: number;
+  search?: string;
+  is_active?: boolean;
+}
+
+export interface GetIndustryCategoriesRequest {
+  industry_id: string;
+  is_primary?: boolean;
+  page?: number;
+  limit?: number;
+  search?: string;
+  is_active?: boolean;
+}
+
+// Enhanced edge function response types
+export interface IndustryEdgeFunctionResponse extends EdgeFunctionResponse<Industry[]> {
+  pagination?: PaginationMetadata;
+}
+
+export interface CategoryMapEdgeFunctionResponse extends EdgeFunctionResponse<CategoryIndustryMap[]> {
+  industry_id?: string;
+  filters?: {
+    is_primary_only: boolean;
+    search_applied: boolean;
+  };
+  pagination?: PaginationMetadata;
+}
+
+// Pagination and search validation types
+export interface PaginationParams {
+  page: number;
+  limit: number;
+}
+
+export interface SearchParams {
+  search: string;
+  minimum_length: number;
+}
+
+// Industry-specific validation types
+export interface IndustryValidationParams {
+  industry_id: string;
+  is_primary?: boolean;
+}
+
+// Enhanced master data constants
+export interface EnhancedMasterDataConstants extends MasterDataConstants {
+  // Pagination limits
+  default_page_size: number;
+  max_page_size: number;
+  min_page_size: number;
+  
+  // Search constraints
+  min_search_length: number;
+  max_search_length: number;
+  
+  // Industry-specific
+  industry_id_pattern: string;
+  
+  // New endpoints
+  industry_endpoints: string[];
+}
+
+// Enhanced filter options
+export interface EnhancedFilterOptions extends TransformOptions {
+  page?: number;
+  limit?: number;
+  search?: string;
+  industry_id?: string;
+  is_primary?: boolean;
+}
+
+// Enhanced bulk operations for industries
+export interface BulkIndustryRequest {
+  industry_ids: string[];
+  include_categories?: boolean;
+  is_active?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface BulkIndustryResponse {
+  success: boolean;
+  results: Record<string, IndustryResponse>;
+  failed_industries?: string[];
+  error?: string;
+  code?: string;
+  timestamp?: string;
+  pagination?: PaginationMetadata;
 }

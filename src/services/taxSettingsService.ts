@@ -420,8 +420,15 @@ private validateTaxSettingsResponse(data: any): TaxSettingsResponse {
         return new Error('Tax settings resource not found');
       case 409:
         // Handle duplicate gracefully
-         const duplicateMessage = data?.message || data?.error || 'Duplicate entry exists';
-  return new Error(duplicateMessage);
+         if (data?.code === 'DUPLICATE_TAX_RATE' && data?.existing_rate) {
+    // Return structured duplicate error that frontend can handle
+    const error = new Error(data.error);
+    (error as any).code = data.code;
+    (error as any).existing_rate = data.existing_rate;
+    (error as any).status = 409;
+    return error;
+  }
+  return new Error(data?.error || 'Conflict detected');
       case 429:
         return new Error('Too many requests - please try again later');
       case 500:

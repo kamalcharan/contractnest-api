@@ -46,22 +46,25 @@ class ContactService {
   // ==========================================================
 
   async listContacts(filters: any, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
-    const queryParams = new URLSearchParams();
-    
-    // Build query parameters
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        if (Array.isArray(value)) {
-          queryParams.append(key, value.join(','));
-        } else {
-          queryParams.append(key, String(value));
-        }
+  const queryParams = new URLSearchParams();
+  
+  // Build query parameters
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      if (key === 'classifications' && Array.isArray(value)) {
+        // FIXED: Send as comma-separated string for classifications
+        queryParams.append(key, value.join(','));
+      } else if (Array.isArray(value)) {
+        queryParams.append(key, value.join(','));
+      } else {
+        queryParams.append(key, String(value));
       }
-    });
+    }
+  });
 
-    const url = `${this.edgeFunctionUrl}?${queryParams.toString()}`;
-    return await this.makeRequest('GET', url, null, userJWT, tenantId);
-  }
+  const url = `${this.edgeFunctionUrl}?${queryParams.toString()}`;
+  return await this.makeRequest('GET', url, null, userJWT, tenantId);
+}
 
   async getContactById(contactId: string, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contactId}`;

@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   api:
-    container_name: contractnest-api  # Add this line for better naming
+    container_name: contractnest-api
     build: 
       context: .
       dockerfile: Dockerfile
@@ -15,18 +15,15 @@ services:
       - .env
     volumes:
       - ./src:/app/src
-      # - ./dist:/app/dist
-      # Add node_modules to prevent overwriting
       - /app/node_modules
     depends_on:
       - redis
     networks:
       - contractnest-network
-    restart: unless-stopped  # Add this for auto-restart
+    restart: unless-stopped
 
-  # Redis for caching and queues
   redis:
-    container_name: contractnest-redis  # Add proper name
+    container_name: contractnest-redis
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -36,37 +33,40 @@ services:
       - contractnest-network
     restart: unless-stopped
 
-  # N8N Workflow Automation (you already have this running)
+  # N8N - SIMPLE AND WORKING
   n8n:
     container_name: contractnest-n8n
     image: n8nio/n8n:latest
     ports:
       - "5678:5678"
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=changeme
+      # NO LOGIN REQUIRED - You can get in immediately
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_USER_MANAGEMENT_DISABLED=true
+      
+      # NO DATABASE CONFIG - Uses SQLite by default (your existing database.sqlite)
+      # NO ENCRYPTION KEY - Uses the one already in config
+      
+      # Basic settings
+      - N8N_HOST=0.0.0.0
+      - WEBHOOK_URL=http://localhost:5678
+      - TZ=America/New_York
+      - N8N_LOG_LEVEL=info
+      
+      # Keep execution history
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=true
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
       - contractnest-network
     restart: unless-stopped
 
-  # Future: LangChain Python Service
-  # langchain:
-  #   container_name: contractnest-langchain
-  #   build: ./langchain-service
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
-  #   networks:
-  #     - contractnest-network
-
 volumes:
   redis_data:
-  n8n_data:  # Uncomment this since n8n is running
+  n8n_data:
 
 networks:
   contractnest-network:
-    driver: bridge
+    driver: bridge  

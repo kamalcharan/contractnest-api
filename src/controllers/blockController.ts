@@ -18,6 +18,7 @@ class BlockController {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -28,7 +29,7 @@ class BlockController {
         return;
       }
 
-      const result = await this.blockService.getCategories(userJWT, tenantId);
+      const result = await this.blockService.getCategories(userJWT, tenantId, environment);
       const transformedResult = this.blockService.transformForFrontend(result);
 
       if (!result.success) {
@@ -55,6 +56,7 @@ class BlockController {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -73,7 +75,7 @@ class BlockController {
         categoryId: categoryId as string
       };
 
-      const result = await this.blockService.getMasters(filters, userJWT, tenantId);
+      const result = await this.blockService.getMasters(filters, userJWT, tenantId, environment);
       const transformedResult = this.blockService.transformForFrontend(result);
 
       if (!result.success) {
@@ -101,6 +103,7 @@ class BlockController {
       const { masterId } = req.params;
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -120,7 +123,7 @@ class BlockController {
         return;
       }
 
-      const result = await this.blockService.getVariants(masterId, userJWT, tenantId);
+      const result = await this.blockService.getVariants(masterId, userJWT, tenantId, environment);
       const transformedResult = this.blockService.transformForFrontend(result);
 
       if (!result.success) {
@@ -148,6 +151,9 @@ class BlockController {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
+
+      console.log(`Getting block hierarchy - Tenant: ${tenantId}, Environment: ${environment}`);
 
       if (!tenantId) {
         res.status(400).json({
@@ -158,7 +164,7 @@ class BlockController {
         return;
       }
 
-      const result = await this.blockService.getHierarchy(userJWT, tenantId);
+      const result = await this.blockService.getHierarchy(userJWT, tenantId, environment);
       const transformedResult = this.blockService.transformForFrontend(result);
 
       if (!result.success) {
@@ -186,6 +192,7 @@ class BlockController {
       const { variantId } = req.params;
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -205,7 +212,7 @@ class BlockController {
         return;
       }
 
-      const result = await this.blockService.getVariantById(variantId, userJWT, tenantId);
+      const result = await this.blockService.getVariantById(variantId, userJWT, tenantId, environment);
       const transformedResult = this.blockService.transformForFrontend(result);
 
       if (!result.success) {
@@ -233,6 +240,7 @@ class BlockController {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -243,7 +251,7 @@ class BlockController {
         return;
       }
 
-      const result = await this.blockService.getBlocksForTemplateBuilder(userJWT, tenantId);
+      const result = await this.blockService.getBlocksForTemplateBuilder(userJWT, tenantId, environment);
       const transformedResult = this.blockService.transformForFrontend(result);
 
       if (!result.success) {
@@ -270,6 +278,7 @@ class BlockController {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -293,7 +302,7 @@ class BlockController {
 
       // Get all blocks and filter client-side for now
       // In a real implementation, you might want to add search to the Edge Function
-      const hierarchyResult = await this.blockService.getHierarchy(userJWT, tenantId);
+      const hierarchyResult = await this.blockService.getHierarchy(userJWT, tenantId, environment);
       
       if (!hierarchyResult.success) {
         const transformedResult = this.blockService.transformForFrontend(hierarchyResult);
@@ -391,6 +400,7 @@ class BlockController {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const environment = req.headers['x-environment'] as string || 'test';
 
       if (!tenantId) {
         res.status(400).json({
@@ -401,7 +411,7 @@ class BlockController {
         return;
       }
 
-      const hierarchyResult = await this.blockService.getHierarchy(userJWT, tenantId);
+      const hierarchyResult = await this.blockService.getHierarchy(userJWT, tenantId, environment);
       
       if (!hierarchyResult.success) {
         const transformedResult = this.blockService.transformForFrontend(hierarchyResult);

@@ -315,7 +315,7 @@ export const setupStorage = async (req: Request, res: Response) => {
 };
 
 /**
- * Get list of files for the current tenant
+ * Get list of files for the current tenant - SIMPLIFIED VERSION
  */
 export const listFiles = async (req: Request, res: Response) => {
   try {
@@ -337,7 +337,7 @@ export const listFiles = async (req: Request, res: Response) => {
     const authHeader = req.headers.authorization;
     const tenantId = req.headers['x-tenant-id'] as string;
     const category = req.query.category as string | undefined;
-    const page = parseInt(req.query.page as string) || 1;
+    const page = req.query.page ? parseInt(req.query.page as string) : undefined;
     const pageSize = parseInt(req.query.pageSize as string) || 50;
     
     if (!authHeader) {
@@ -378,29 +378,14 @@ export const listFiles = async (req: Request, res: Response) => {
           severity: AuditSeverity.INFO
         });
         
-        // Instead of returning an error, return an empty array
-        // This way the frontend can still display an empty state
+        // Return empty array for frontend to display empty state
         return res.status(200).json([]);
       }
       
       const result = await storageService.listFiles(authHeader, tenantId, category, page, pageSize);
       
-      // Handle both array and paginated response types
-      let files: StorageFile[];
-      let fileCount: number;
-      let totalFiles: number;
-      
-      if (Array.isArray(result)) {
-        // Simple array response
-        files = result;
-        fileCount = files.length;
-        totalFiles = files.length;
-      } else {
-        // Paginated response
-        files = result.files;
-        fileCount = files.length;
-        totalFiles = result.pagination.total;
-      }
+      // Simple count for audit logging
+      const fileCount = Array.isArray(result) ? result.length : (result as any).files?.length || 0;
       
       // Log successful file listing
       await logAudit(req, {
@@ -411,8 +396,7 @@ export const listFiles = async (req: Request, res: Response) => {
           category,
           page,
           pageSize,
-          fileCount,
-          totalFiles
+          fileCount
         }
       });
       
@@ -422,6 +406,7 @@ export const listFiles = async (req: Request, res: Response) => {
         res.setHeader('X-RateLimit-Remaining', rateLimitInfo.remaining);
       }
       
+      // Simply return whatever the service returns
       return res.status(200).json(result);
     } catch (error: any) {
       // If the storage isn't set up properly, return empty array instead of error

@@ -76,6 +76,8 @@ interface GetMastersFilters {
 class BlockService {
   private readonly edgeFunctionUrl: string;
   private readonly internalSigningSecret: string;
+  // Add Map for race condition prevention
+  private pendingRequests: Map<string, Promise<EdgeFunctionResponse>> = new Map();
 
   constructor() {
     const supabaseUrl = process.env.SUPABASE_URL;
@@ -98,11 +100,12 @@ class BlockService {
    */
   async getCategories(
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse<BlockCategory[]>> {
     try {
       const url = `${this.edgeFunctionUrl}/categories`;
-      return await this.makeRequest('GET', url, null, userJWT, tenantId);
+      return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
     } catch (error) {
       console.error('Error in getCategories:', error);
       throw new Error('Failed to get block categories');
@@ -115,7 +118,8 @@ class BlockService {
   async getMasters(
     filters: GetMastersFilters,
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse<BlockMaster[]>> {
     try {
       const queryParams = new URLSearchParams();
@@ -125,7 +129,7 @@ class BlockService {
       }
 
       const url = `${this.edgeFunctionUrl}/masters?${queryParams.toString()}`;
-      return await this.makeRequest('GET', url, null, userJWT, tenantId);
+      return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
     } catch (error) {
       console.error('Error in getMasters:', error);
       throw new Error('Failed to get block masters');
@@ -138,11 +142,12 @@ class BlockService {
   async getVariants(
     masterId: string,
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse<BlockVariant[]>> {
     try {
       const url = `${this.edgeFunctionUrl}/masters/${masterId}/variants`;
-      return await this.makeRequest('GET', url, null, userJWT, tenantId);
+      return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
     } catch (error) {
       console.error('Error in getVariants:', error);
       throw new Error('Failed to get block variants');
@@ -151,17 +156,41 @@ class BlockService {
 
   /**
    * Get complete block hierarchy (categories -> masters -> variants)
+   * WITH RACE CONDITION PREVENTION
    */
   async getHierarchy(
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse<BlockHierarchy[]>> {
+    // Create cache key for deduplication
+    const cacheKey = `hierarchy-${tenantId}-${environment}`;
+    
+    // Check if request is already pending
+    if (this.pendingRequests.has(cacheKey)) {
+      console.log(`Returning pending request for: ${cacheKey}`);
+      return this.pendingRequests.get(cacheKey)!;
+    }
+
     try {
       const url = `${this.edgeFunctionUrl}/hierarchy`;
-      return await this.makeRequest('GET', url, null, userJWT, tenantId);
+      
+      // Create the request promise
+      const requestPromise = this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+      
+      // Store in pending requests map
+      this.pendingRequests.set(cacheKey, requestPromise);
+      
+      // Wait for result
+      const result = await requestPromise;
+      
+      return result;
     } catch (error) {
       console.error('Error in getHierarchy:', error);
       throw new Error('Failed to get block hierarchy');
+    } finally {
+      // Clean up pending request
+      this.pendingRequests.delete(cacheKey);
     }
   }
 
@@ -171,11 +200,12 @@ class BlockService {
   async getVariantById(
     variantId: string,
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse<BlockVariant>> {
     try {
       const url = `${this.edgeFunctionUrl}/variant/${variantId}`;
-      return await this.makeRequest('GET', url, null, userJWT, tenantId);
+      return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
     } catch (error) {
       console.error('Error in getVariantById:', error);
       throw new Error('Failed to get block variant');
@@ -184,28 +214,34 @@ class BlockService {
 
   /**
    * Private method to make HMAC-signed requests to Edge Functions
+   * UPDATED with environment support
    */
   private async makeRequest(
     method: string,
     url: string,
     body: any,
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse> {
     try {
       const requestBody = body ? JSON.stringify(body) : '';
       
-      // Generate HMAC signature for internal API authentication
-      const signature = this.generateHMACSignature(requestBody);
+      // Generate HMAC signature for internal API authentication (only for non-GET)
+      let signature = '';
+      if (method !== 'GET' && this.internalSigningSecret) {
+        signature = this.generateHMACSignature(requestBody);
+      }
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${userJWT}`, // Forward user JWT
-        'x-tenant-id': tenantId              // Tenant context
+        'x-tenant-id': tenantId,              // Tenant context
+        'x-environment': environment          // Environment (live/test)
       };
 
-      // Only add signature header if we have a signing secret
-      if (this.internalSigningSecret) {
+      // Only add signature header for non-GET requests
+      if (method !== 'GET' && this.internalSigningSecret) {
         headers['x-internal-signature'] = signature;
       }
 
@@ -219,6 +255,7 @@ class BlockService {
       }
 
       console.log(`Making ${method} request to: ${url}`);
+      console.log(`Environment: ${environment}, Tenant: ${tenantId}`);
 
       const response = await fetch(url, requestOptions);
       const responseData = await response.json();
@@ -265,6 +302,7 @@ class BlockService {
 
   /**
    * Transform Edge Function response for frontend consumption
+   * FIXED to handle both 'masters' and 'blockMasters'
    */
   transformForFrontend(edgeResponse: EdgeFunctionResponse): any {
     if (!edgeResponse.success) {
@@ -306,6 +344,7 @@ class BlockService {
 
   /**
    * Transform single block item for frontend consumption
+   * FIXED to handle both 'masters' and 'blockMasters' properties
    */
   private transformSingleBlockItem(item: any): any {
     // Base transformation for common fields
@@ -345,6 +384,7 @@ class BlockService {
     // Variant-specific fields
     if (item.block_id) {
       transformed.block_id = item.block_id;
+      transformed.node_type = item.node_type || transformed.node_type;
       transformed.default_config = item.default_config;
       
       // Include master data if available
@@ -353,9 +393,11 @@ class BlockService {
       }
     }
 
-    // Hierarchy-specific fields (masters with variants)
-    if (item.masters) {
-      transformed.masters = item.masters.map((master: any) => ({
+    // Hierarchy-specific fields - FIX: handle both 'masters' and 'blockMasters'
+    const mastersData = item.masters || item.blockMasters;
+    if (mastersData) {
+      // Always normalize to 'masters' for frontend
+      transformed.masters = mastersData.map((master: any) => ({
         ...this.transformSingleBlockItem(master),
         variants: master.variants ? master.variants.map((variant: any) => 
           this.transformSingleBlockItem(variant)
@@ -372,10 +414,11 @@ class BlockService {
    */
   async getBlocksForTemplateBuilder(
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'test'
   ): Promise<EdgeFunctionResponse> {
     try {
-      const hierarchyResponse = await this.getHierarchy(userJWT, tenantId);
+      const hierarchyResponse = await this.getHierarchy(userJWT, tenantId, environment);
       
       if (!hierarchyResponse.success) {
         return hierarchyResponse;
@@ -402,9 +445,9 @@ class BlockService {
   private enrichForTemplateBuilder(hierarchyData: any[]): any[] {
     return hierarchyData.map(category => ({
       ...category,
-      masters: category.masters.map((master: any) => ({
+      masters: category.masters?.map((master: any) => ({
         ...master,
-        variants: master.variants.map((variant: any) => ({
+        variants: master.variants?.map((variant: any) => ({
           ...variant,
           // Add template builder specific metadata
           isAvailable: true,
@@ -414,8 +457,8 @@ class BlockService {
           masterName: master.name,
           displayName: `${master.name} - ${variant.name}`,
           searchTerms: this.generateSearchTerms(category.name, master.name, variant.name)
-        }))
-      }))
+        })) || []
+      })) || []
     }));
   }
 

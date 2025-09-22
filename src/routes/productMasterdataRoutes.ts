@@ -25,6 +25,20 @@ const masterdataRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
+// Enhanced rate limiting for search endpoints (more resource intensive)
+const searchRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 search requests per windowMs
+  message: {
+    success: false,
+    error: 'Too many search requests, please try again later',
+    code: 'RATE_LIMIT_EXCEEDED',
+    timestamp: new Date().toISOString()
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Apply rate limiting to all routes
 router.use(masterdataRateLimit);
 
@@ -102,6 +116,10 @@ router.get('/health', productMasterdataController.healthCheck);
  *                       type: array
  *                       items:
  *                         type: string
+ *                     pagination_limits:
+ *                       type: object
+ *                     search_constraints:
+ *                       type: object
  *                 timestamp:
  *                   type: string
  *                   format: date-time
@@ -337,10 +355,255 @@ router.get('/global/categories', productMasterdataController.getAllGlobalCategor
  */
 router.get('/tenant/categories', productMasterdataController.getAllTenantCategories);
 
+// =================================================================
+// NEW ENHANCED ROUTES (Industry-First Onboarding)
+// =================================================================
+
+/**
+ * @swagger
+ * /api/product-masterdata/industries:
+ *   get:
+ *     summary: Get industries with pagination and search
+ *     description: Retrieve all industries with pagination, search, and filtering capabilities
+ *     tags: [Product Master Data, Industries]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 10000
+ *           default: 1
+ *         description: Page number for pagination
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: Number of records per page
+ *         example: 50
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           minLength: 3
+ *           maxLength: 100
+ *         description: Search term for industry name or description (minimum 3 characters)
+ *         example: technology
+ *       - in: query
+ *         name: is_active
+ *         schema:
+ *           type: boolean
+ *           default: true
+ *         description: Filter by active status
+ *     responses:
+ *       200:
+ *         description: Industries retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Industry'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMetadata'
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ */
+router.get('/industries', searchRateLimit, productMasterdataController.getIndustries);
+
+/**
+ * @swagger
+ * /api/product-masterdata/categories/all:
+ *   get:
+ *     summary: Get all categories with pagination and search
+ *     description: Retrieve all categories across industries with pagination, search, and filtering
+ *     tags: [Product Master Data, Categories]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 10000
+ *           default: 1
+ *         description: Page number for pagination
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: Number of records per page
+ *         example: 50
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           minLength: 3
+ *           maxLength: 100
+ *         description: Search term for category name or display name (minimum 3 characters)
+ *         example: pricing
+ *       - in: query
+ *         name: is_active
+ *         schema:
+ *           type: boolean
+ *           default: true
+ *         description: Filter by active status
+ *     responses:
+ *       200:
+ *         description: Categories retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/CategoryIndustryMap'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMetadata'
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ */
+router.get('/categories/all', searchRateLimit, productMasterdataController.getAllCategories);
+
+/**
+ * @swagger
+ * /api/product-masterdata/categories/by-industry:
+ *   get:
+ *     summary: Get categories filtered by industry
+ *     description: Retrieve categories specific to an industry with advanced filtering options
+ *     tags: [Product Master Data, Categories, Industries]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: industry_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Industry identifier to filter categories
+ *         example: 12345678-1234-5678-9012-123456789012
+ *       - in: query
+ *         name: is_primary
+ *         schema:
+ *           type: boolean
+ *           default: false
+ *         description: Filter to show only primary categories for the industry
+ *         example: true
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 10000
+ *           default: 1
+ *         description: Page number for pagination
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: Number of records per page
+ *         example: 50
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           minLength: 3
+ *           maxLength: 100
+ *         description: Search term for category name or display name (minimum 3 characters)
+ *         example: pricing
+ *       - in: query
+ *         name: is_active
+ *         schema:
+ *           type: boolean
+ *           default: true
+ *         description: Filter by active status
+ *     responses:
+ *       200:
+ *         description: Industry categories retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/CategoryIndustryMap'
+ *                 industry_id:
+ *                   type: string
+ *                   format: uuid
+ *                   description: The industry ID that was filtered on
+ *                 filters:
+ *                   type: object
+ *                   properties:
+ *                     is_primary_only:
+ *                       type: boolean
+ *                       description: Whether only primary categories were requested
+ *                     search_applied:
+ *                       type: boolean
+ *                       description: Whether search filtering was applied
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMetadata'
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ */
+router.get('/categories/by-industry', searchRateLimit, productMasterdataController.getIndustryCategoriesFiltered);
+
 export default router;
 
 // =================================================================
-// SWAGGER COMPONENT SCHEMAS FOR PRODUCT MASTER DATA
+// SWAGGER COMPONENT SCHEMAS FOR PRODUCT MASTER DATA (Enhanced)
 // =================================================================
 
 /**
@@ -455,6 +718,107 @@ export default router;
  *           nullable: true
  *           description: Category description
  *           example: Different pricing models available
+ * 
+ *     Industry:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *           description: Unique industry identifier
+ *         name:
+ *           type: string
+ *           description: Industry name
+ *           example: Technology & Software
+ *         description:
+ *           type: string
+ *           nullable: true
+ *           description: Industry description
+ *           example: Technology and software development companies
+ *         sort_order:
+ *           type: integer
+ *           description: Sort order for display
+ *           example: 1
+ *         is_active:
+ *           type: boolean
+ *           description: Whether the industry is active
+ *           example: true
+ *         created_at:
+ *           type: string
+ *           format: date-time
+ *           description: Creation timestamp
+ *         updated_at:
+ *           type: string
+ *           format: date-time
+ *           description: Last update timestamp
+ * 
+ *     CategoryIndustryMap:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: string
+ *           format: uuid
+ *           description: Unique mapping identifier
+ *         category_id:
+ *           type: string
+ *           format: uuid
+ *           description: Reference to category
+ *         industry_id:
+ *           type: string
+ *           format: uuid
+ *           description: Reference to industry
+ *         display_name:
+ *           type: string
+ *           description: Industry-specific display name for the category
+ *           example: Software Pricing Models
+ *         display_order:
+ *           type: integer
+ *           description: Display order within industry
+ *           example: 1
+ *         is_primary:
+ *           type: boolean
+ *           description: Whether this is a primary category for the industry
+ *           example: true
+ *         is_active:
+ *           type: boolean
+ *           description: Whether the mapping is active
+ *           example: true
+ *         created_at:
+ *           type: string
+ *           format: date-time
+ *           description: Creation timestamp
+ *         updated_at:
+ *           type: string
+ *           format: date-time
+ *           description: Last update timestamp
+ * 
+ *     PaginationMetadata:
+ *       type: object
+ *       properties:
+ *         current_page:
+ *           type: integer
+ *           description: Current page number
+ *           example: 1
+ *         total_pages:
+ *           type: integer
+ *           description: Total number of pages
+ *           example: 5
+ *         total_records:
+ *           type: integer
+ *           description: Total number of records
+ *           example: 250
+ *         limit:
+ *           type: integer
+ *           description: Records per page
+ *           example: 50
+ *         has_next:
+ *           type: boolean
+ *           description: Whether there are more pages after current
+ *           example: true
+ *         has_prev:
+ *           type: boolean
+ *           description: Whether there are pages before current
+ *           example: false
  * 
  *   responses:
  *     BadRequest:

@@ -77,7 +77,7 @@ export const getTaxSettings = async (req: Request, res: Response) => {
       extra: { tenantId: req.headers['x-tenant-id'] }
     });
 
-    const status = error.response?.status || 500;
+const status = error.status || error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to fetch tax settings';
     
     return res.status(status).json({ error: message });
@@ -174,7 +174,7 @@ export const createUpdateTaxSettings = async (req: Request, res: Response) => {
       extra: { tenantId: req.headers['x-tenant-id'], requestBody: req.body }
     });
 
-    const status = error.response?.status || 500;
+const status = error.status || error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to save tax settings';
     
     return res.status(status).json({ error: message });
@@ -274,7 +274,7 @@ export const createTaxRate = async (req: Request, res: Response) => {
       extra: { tenantId: req.headers['x-tenant-id'], requestBody: req.body }
     });
 
-    const status = error.response?.status || 500;
+    const status = error.status || error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to create tax rate';
     
     return res.status(status).json({ error: message });
@@ -381,7 +381,7 @@ export const updateTaxRate = async (req: Request, res: Response) => {
       extra: { tenantId: req.headers['x-tenant-id'], rateId: req.params.id, requestBody: req.body }
     });
 
-    const status = error.response?.status || 500;
+    const status = error.status || error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to update tax rate';
     
     return res.status(status).json({ error: message });
@@ -457,7 +457,7 @@ export const deleteTaxRate = async (req: Request, res: Response) => {
       extra: { tenantId: req.headers['x-tenant-id'], rateId: req.params.id }
     });
 
-    const status = error.response?.status || 500;
+    const status = error.status || error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to delete tax rate';
     
     return res.status(status).json({ error: message });
@@ -579,7 +579,7 @@ export const activateTaxRate = async (req: Request, res: Response) => {
       }
     });
     
-    const status = error.response?.status || 500;
+   const status = error.status || error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to activate tax rate';
     
     return res.status(status).json({ error: message });

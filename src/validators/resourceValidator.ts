@@ -1,4 +1,5 @@
 // src/validators/resourceValidator.ts
+// FIXED VERSION - Your existing code with edge function response unwrapping
 
 import {
   CreateResourceRequest,
@@ -10,6 +11,24 @@ import {
   Resource,
   ResourceType
 } from '../types/resourcesTypes';
+
+/**
+ * Helper function to unwrap edge function responses
+ * Handles both wrapped and direct responses
+ */
+function unwrapEdgeResponse(response: any): any {
+  console.log('🔧 VALIDATOR - Unwrapping response:', response);
+  
+  // Handle edge function format: { success: true, data: [...] }
+  if (response?.success && response?.data !== undefined) {
+    console.log('✅ VALIDATOR - Extracted data:', response.data);
+    return response.data;
+  }
+  
+  // Handle direct values (boolean, number, array, object)
+  console.log('✅ VALIDATOR - Using direct response:', response);
+  return response;
+}
 
 /**
  * Resource Validator - Validates manual resource entries only
@@ -159,6 +178,7 @@ export class ResourceValidator {
 
   /**
    * Validate resource type exists and get behavior flags
+   * FIXED: Now unwraps edge function responses
    */
   private async validateResourceType(resourceTypeId: string): Promise<{
     isValid: boolean;
@@ -177,8 +197,28 @@ export class ResourceValidator {
     }
 
     try {
+      console.log('🔍 VALIDATOR - Getting resource types for validation');
+      
       // Call service layer to get resource types
-      const resourceTypes = await this.serviceLayer.getResourceTypes();
+      const resourceTypesResponse = await this.serviceLayer.getResourceTypes();
+      
+      // 🔧 FIX: Unwrap the edge function response
+      const resourceTypes = unwrapEdgeResponse(resourceTypesResponse);
+      
+      console.log('✅ VALIDATOR - Got resource types:', resourceTypes?.length || 0);
+      
+      if (!Array.isArray(resourceTypes)) {
+        console.error('❌ VALIDATOR - Resource types is not an array:', typeof resourceTypes);
+        return {
+          isValid: false,
+          errors: [{
+            field: 'resource_type_id',
+            message: 'Unable to validate resource type - invalid response format',
+            code: 'RESOURCE_TYPE_VALIDATION_ERROR'
+          }]
+        };
+      }
+
       const resourceType = resourceTypes.find((rt: ResourceType) => rt.id === resourceTypeId);
 
       if (!resourceType) {
@@ -383,6 +423,7 @@ export class ResourceValidator {
 
   /**
    * Check for duplicate resource names within the same resource type
+   * FIXED: Now unwraps edge function responses
    */
   private async validateUniqueResourceName(
     name: string,
@@ -390,14 +431,21 @@ export class ResourceValidator {
     excludeResourceId?: string
   ): Promise<ValidationResult> {
     try {
+      console.log('🔍 VALIDATOR - Checking name uniqueness:', name, resourceTypeId, excludeResourceId);
+      
       // Call service layer to check for duplicates
-      const isDuplicate = await this.serviceLayer.checkResourceNameExists(
+      const duplicateResponse = await this.serviceLayer.checkResourceNameExists(
         name.trim(),
         resourceTypeId,
         excludeResourceId
       );
 
-      if (isDuplicate) {
+      // 🔧 FIX: Unwrap the edge function response (should be boolean)
+      const isDuplicate = unwrapEdgeResponse(duplicateResponse);
+      
+      console.log('✅ VALIDATOR - Name exists check result:', isDuplicate);
+
+      if (isDuplicate === true) {
         return {
           isValid: false,
           errors: [{
@@ -428,10 +476,20 @@ export class ResourceValidator {
 
   /**
    * Get current resource from service layer
+   * FIXED: Now unwraps edge function responses
    */
   private async getCurrentResource(resourceId: string): Promise<Resource | null> {
     try {
-      return await this.serviceLayer.getResourceById(resourceId);
+      console.log('🔍 VALIDATOR - Getting current resource:', resourceId);
+      
+      const resourceResponse = await this.serviceLayer.getResourceById(resourceId);
+      
+      // 🔧 FIX: Unwrap the edge function response
+      const resource = unwrapEdgeResponse(resourceResponse);
+      
+      console.log('✅ VALIDATOR - Got current resource:', !!resource);
+      
+      return resource || null;
     } catch (error) {
       console.error('Error getting current resource:', error);
       return null;

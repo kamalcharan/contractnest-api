@@ -41,6 +41,16 @@ export enum AuditAction {
   PROFILE_VIEW = 'PROFILE_VIEW',
   
   // ==================
+  // Onboarding Actions (NEW)
+  // ==================
+  ONBOARDING_STATUS_VIEW = 'ONBOARDING_STATUS_VIEW',
+  ONBOARDING_INITIALIZE = 'ONBOARDING_INITIALIZE',
+  ONBOARDING_STEP_COMPLETE = 'ONBOARDING_STEP_COMPLETE',
+  ONBOARDING_STEP_SKIP = 'ONBOARDING_STEP_SKIP',
+  ONBOARDING_PROGRESS_UPDATE = 'ONBOARDING_PROGRESS_UPDATE',
+  ONBOARDING_COMPLETE = 'ONBOARDING_COMPLETE',
+
+  // ==================
   // Storage Actions (existing)
   // ==================
   STORAGE_SETUP = 'STORAGE_SETUP',
@@ -270,6 +280,7 @@ export enum AuditResource {
   NOTIFICATIONS = 'notifications',
   REPORTS = 'reports',
   MASTERDATA = 'masterdata',
+  ONBOARDING = 'onboarding',
   
   // Tax Resources (NEW - for tax functionality)
   TAX_SETTINGS = 'tax_settings',
@@ -489,6 +500,14 @@ export const ActionGroups = {
     AuditAction.USER_ACTIVATE,
     AuditAction.ROLE_CHANGE,
     AuditAction.USER_INVITE
+  ],
+  ONBOARDING: [
+    AuditAction.ONBOARDING_STATUS_VIEW,
+    AuditAction.ONBOARDING_INITIALIZE,
+    AuditAction.ONBOARDING_STEP_COMPLETE,
+    AuditAction.ONBOARDING_STEP_SKIP,
+    AuditAction.ONBOARDING_PROGRESS_UPDATE,
+    AuditAction.ONBOARDING_COMPLETE
   ],
   STORAGE: [
     AuditAction.STORAGE_SETUP,
