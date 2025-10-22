@@ -18,5 +18,16 @@
     "typeRoots": ["node_modules/@types"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.bak.ts",
+    "**/index_bak.ts",
+    "src/graphql/**/*",
+    "src/services/catalogService.ts",
+    "src/validators/serviceCatalogValidators.ts",
+    "src/middleware/serviceCatalogAuth.ts",
+    "src/utils/catalogHelpers.ts",
+    "src/validators/catalog.ts"
+  ]
 }

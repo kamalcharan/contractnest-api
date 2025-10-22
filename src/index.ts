@@ -220,16 +220,32 @@ const PORT = process.env.PORT || 5000;
 // ====================
 
 // 1. CORS - needed for all routes
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173',
+      'https://contractnest.com',
+      'https://www.contractnest.com',
+      'https://contractnest-ui-production.up.railway.app',
+      'https://contractnest-api-production.up.railway.app'
+    ];
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:5173',  // Vite default port
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
-    'https://contractnest-ui-production.up.railway.app',  
-    'https://contractnest.com',                           
-    'https://*.up.railway.app'              
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list or matches Railway pattern
+    if (allowedOrigins.includes(origin) || origin.endsWith('.up.railway.app')) {
+      callback(null, true);
+    } else {
+      console.warn(`⚠️  CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [

@@ -1,0 +1,16 @@
+docker build -t vikuna/contractnest-api:v2.71 .
+
+docker tag vikuna/contractnest-api:v2.71 vikuna/contractnest-api:latest
+
+
+
+
+
+# Login to Docker Hub (if not already logged in)
+docker login
+
+# Push the specific version
+docker push vikuna/contractnest-api:v2.71
+
+# Push latest tag (optional but recommended)
+docker push vikuna/contractnest-api:latest

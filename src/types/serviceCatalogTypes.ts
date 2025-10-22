@@ -1,11 +1,12 @@
-// src/types/serviceCatalogTypes.ts
+// backend/src/types/serviceCatalogTypes.ts
+// Service Catalog Types - Updated with all required fields
 
 // =============================================================================
 // CORE SERVICE INTERFACES
 // =============================================================================
 
 /**
- * Service Pricing Configuration
+ * Service Pricing Configuration (Legacy Format)
  */
 export interface ServicePricingConfig {
   base_price: number;
@@ -16,7 +17,20 @@ export interface ServicePricingConfig {
 }
 
 /**
- * Required Resource
+ * ✅ NEW: Service Pricing Record (Array Format)
+ */
+export interface ServicePricingRecord {
+  amount: number;
+  currency: string;
+  price_type: string; // 'fixed', 'unit_price', 'price_range'
+  tax_inclusion?: 'inclusive' | 'exclusive';
+  tax_rate_id?: string;
+  tax_rate?: number;
+  billing_cycle?: string;
+}
+
+/**
+ * Required Resource (Legacy Format)
  */
 export interface RequiredResource {
   resource_id: string;
@@ -25,35 +39,80 @@ export interface RequiredResource {
 }
 
 /**
- * Service from t_catalog_items table
+ * ✅ NEW: Resource Requirement (Array Format)
+ */
+export interface ResourceRequirement {
+  resource_id: string;
+  resource_type_id?: string;
+  quantity?: number;
+  is_required?: boolean;
+  duration_hours?: number;
+  unit_cost?: number;
+  currency?: string;
+  is_billable?: boolean;
+  required_skills?: string[];
+  required_attributes?: Record<string, any>;
+  sequence_order?: number;
+}
+
+/**
+ * ✅ UPDATED: Service from t_catalog_items table
+ * Added all missing fields
  */
 export interface Service {
+  // Core identification
   id: string;
   tenant_id: string;
   service_name: string;
   description?: string;
+  short_description?: string; // ✅ ADDED
   sku?: string;
-  category_id: string;
-  industry_id: string;
-  pricing_config: ServicePricingConfig;
+  
+  // Categorization
+  category_id?: string | null;
+  industry_id?: string | null;
+  
+  // Pricing
+  pricing_config?: ServicePricingConfig;
+  
+  // Attributes
   service_attributes?: Record<string, any>;
   duration_minutes?: number;
+  
+  // Status fields
   is_active: boolean;
-  sort_order?: number;
+  status: boolean; // ✅ Boolean status
+  
+  // Service type
+  service_type?: 'independent' | 'resource_based'; // ✅ ADDED
+  
+  // Variant support
+  is_variant?: boolean;
+  parent_id?: string | null;
+  
+  // Resources
   required_resources?: RequiredResource[];
+  
+  // Display & organization
+  sort_order?: number;
   tags?: string[];
-  slug: string;
+  slug?: string;
+  image_url?: string; // ✅ ADDED
+  
+  // Timestamps
   created_at: string;
   updated_at: string;
   created_by?: string;
   updated_by?: string;
-  is_live: boolean;
-  status: string;
-  // Display fields
-  display_name: string;
-  formatted_price: string;
-  has_resources: boolean;
-  resource_count: number;
+  
+  // Environment
+  is_live?: boolean;
+  
+  // Computed/Display fields (populated by queries)
+  display_name?: string;
+  formatted_price?: string;
+  has_resources?: boolean;
+  resource_count?: number;
 }
 
 /**
@@ -120,37 +179,94 @@ export interface MasterData {
 // =============================================================================
 
 /**
- * Create service request
+ * ✅ UPDATED: Create service request
+ * Now supports both legacy and new formats
  */
 export interface CreateServiceRequest {
+  // Required fields
   service_name: string;
+  
+  // Optional identification
   description?: string;
+  short_description?: string; // ✅ ADDED
   sku?: string;
-  category_id: string;
-  industry_id: string;
-  pricing_config: ServicePricingConfig;
+  
+  // Categorization
+  category_id?: string | null;
+  industry_id?: string | null;
+  
+  // Pricing (support both formats)
+  pricing_config?: ServicePricingConfig;      // Legacy format
+  pricing_records?: ServicePricingRecord[];   // New array format
+  
+  // Service type
+  service_type?: 'independent' | 'resource_based';
+  
+  // Resources (support both formats)
+  required_resources?: RequiredResource[];    // Legacy format
+  resource_requirements?: ResourceRequirement[]; // New array format
+  
+  // Additional attributes
   service_attributes?: Record<string, any>;
   duration_minutes?: number;
   is_active?: boolean;
+  status?: boolean;
   sort_order?: number;
-  required_resources?: RequiredResource[];
   tags?: string[];
+  
+  // Variant support
+  is_variant?: boolean;
+  parent_id?: string | null;
+  
+  // Display
+  image_url?: string; // ✅ ADDED
+  
+  // Additional fields for edge function
+  terms?: string;
+  terms_format?: string;
+  metadata?: Record<string, any>;
+  specifications?: Record<string, any>;
 }
 
 /**
- * Update service request
+ * ✅ UPDATED: Update service request
  */
 export interface UpdateServiceRequest {
   service_name?: string;
   description?: string;
+  short_description?: string; // ✅ ADDED
   sku?: string;
-  pricing_config?: ServicePricingConfig;
+  
+  // Support both pricing formats
+  pricing_config?: Partial<ServicePricingConfig>;
+  pricing_records?: ServicePricingRecord[];
+  
+  // Service type
+  service_type?: 'independent' | 'resource_based';
+  
+  // Support both resource formats
+  required_resources?: RequiredResource[];
+  resource_requirements?: ResourceRequirement[];
+  
   service_attributes?: Record<string, any>;
   duration_minutes?: number;
   is_active?: boolean;
+  status?: boolean;
   sort_order?: number;
-  required_resources?: RequiredResource[];
   tags?: string[];
+  
+  // Variant support
+  is_variant?: boolean; 
+  parent_id?: string | null;
+  
+  // Display
+  image_url?: string; // ✅ ADDED
+  
+  // Additional fields
+  terms?: string;
+  terms_format?: string;
+  metadata?: Record<string, any>;
+  specifications?: Record<string, any>;
 }
 
 /**
@@ -280,6 +396,9 @@ export const ServiceValidationRules = {
   description: {
     maxLength: 2000,
   },
+  short_description: {
+    maxLength: 500,
+  },
   sku: {
     maxLength: 100,
     pattern: /^[A-Za-z0-9\-_]+$/,
@@ -391,7 +510,8 @@ export type ServiceForFrontend = Omit<Service, 'tenant_id' | 'is_live' | 'create
  */
 export type ServiceCreateData = Omit<
   Service, 
-  'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by' | 'slug' | 'display_name' | 'formatted_price' | 'has_resources' | 'resource_count'
+  'id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by' | 
+  'slug' | 'display_name' | 'formatted_price' | 'has_resources' | 'resource_count'
 >;
 
 /**
@@ -399,7 +519,8 @@ export type ServiceCreateData = Omit<
  */
 export type ServiceUpdateData = Partial<Omit<
   Service, 
-  'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by' | 'slug' | 'display_name' | 'formatted_price' | 'has_resources' | 'resource_count'
+  'id' | 'tenant_id' | 'created_at' | 'updated_at' | 'created_by' | 'updated_by' | 
+  'slug' | 'display_name' | 'formatted_price' | 'has_resources' | 'resource_count'
 >>;
 
 // =============================================================================
@@ -407,13 +528,20 @@ export type ServiceUpdateData = Partial<Omit<
 // =============================================================================
 
 /**
- * Service status values
+ * ✅ DEPRECATED: Service status is now boolean
+ * Kept for backward compatibility only
  */
 export const SERVICE_STATUS = {
-  ACTIVE: 'active',
-  INACTIVE: 'inactive',
-  DRAFT: 'draft',
-  DELETED: 'deleted',
+  ACTIVE: true,
+  INACTIVE: false,
+} as const;
+
+/**
+ * Service types
+ */
+export const SERVICE_TYPES = {
+  INDEPENDENT: 'independent',
+  RESOURCE_BASED: 'resource_based',
 } as const;
 
 /**
@@ -442,6 +570,7 @@ export default {
   ServiceValidationRules,
   ServiceCatalogHttpStatus,
   SERVICE_STATUS,
+  SERVICE_TYPES,
   SORT_OPTIONS,
   SORT_DIRECTIONS,
 };

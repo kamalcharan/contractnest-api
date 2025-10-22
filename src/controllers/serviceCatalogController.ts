@@ -1,709 +1,1258 @@
-// src/controllers/serviceCatalogController.ts
-// Service Catalog API Controller - Production Grade
+// Backend-src/controllers/serviceCatalogController.ts
+// Service Catalog Controller - Express API Layer
+// ✅ FIXED: No Supabase client needed - matches ContactController pattern
+// ✅ UPDATED: Boolean status + variant support + new endpoints
 
 import { Request, Response } from 'express';
-import { ServiceCatalogValidator } from '../validators/serviceCatalogValidator';
-import serviceCatalogService from '../services/serviceCatalogService';
-import {
-  CreateServiceRequest,
-  UpdateServiceRequest,
-  GetServicesQuery,
-  ServiceCatalogHttpStatus,
-  ApiResponse,
-  ErrorResponse,
-  ServiceCatalogServiceConfig
-} from '../types/serviceCatalogTypes';
+import { ServiceCatalogService } from '../services/serviceCatalogService';
+import { GetServicesQuery } from '../types/serviceCatalogTypes';
+
+// ============================================================================
+// TYPE GUARDS & VALIDATORS
+// ============================================================================
 
 /**
- * Extract actual data from edge function response
- * Handles both wrapped and direct responses
+ * Valid sort_by options
  */
-function extractEdgeData(edgeResponse: any): any {
-  console.log('Extracting edge data from:', edgeResponse);
-  
-  // Handle edge function format: { success: true, data: [...] }
-  if (edgeResponse?.success && edgeResponse?.data !== undefined) {
-    console.log('Extracted edge data:', edgeResponse.data);
-    return edgeResponse.data;
-  }
-  
-  // Handle direct array/object
-  if (Array.isArray(edgeResponse) || (typeof edgeResponse === 'object' && edgeResponse !== null)) {
-    console.log('Using direct data:', edgeResponse);
-    return edgeResponse;
-  }
-  
-  // Handle primitive values
-  if (typeof edgeResponse === 'number' || typeof edgeResponse === 'string') {
-    console.log('Using primitive data:', edgeResponse);
-    return edgeResponse;
-  }
-  
-  console.log('Unknown data format, returning empty array');
-  return [];
+const VALID_SORT_BY = ['name', 'price', 'created_at', 'sort_order'] as const;
+type ValidSortBy = typeof VALID_SORT_BY[number];
+
+/**
+ * Valid sort_direction options
+ */
+const VALID_SORT_DIRECTION = ['asc', 'desc'] as const;
+type ValidSortDirection = typeof VALID_SORT_DIRECTION[number];
+
+/**
+ * Type guard for sort_by
+ */
+function isValidSortBy(value: any): value is ValidSortBy {
+  return VALID_SORT_BY.includes(value);
 }
 
 /**
- * Extract user ID from JWT token for audit trail
+ * Type guard for sort_direction
  */
-function extractUserIdFromAuth(authHeader: string): string | null {
-  try {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.sub || null;
-  } catch (error) {
-    console.error('Error extracting user ID from token:', error);
-    return null;
-  }
+function isValidSortDirection(value: any): value is ValidSortDirection {
+  return VALID_SORT_DIRECTION.includes(value);
 }
 
 /**
- * Extract tenant ID from JWT token
+ * Parse and validate sort_by parameter
  */
-function extractTenantIdFromAuth(authHeader: string): string | null {
-  try {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.app_metadata?.tenant_id || null;
-  } catch (error) {
-    console.error('Error extracting tenant ID from token:', error);
-    return null;
+function parseSortBy(value: any): ValidSortBy {
+  if (isValidSortBy(value)) {
+    return value;
   }
+  return 'created_at'; // Default
 }
 
 /**
- * Service Catalog Controller - Handles HTTP requests, validation, and response formatting
+ * Parse and validate sort_direction parameter
  */
-export class ServiceCatalogController {
-  /**
-   * Create validator with auth context per request
-   */
-  private createValidator(authHeader: string, tenantId: string): ServiceCatalogValidator {
-    return new ServiceCatalogValidator(
-      {
-        getMasterData: async () => {
-          const edgeResponse = await serviceCatalogService.getMasterDataForValidator(authHeader, tenantId);
-          return extractEdgeData(edgeResponse);
-        },
-        checkServiceNameExists: async (name: string, categoryId: string, excludeServiceId?: string) => {
-          const edgeResponse = await serviceCatalogService.checkServiceNameExists(authHeader, tenantId, name, categoryId, excludeServiceId);
-          return extractEdgeData(edgeResponse);
-        },
-        getServiceById: async (serviceId: string) => {
-          const edgeResponse = await serviceCatalogService.getServiceById(authHeader, tenantId, serviceId);
-          return extractEdgeData(edgeResponse);
-        }
-      },
-      {
-        tenant_id: tenantId,
-        is_live: true,
-        timeout: 30000
-      }
-    );
+function parseSortDirection(value: any): ValidSortDirection {
+  if (isValidSortDirection(value)) {
+    return value;
+  }
+  return 'desc'; // Default
+}
+
+/**
+ * Parse boolean query parameter
+ */
+function parseBoolean(value: any): boolean | undefined {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
+/**
+ * Parse number with validation
+ */
+function parseNumber(value: any, defaultValue?: number): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+  const parsed = Number(value);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+// ============================================================================
+// SERVICE CATALOG CONTROLLER CLASS
+// ============================================================================
+
+class ServiceCatalogController {
+  private serviceCatalogService: ServiceCatalogService;
+
+  constructor() {
+    // ✅ Simple initialization - no Supabase client needed
+    this.serviceCatalogService = new ServiceCatalogService();
+    console.log('✅ Service Catalog Controller: Initialized successfully');
   }
 
-  // ============================================================================
-  // MAIN CRUD ENDPOINTS
-  // ============================================================================
+  // ==========================================================================
+  // MASTER DATA ENDPOINTS
+  // ==========================================================================
 
   /**
-   * Get services (all, filtered, or single)
+   * Get master data (categories, industries, currencies, tax rates)
+   * GET /api/service-catalog/master-data
    */
-  async getServices(req: Request, res: Response): Promise<Response> {
+  getMasterData = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
     try {
       const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const { 
-        search_term, 
-        category_id, 
-        industry_id, 
-        is_active, 
-        price_min, 
-        price_max, 
-        currency, 
-        has_resources,
-        sort_by, 
-        sort_direction, 
-        limit, 
-        offset 
-      } = req.query;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
 
-      console.log('API getServices called:', {
-        tenantIdHeader,
-        hasFilters: !!(search_term || category_id || industry_id),
-        hasAuth: !!authHeader,
+      console.log('Getting master data', {
+        requestId,
+        tenantId,
+        environment
       });
 
-      // Enhanced header validation
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
       }
 
-      const { userId, tenantId } = securityValidation;
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
 
-      // Build filters object with proper type conversion
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const masterData = await this.serviceCatalogService.getMasterData(
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      res.status(200).json({
+        success: true,
+        data: masterData,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to get master data', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'MASTER_DATA_ERROR',
+          message: 'Failed to fetch master data',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  // ==========================================================================
+  // SERVICE QUERY ENDPOINTS
+  // ==========================================================================
+
+  /**
+   * Query service catalog items with filters
+   * GET /api/service-catalog/services
+   */
+  getServices = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Querying services', {
+        requestId,
+        tenantId,
+        query: req.query
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      // Parse filters with proper type safety
       const filters: GetServicesQuery = {
-        search_term: typeof search_term === 'string' ? search_term : undefined,
-        category_id: typeof category_id === 'string' ? category_id : undefined,
-        industry_id: typeof industry_id === 'string' ? industry_id : undefined,
-        is_active: typeof is_active === 'string' ? (is_active === 'true' ? true : is_active === 'false' ? false : undefined) : undefined,
-        price_min: typeof price_min === 'string' ? parseFloat(price_min) : undefined,
-        price_max: typeof price_max === 'string' ? parseFloat(price_max) : undefined,
-        currency: typeof currency === 'string' ? currency : undefined,
-        has_resources: typeof has_resources === 'string' ? (has_resources === 'true' ? true : has_resources === 'false' ? false : undefined) : undefined,
-        sort_by: typeof sort_by === 'string' ? sort_by as any : undefined,
-        sort_direction: typeof sort_direction === 'string' ? sort_direction as 'asc' | 'desc' : undefined,
-        limit: typeof limit === 'string' ? parseInt(limit) : 50,
-        offset: typeof offset === 'string' ? parseInt(offset) : 0
+        search_term: req.query.search_term as string | undefined,
+        category_id: req.query.category_id as string | undefined,
+        industry_id: req.query.industry_id as string | undefined,
+        
+        // Parse boolean with validation
+        is_active: parseBoolean(req.query.is_active),
+        has_resources: parseBoolean(req.query.has_resources),
+        
+        // Parse numbers with validation
+        price_min: parseNumber(req.query.price_min),
+        price_max: parseNumber(req.query.price_max),
+        
+        // String parameters
+        currency: req.query.currency as string | undefined,
+        
+        // Parse sort parameters with type guards
+        sort_by: parseSortBy(req.query.sort_by),
+        sort_direction: parseSortDirection(req.query.sort_direction),
+        
+        // Parse pagination with defaults
+        limit: parseNumber(req.query.limit, 50),
+        offset: parseNumber(req.query.offset, 0)
       };
 
-      const edgeResponse = await serviceCatalogService.getServices(authHeader!, tenantId!, filters);
-      const data = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully retrieved services for tenant ${tenantId}: ${data?.items?.length || 0} items`);
-      return this.sendSuccessResponse(res, data, 'Services retrieved successfully', ServiceCatalogHttpStatus.OK);
-
-    } catch (error: any) {
-      console.error('Error in getServices controller:', error);
-      return this.handleServiceError(res, error);
-    }
-  }
-
-  /**
-   * Get single service by ID
-   */
-  async getService(req: Request, res: Response): Promise<Response> {
-    try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const serviceId = req.params.id;
-
-      console.log('API getService called:', {
-        serviceId,
-        tenantIdHeader,
-        hasAuth: !!authHeader,
+      console.log('Parsed filters', {
+        requestId,
+        filters: {
+          hasSearch: !!filters.search_term,
+          hasCategory: !!filters.category_id,
+          hasIndustry: !!filters.industry_id,
+          isActive: filters.is_active,
+          sortBy: filters.sort_by,
+          sortDirection: filters.sort_direction,
+          limit: filters.limit,
+          offset: filters.offset
+        }
       });
 
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
-      }
+      const result = await this.serviceCatalogService.queryServices(
+        filters,
+        accessToken,
+        tenantId,
+        environment
+      );
 
-      const { tenantId } = securityValidation;
-
-      if (!serviceId) {
-        return this.sendErrorResponse(res, 'Service ID is required', ServiceCatalogHttpStatus.BAD_REQUEST);
-      }
-
-      const edgeResponse = await serviceCatalogService.getServiceById(authHeader!, tenantId!, serviceId);
-      
-      // Fix the type checking here
-      if (!edgeResponse) {
-        return this.sendErrorResponse(res, 'Service not found', ServiceCatalogHttpStatus.NOT_FOUND);
-      }
-
-      const data = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully retrieved service ${serviceId} for tenant ${tenantId}`);
-      return this.sendSuccessResponse(res, data, 'Service retrieved successfully', ServiceCatalogHttpStatus.OK);
-
+      res.status(200).json({
+        success: true,
+        data: result,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
     } catch (error: any) {
-      console.error('Error in getService controller:', error);
-      return this.handleServiceError(res, error);
+      console.error('Failed to query services', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'QUERY_ERROR',
+          message: 'Failed to query services',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
     }
-  }
+  };
+
+  /**
+   * Get a single service by ID
+   * GET /api/service-catalog/services/:id
+   */
+  getService = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const serviceId = req.params.id;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Getting service by ID', {
+        requestId,
+        serviceId,
+        tenantId
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const service = await this.serviceCatalogService.getServiceById(
+        serviceId,
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      res.status(200).json({
+        success: true,
+        data: service,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to get service', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      const statusCode = error.message.includes('not found') ? 404 : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: statusCode === 404 ? 'NOT_FOUND' : 'FETCH_ERROR',
+          message: statusCode === 404 ? 'Service not found' : 'Failed to fetch service',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
 
   /**
    * Get service resources
+   * GET /api/service-catalog/services/:id/resources
    */
-  async getServiceResources(req: Request, res: Response): Promise<Response> {
+  getServiceResources = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
     try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
       const serviceId = req.params.id;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
 
-      console.log('API getServiceResources called:', {
+      console.log('Getting service resources', {
+        requestId,
         serviceId,
-        tenantIdHeader,
-        hasAuth: !!authHeader,
+        tenantId
       });
-
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
-      }
-
-      const { tenantId } = securityValidation;
-
-      if (!serviceId) {
-        return this.sendErrorResponse(res, 'Service ID is required', ServiceCatalogHttpStatus.BAD_REQUEST);
-      }
-
-      const edgeResponse = await serviceCatalogService.getServiceResources(authHeader!, tenantId!, serviceId);
-      const data = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully retrieved resources for service ${serviceId}`);
-      return this.sendSuccessResponse(res, data, 'Service resources retrieved successfully', ServiceCatalogHttpStatus.OK);
-
-    } catch (error: any) {
-      console.error('Error in getServiceResources controller:', error);
-      return this.handleServiceError(res, error);
-    }
-  }
-
-  /**
-   * Get master data (categories, industries, currencies)
-   */
-  async getMasterData(req: Request, res: Response): Promise<Response> {
-    try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
-
-      console.log('API getMasterData called:', {
-        tenantIdHeader,
-        hasAuth: !!authHeader,
-      });
-
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
-      }
-
-      const { tenantId } = securityValidation;
-
-      const edgeResponse = await serviceCatalogService.getMasterData(authHeader!, tenantId!);
-      const data = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully retrieved master data for tenant ${tenantId}`);
-      return this.sendSuccessResponse(res, data, 'Master data retrieved successfully', ServiceCatalogHttpStatus.OK);
-
-    } catch (error: any) {
-      console.error('Error in getMasterData controller:', error);
-      return this.handleServiceError(res, error);
-    }
-  }
-
-  /**
-   * Create new service
-   */
-  async createService(req: Request, res: Response): Promise<Response> {
-    try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const idempotencyKey = req.headers['x-idempotency-key'] as string;
-      const requestData: CreateServiceRequest = req.body;
-
-      console.log('API createService called:', {
-        tenantIdHeader,
-        serviceName: requestData.service_name,
-        hasAuth: !!authHeader,
-        hasIdempotencyKey: !!idempotencyKey,
-      });
-
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
-      }
-
-      const { userId, tenantId } = securityValidation;
-
-      // Validate request data
-      const validator = this.createValidator(authHeader!, tenantId!);
-      const validationResult = await validator.validateCreateRequest(requestData);
-      if (!validationResult.isValid) {
-        console.log('Validation failed:', validationResult.errors);
-        return this.sendValidationErrorResponse(res, validationResult.errors);
-      }
-
-      // Add security context
-      const secureRequestData = {
-        ...requestData,
-        tenant_id: tenantId,
-        created_by: userId,
-        updated_by: userId
-      };
-
-      const edgeResponse = await serviceCatalogService.createService(
-        authHeader!, 
-        tenantId!, 
-        secureRequestData, 
-        idempotencyKey
-      );
-
-      const service = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully created service: ${service?.service_name || 'unknown'} by user ${userId} for tenant ${tenantId}`);
-
-      return this.sendSuccessResponse(
-        res, 
-        service, 
-        'Service created successfully', 
-        ServiceCatalogHttpStatus.CREATED
-      );
-
-    } catch (error: any) {
-      console.error('Error in createService controller:', error);
-      return this.handleServiceError(res, error);
-    }
-  }
-
-  /**
-   * Update existing service
-   */
-  async updateService(req: Request, res: Response): Promise<Response> {
-    try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const idempotencyKey = req.headers['x-idempotency-key'] as string;
-      const serviceId = req.params.id;
-      const requestData: UpdateServiceRequest = req.body;
-
-      console.log('API updateService called:', {
-        serviceId,
-        tenantIdHeader,
-        hasAuth: !!authHeader,
-        hasIdempotencyKey: !!idempotencyKey,
-      });
-
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
-      }
-
-      const { userId, tenantId } = securityValidation;
-
-      if (!serviceId) {
-        return this.sendErrorResponse(res, 'Service ID is required', ServiceCatalogHttpStatus.BAD_REQUEST);
-      }
-
-      // Validate request data
-      const validator = this.createValidator(authHeader!, tenantId!);
-      const validationResult = await validator.validateUpdateRequest(serviceId, requestData);
-      if (!validationResult.isValid) {
-        console.log('Validation failed:', validationResult.errors);
-        return this.sendValidationErrorResponse(res, validationResult.errors);
-      }
-
-      // Add security context
-      const secureRequestData = {
-        id: serviceId,
-        ...requestData,
-        updated_by: userId
-      };
-
-      const edgeResponse = await serviceCatalogService.updateService(
-        authHeader!, 
-        tenantId!, 
-        serviceId, 
-        secureRequestData, 
-        idempotencyKey
-      );
-
-      const service = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully updated service: ${service?.service_name || 'unknown'} by user ${userId} for tenant ${tenantId}`);
-
-      return this.sendSuccessResponse(
-        res, 
-        service, 
-        'Service updated successfully', 
-        ServiceCatalogHttpStatus.OK
-      );
-
-    } catch (error: any) {
-      console.error('Error in updateService controller:', error);
-      return this.handleServiceError(res, error);
-    }
-  }
-
-  /**
-   * Delete service
-   */
-  async deleteService(req: Request, res: Response): Promise<Response> {
-    try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const idempotencyKey = req.headers['x-idempotency-key'] as string;
-      const serviceId = req.params.id;
-
-      console.log('API deleteService called:', {
-        serviceId,
-        tenantIdHeader,
-        hasAuth: !!authHeader,
-        hasIdempotencyKey: !!idempotencyKey,
-      });
-
-      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
-      if (!securityValidation.valid) {
-        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
-      }
-
-      const { userId, tenantId } = securityValidation;
-
-      if (!serviceId) {
-        return this.sendErrorResponse(res, 'Service ID is required', ServiceCatalogHttpStatus.BAD_REQUEST);
-      }
-
-      // Validate delete request
-      const validator = this.createValidator(authHeader!, tenantId!);
-      const validationResult = await validator.validateDeleteRequest(serviceId);
-      if (!validationResult.isValid) {
-        console.log('Delete validation failed:', validationResult.errors);
-        return this.sendValidationErrorResponse(res, validationResult.errors);
-      }
-
-      const edgeResponse = await serviceCatalogService.deleteService(
-        authHeader!, 
-        tenantId!, 
-        serviceId, 
-        idempotencyKey
-      );
-
-      const result = extractEdgeData(edgeResponse);
-
-      console.log(`Successfully deleted service: ${serviceId} by user ${userId} for tenant ${tenantId}`);
-
-      return this.sendSuccessResponse(
-        res, 
-        result, 
-        'Service deleted successfully', 
-        ServiceCatalogHttpStatus.OK
-      );
-
-    } catch (error: any) {
-      console.error('Error in deleteService controller:', error);
-      return this.handleServiceError(res, error);
-    }
-  }
-
-  // ============================================================================
-  // UTILITY ENDPOINTS
-  // ============================================================================
-
-  /**
-   * Health check endpoint
-   */
-  async healthCheck(req: Request, res: Response): Promise<Response> {
-    try {
-      const authHeader = req.headers.authorization;
-      const tenantIdHeader = req.headers['x-tenant-id'] as string || 'system';
 
       if (!authHeader) {
-        return this.sendErrorResponse(res, 'Authorization header is required', ServiceCatalogHttpStatus.UNAUTHORIZED);
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
       }
 
-      const userId = extractUserIdFromAuth(authHeader);
-
-      const edgeResponse = await serviceCatalogService.healthCheck(authHeader, tenantIdHeader);
-      const healthData = extractEdgeData(edgeResponse);
-
-      return this.sendSuccessResponse(
-        res,
-        {
-          ...healthData,
-          security: {
-            userAuthenticated: !!userId,
-            tenantProvided: !!tenantIdHeader,
-            userId: userId
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
           }
-        },
-        'Health check successful',
-        ServiceCatalogHttpStatus.OK
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const resources = await this.serviceCatalogService.getServiceResources(
+        serviceId,
+        accessToken,
+        tenantId,
+        environment
       );
 
+      res.status(200).json({
+        success: true,
+        data: resources,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
     } catch (error: any) {
-      console.error('Health check failed:', error);
-      return this.sendErrorResponse(
-        res, 
-        'Health check failed', 
-        ServiceCatalogHttpStatus.INTERNAL_ERROR,
-        error.message
+      console.error('Failed to get service resources', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'RESOURCES_ERROR',
+          message: 'Failed to fetch service resources',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  // ==========================================================================
+  // SERVICE CRUD ENDPOINTS
+  // ==========================================================================
+
+  /**
+   * Create a new service catalog item
+   * POST /api/service-catalog/services
+   */
+  createService = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Creating service', {
+        requestId,
+        tenantId,
+        serviceName: req.body.service_name,
+        serviceType: req.body.service_type,
+        isVariant: req.body.is_variant,
+        hasParentId: !!req.body.parent_id
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      // Validate service data
+      const validation = this.serviceCatalogService.validateServiceData(req.body);
+      if (!validation.isValid) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Service data validation failed',
+            details: validation.errors
+          },
+          metadata: {
+            request_id: requestId,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
+      }
+
+      const service = await this.serviceCatalogService.createService(
+        req.body,
+        accessToken,
+        tenantId,
+        environment
       );
-    }
-  }
 
-  // ============================================================================
-  // PRIVATE HELPER METHODS
-  // ============================================================================
+      console.log('Service created successfully', {
+        requestId,
+        serviceId: service.id,
+        serviceName: service.service_name,
+        status: service.status,
+        isVariant: service.is_variant,
+        parentId: service.parent_id
+      });
+
+      res.status(201).json({
+        success: true,
+        data: service,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to create service', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      const statusCode = error.message.includes('already exists') ? 409 : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: statusCode === 409 ? 'DUPLICATE_SKU' : 'CREATE_ERROR',
+          message: statusCode === 409 ? 'Service with this SKU already exists' : 'Failed to create service',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
 
   /**
-   * Enhanced header validation with user extraction
+   * Update a service catalog item
+   * PUT /api/service-catalog/services/:id
+   * Creates new version with parent_id
    */
-  private validateSecurityHeaders(
-    authHeader: string | undefined, 
-    tenantIdHeader: string | undefined
-  ): {
-    valid: boolean;
-    error?: string;
-    status?: ServiceCatalogHttpStatus;
-    userId?: string;
-    tenantId?: string;
-  } {
-    // Check auth header
-    if (!authHeader) {
-      return {
-        valid: false,
-        error: 'Authorization header is required',
-        status: ServiceCatalogHttpStatus.UNAUTHORIZED
-      };
+  updateService = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const serviceId = req.params.id;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Updating service (creating new version)', {
+        requestId,
+        serviceId,
+        tenantId,
+        serviceName: req.body.service_name
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      // Validate service data
+      const validation = this.serviceCatalogService.validateServiceData(req.body);
+      if (!validation.isValid) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Service data validation failed',
+            details: validation.errors
+          },
+          metadata: {
+            request_id: requestId,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
+      }
+
+      const service = await this.serviceCatalogService.updateService(
+        serviceId,
+        req.body,
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      console.log('Service updated successfully (new version created)', {
+        requestId,
+        oldServiceId: serviceId,
+        newServiceId: service.id,
+        serviceName: service.service_name,
+        status: service.status,
+        parentId: service.parent_id
+      });
+
+      res.status(200).json({
+        success: true,
+        data: service,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to update service', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      const statusCode = error.message.includes('not found') ? 404 :
+                         error.message.includes('already exists') ? 409 : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: statusCode === 404 ? 'NOT_FOUND' : 
+                statusCode === 409 ? 'DUPLICATE_SKU' : 'UPDATE_ERROR',
+          message: statusCode === 404 ? 'Service not found' :
+                   statusCode === 409 ? 'Service with this SKU already exists' :
+                   'Failed to update service',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
     }
-
-    // Extract user ID
-    const userId = extractUserIdFromAuth(authHeader);
-    if (!userId) {
-      return {
-        valid: false,
-        error: 'Invalid authentication token',
-        status: ServiceCatalogHttpStatus.UNAUTHORIZED
-      };
-    }
-
-    // Get tenant ID from JWT first, fallback to header
-    let tenantId: string | null = extractTenantIdFromAuth(authHeader);
-    if (!tenantId) {
-      tenantId = tenantIdHeader || null;
-    }
-
-    if (!tenantId) {
-      return {
-        valid: false,
-        error: 'Tenant ID is required (in JWT or header)',
-        status: ServiceCatalogHttpStatus.BAD_REQUEST
-      };
-    }
-
-    // Verify tenant ID consistency between JWT and header
-    const jwtTenantId = extractTenantIdFromAuth(authHeader);
-    if (jwtTenantId && tenantIdHeader && jwtTenantId !== tenantIdHeader) {
-      console.error('Tenant ID mismatch:', { jwt: jwtTenantId, header: tenantIdHeader });
-      return {
-        valid: false,
-        error: 'Tenant ID mismatch between token and header',
-        status: ServiceCatalogHttpStatus.FORBIDDEN
-      };
-    }
-
-    console.log('Security validation passed:', { userId, tenantId });
-
-    return { 
-      valid: true, 
-      userId, 
-      tenantId 
-    };
-  }
+  };
 
   /**
-   * Send success response with standard API format
+   * Delete (deactivate) a service
+   * DELETE /api/service-catalog/services/:id
+   * Sets status to false (soft delete)
    */
-  private sendSuccessResponse<T>(
-    res: Response,
-    data: T,
-    message: string,
-    status: ServiceCatalogHttpStatus = ServiceCatalogHttpStatus.OK
-  ): Response {
-    const response: ApiResponse<T> = {
-      success: true,
-      data,
-      message,
-      timestamp: new Date().toISOString()
-    };
+  deleteService = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const serviceId = req.params.id;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
 
-    return res.status(status).json(response);
-  }
+      console.log('Deactivating service (soft delete)', {
+        requestId,
+        serviceId,
+        tenantId
+      });
 
-  /**
-   * Send error response with standard format
-   */
-  private sendErrorResponse(
-    res: Response,
-    error: string,
-    status: ServiceCatalogHttpStatus,
-    details?: string
-  ): Response {
-    const response: ErrorResponse = {
-      error,
-      details,
-      timestamp: new Date().toISOString(),
-      requestId: this.generateRequestId()
-    };
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
 
-    return res.status(status).json(response);
-  }
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
 
-  /**
-   * Send validation error response
-   */
-  private sendValidationErrorResponse(res: Response, errors: any[]): Response {
-    const response: ErrorResponse = {
-      error: 'Validation failed',
-      details: errors.map(e => e.message).join(', '),
-      code: 'VALIDATION_ERROR',
-      timestamp: new Date().toISOString(),
-      requestId: this.generateRequestId()
-    };
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
 
-    return res.status(ServiceCatalogHttpStatus.BAD_REQUEST).json(response);
-  }
+      const result = await this.serviceCatalogService.deleteService(
+        serviceId,
+        accessToken,
+        tenantId,
+        environment
+      );
 
-  /**
-   * Handle service layer errors
-   */
-  private handleServiceError(res: Response, error: any): Response {
-    // Map error types to HTTP status codes
-    const statusMap: Record<string, ServiceCatalogHttpStatus> = {
-      validation_error: ServiceCatalogHttpStatus.BAD_REQUEST,
-      not_found: ServiceCatalogHttpStatus.NOT_FOUND,
-      conflict: ServiceCatalogHttpStatus.CONFLICT,
-      unauthorized: ServiceCatalogHttpStatus.UNAUTHORIZED,
-      forbidden: ServiceCatalogHttpStatus.FORBIDDEN,
-      rate_limited: ServiceCatalogHttpStatus.RATE_LIMITED,
-      service_unavailable: ServiceCatalogHttpStatus.SERVICE_UNAVAILABLE,
-      internal_error: ServiceCatalogHttpStatus.INTERNAL_ERROR
-    };
+      console.log('Service deactivated successfully', {
+        requestId,
+        serviceId: result.service.id,
+        serviceName: result.service.name,
+        newStatus: result.service.status
+      });
 
-    if (error.type) {
-      const status = statusMap[error.type] || ServiceCatalogHttpStatus.INTERNAL_ERROR;
-      const details = error.details?.map((d: any) => d.message).join(', ');
-      return this.sendErrorResponse(res, error.message, status, details);
+      res.status(200).json({
+        success: true,
+        data: result,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to deactivate service', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      const statusCode = error.message.includes('not found') || 
+                         error.message.includes('already inactive') ? 404 : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: statusCode === 404 ? 'NOT_FOUND' : 'DELETE_ERROR',
+          message: statusCode === 404 ? 'Service not found or already inactive' : 'Failed to deactivate service',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
     }
+  };
 
-    // Generic error handling
-    console.error('Unhandled service error:', error);
-    return this.sendErrorResponse(
-      res, 
-      'Internal server error', 
-      ServiceCatalogHttpStatus.INTERNAL_ERROR,
-      error.message
-    );
-  }
+  // ==========================================================================
+  // SERVICE STATUS MANAGEMENT ENDPOINTS
+  // ==========================================================================
 
   /**
-   * Generate unique request ID for tracing
+   * Toggle service status (activate/deactivate)
+   * PATCH /api/service-catalog/services/:id/status
    */
-  private generateRequestId(): string {
-    return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
+  toggleServiceStatus = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const serviceId = req.params.id;
+      const newStatus = req.body.status;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Toggling service status', {
+        requestId,
+        serviceId,
+        tenantId,
+        newStatus,
+        statusType: typeof newStatus
+      });
+
+      if (typeof newStatus !== 'boolean') {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_STATUS',
+            message: 'Status must be a boolean (true or false)',
+            details: `Received: ${typeof newStatus} with value: ${newStatus}`
+          },
+          metadata: {
+            request_id: requestId,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
+      }
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const service = await this.serviceCatalogService.toggleServiceStatus(
+        serviceId,
+        newStatus,
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      console.log('Service status toggled successfully', {
+        requestId,
+        serviceId: service.id,
+        serviceName: service.service_name,
+        newStatus: service.status
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          message: `Service ${newStatus ? 'activated' : 'deactivated'} successfully`,
+          service
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to toggle service status', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      const statusCode = error.message.includes('not found') ? 404 : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: statusCode === 404 ? 'NOT_FOUND' : 'TOGGLE_STATUS_ERROR',
+          message: statusCode === 404 ? 'Service not found' : 'Failed to toggle service status',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  /**
+   * Activate (restore) a service
+   * POST /api/service-catalog/services/:id/activate
+   * Sets status to true
+   */
+  activateService = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const serviceId = req.params.id;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Activating service', {
+        requestId,
+        serviceId,
+        tenantId
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const service = await this.serviceCatalogService.activateService(
+        serviceId,
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      console.log('Service activated successfully', {
+        requestId,
+        serviceId: service.id,
+        serviceName: service.service_name,
+        newStatus: service.status
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          message: 'Service activated successfully',
+          service
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to activate service', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      const statusCode = error.message.includes('not found') || 
+                         error.message.includes('already active') ? 404 : 500;
+
+      res.status(statusCode).json({
+        success: false,
+        error: {
+          code: statusCode === 404 ? 'NOT_FOUND' : 'ACTIVATE_ERROR',
+          message: statusCode === 404 ? 'Service not found or already active' : 'Failed to activate service',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  // ==========================================================================
+  // SERVICE STATISTICS & VERSION HISTORY
+  // ==========================================================================
+
+  /**
+   * Get service statistics
+   * GET /api/service-catalog/services/statistics
+   */
+  getServiceStatistics = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Getting service statistics', {
+        requestId,
+        tenantId
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const statistics = await this.serviceCatalogService.getServiceStatistics(
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      res.status(200).json({
+        success: true,
+        data: statistics,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to get service statistics', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'STATISTICS_ERROR',
+          message: 'Failed to fetch service statistics',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  /**
+   * Get service version history
+   * GET /api/service-catalog/services/:id/versions
+   */
+  getServiceVersionHistory = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const serviceId = req.params.id;
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+
+      console.log('Getting service version history', {
+        requestId,
+        serviceId,
+        tenantId
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const versions = await this.serviceCatalogService.getServiceVersionHistory(
+        serviceId,
+        accessToken,
+        tenantId,
+        environment
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          service_id: serviceId,
+          versions: versions,
+          total_versions: versions.length
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to get service version history', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'VERSION_HISTORY_ERROR',
+          message: 'Failed to fetch service version history',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  // ==========================================================================
+  // HEALTH CHECK
+  // ==========================================================================
+
+  /**
+   * Health check with edge function verification
+   * GET /api/service-catalog/health
+   * 
+   * NOTE: This method is NOT used by default in routes.
+   * The routes file uses a simple lightweight health check instead.
+   * This method is available if you need authenticated health checks
+   * that verify edge function connectivity.
+   */
+  healthCheck = async (req: Request, res: Response): Promise<void> => {
+    const requestId = `req_${Date.now()}`;
+    
+    try {
+      const authHeader = req.headers.authorization;
+      const tenantId = req.headers['x-tenant-id'] as string;
+
+      console.log('Health check requested', {
+        requestId,
+        tenantId
+      });
+
+      if (!authHeader) {
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header is required'
+          }
+        });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: 'x-tenant-id header is required'
+          }
+        });
+        return;
+      }
+
+      // Extract token from Bearer header
+      const accessToken = authHeader.replace('Bearer ', '');
+
+      const health = await this.serviceCatalogService.healthCheck(
+        accessToken,
+        tenantId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: health,
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('Health check failed', {
+        requestId,
+        error: error.message,
+        stack: error.stack
+      });
+
+      res.status(503).json({
+        success: false,
+        error: {
+          code: 'HEALTH_CHECK_FAILED',
+          message: 'Service health check failed',
+          details: error.message
+        },
+        metadata: {
+          request_id: requestId,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
 }
 
-// Export controller methods for routes
-const controller = new ServiceCatalogController();
+// ============================================================================
+// EXPORT CONTROLLER INSTANCE
+// ============================================================================
 
-export const getServices = controller.getServices.bind(controller);
-export const getService = controller.getService.bind(controller);
-export const getServiceResources = controller.getServiceResources.bind(controller);
-export const getMasterData = controller.getMasterData.bind(controller);
-export const createService = controller.createService.bind(controller);
-export const updateService = controller.updateService.bind(controller);
-export const deleteService = controller.deleteService.bind(controller);
-export const healthCheck = controller.healthCheck.bind(controller);
-
-export default controller;
+export default new ServiceCatalogController();

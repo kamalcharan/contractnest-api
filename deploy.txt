@@ -1,0 +1,5 @@
+docker build -t vikuna/contractnest-api:v2.7 .
+
+docker push vikuna/contractnest-api:v2.7
+
+change version number whenever required
