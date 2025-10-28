@@ -1,6 +1,22 @@
 // src/routes/auth.ts
 import express from 'express';
-import * as authController from '../controllers/authController';
+import { 
+  login,
+  register,
+  registerWithInvitation,
+  refreshToken,
+  signout,
+  resetPassword,
+  changePassword,
+  completeRegistration,
+  getUserProfile,
+  updateUserPreferences,
+  verifyPassword,
+  initiateGoogleAuth,
+  handleGoogleCallback,
+  linkGoogleAccount,
+  unlinkGoogleAccount
+} from '../controllers/authController';
 import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
