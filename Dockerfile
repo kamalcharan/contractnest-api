@@ -14,6 +14,11 @@ COPY tsconfig.json ./
 # Copy source code explicitly
 COPY src ./src
 
+# DEBUG: Check what files were copied
+RUN echo "=== Contents of src/controllers ===" && ls -la src/controllers/
+RUN echo "=== Checking for authController.ts ===" && ls -la src/controllers/authController.ts || echo "FILE NOT FOUND"
+RUN echo "=== First few lines of auth.ts ===" && head -20 src/routes/auth.ts
+
 # Build TypeScript (compiles to dist/)
 RUN npm run build
 
