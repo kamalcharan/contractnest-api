@@ -292,142 +292,142 @@ export class ServiceCatalogValidator {
   }
 
   /**
-   * Validate field formats and constraints
-   */
-  private validateFieldFormats(data: CreateServiceRequest | UpdateServiceRequest, errors: ValidationError[]): void {
-    // Validate service_name
-    if (data.service_name !== undefined) {
-      const rules = ServiceValidationRules.service_name;
-      
-      if (data.service_name && data.service_name.length > rules.maxLength) {
-        errors.push({
-          field: 'service_name',
-          message: `Service name must be ${rules.maxLength} characters or less`,
-          code: 'FIELD_TOO_LONG'
-        });
-      }
-
-      if (data.service_name && data.service_name.length < rules.minLength) {
-        errors.push({
-          field: 'service_name',
-          message: `Service name must be at least ${rules.minLength} characters`,
-          code: 'FIELD_TOO_SHORT'
-        });
-      }
-
-      if (data.service_name && !rules.pattern.test(data.service_name)) {
-        errors.push({
-          field: 'service_name',
-          message: 'Service name contains invalid characters. Only letters, numbers, spaces, and common punctuation are allowed.',
-          code: 'INVALID_FORMAT'
-        });
-      }
-    }
-
-    // Validate description
-    if (data.description !== undefined && data.description) {
-      if (data.description.length > ServiceValidationRules.description.maxLength) {
-        errors.push({
-          field: 'description',
-          message: `Description must be ${ServiceValidationRules.description.maxLength} characters or less`,
-          code: 'FIELD_TOO_LONG'
-        });
-      }
-    }
-
-    // Validate SKU
-    if (data.sku !== undefined && data.sku) {
-      const rules = ServiceValidationRules.sku;
-      
-      if (data.sku.length > rules.maxLength) {
-        errors.push({
-          field: 'sku',
-          message: `SKU must be ${rules.maxLength} characters or less`,
-          code: 'FIELD_TOO_LONG'
-        });
-      }
-
-      if (!rules.pattern.test(data.sku)) {
-        errors.push({
-          field: 'sku',
-          message: 'SKU can only contain letters, numbers, hyphens, and underscores',
-          code: 'INVALID_FORMAT'
-        });
-      }
-    }
-
-    // ✅ UPDATED: Validate pricing_records OR pricing_config
-    const typedData = data as CreateServiceRequest;
+ * Validate field formats and constraints
+ */
+private validateFieldFormats(data: CreateServiceRequest | UpdateServiceRequest, errors: ValidationError[]): void {
+  // Validate service_name
+  if (data.service_name !== undefined) {
+    const rules = ServiceValidationRules.service_name;
     
-    if (typedData.pricing_records !== undefined) {
-      this.validatePricingRecords(typedData.pricing_records, errors);
-    }
-    
-    if (typedData.pricing_config !== undefined) {
-      this.validatePricingConfig(typedData.pricing_config, errors);
-    }
-
-    // Validate duration_minutes
-    if (data.duration_minutes !== undefined && data.duration_minutes !== null) {
-      const rules = ServiceValidationRules.duration_minutes;
-      
-      if (!Number.isInteger(data.duration_minutes) || 
-          data.duration_minutes < rules.min || 
-          data.duration_minutes > rules.max) {
-        errors.push({
-          field: 'duration_minutes',
-          message: `Duration must be an integer between ${rules.min} and ${rules.max} minutes`,
-          code: 'INVALID_RANGE'
-        });
-      }
+    if (data.service_name && data.service_name.length > rules.maxLength) {
+      errors.push({
+        field: 'service_name',
+        message: `Service name must be ${rules.maxLength} characters or less`,
+        code: 'FIELD_TOO_LONG'
+      });
     }
 
-    // Validate sort_order
-    if (data.sort_order !== undefined && data.sort_order !== null) {
-      const rules = ServiceValidationRules.sort_order;
-      
-      if (!Number.isInteger(data.sort_order) || 
-          data.sort_order < rules.min || 
-          data.sort_order > rules.max) {
-        errors.push({
-          field: 'sort_order',
-          message: `Sort order must be an integer between ${rules.min} and ${rules.max}`,
-          code: 'INVALID_RANGE'
-        });
-      }
+    if (data.service_name && data.service_name.length < rules.minLength) {
+      errors.push({
+        field: 'service_name',
+        message: `Service name must be at least ${rules.minLength} characters`,
+        code: 'FIELD_TOO_SHORT'
+      });
     }
 
-    // ✅ UPDATED: Validate resource_requirements array
-    if (typedData.resource_requirements !== undefined) {
-      this.validateResourceRequirements(typedData.resource_requirements, errors);
+    if (data.service_name && !rules.pattern.test(data.service_name)) {
+      errors.push({
+        field: 'service_name',
+        message: 'Service name contains invalid characters. Only letters, numbers, spaces, and common punctuation are allowed.',
+        code: 'INVALID_FORMAT'
+      });
     }
-
-    // Validate tags
-    if (data.tags !== undefined) {
-      this.validateTags(data.tags, errors);
-    }
-
-    const typedData = data as any;
-    
-    // Validate status field
-    this.validateStatus(typedData.status, errors);
-    
-    // Validate service_type field
-    this.validateServiceType(typedData.service_type, errors);
-    
-    // Validate is_variant field
-    this.validateIsVariant(typedData.is_variant, errors);
-    
-    // Validate parent_id field
-    this.validateParentId(typedData.parent_id, errors);
-    
-    // Validate variant relationship (is_variant + parent_id)
-    this.validateVariantRelationship(data, errors);
-    
-    // Validate service type and resources relationship
-    this.validateServiceTypeResourcesRelationship(data, errors);
-
   }
+
+  // Validate description
+  if (data.description !== undefined && data.description) {
+    if (data.description.length > ServiceValidationRules.description.maxLength) {
+      errors.push({
+        field: 'description',
+        message: `Description must be ${ServiceValidationRules.description.maxLength} characters or less`,
+        code: 'FIELD_TOO_LONG'
+      });
+    }
+  }
+
+  // Validate SKU
+  if (data.sku !== undefined && data.sku) {
+    const rules = ServiceValidationRules.sku;
+    
+    if (data.sku.length > rules.maxLength) {
+      errors.push({
+        field: 'sku',
+        message: `SKU must be ${rules.maxLength} characters or less`,
+        code: 'FIELD_TOO_LONG'
+      });
+    }
+
+    if (!rules.pattern.test(data.sku)) {
+      errors.push({
+        field: 'sku',
+        message: 'SKU can only contain letters, numbers, hyphens, and underscores',
+        code: 'INVALID_FORMAT'
+      });
+    }
+  }
+
+  // Cast once at the beginning to avoid duplicate declarations
+  const typedData = data as any;
+  
+  // Validate pricing_records OR pricing_config
+  if (typedData.pricing_records !== undefined) {
+    this.validatePricingRecords(typedData.pricing_records, errors);
+  }
+  
+  if (typedData.pricing_config !== undefined) {
+    this.validatePricingConfig(typedData.pricing_config, errors);
+  }
+
+  // Validate duration_minutes
+  if (data.duration_minutes !== undefined && data.duration_minutes !== null) {
+    const rules = ServiceValidationRules.duration_minutes;
+    
+    if (!Number.isInteger(data.duration_minutes) || 
+        data.duration_minutes < rules.min || 
+        data.duration_minutes > rules.max) {
+      errors.push({
+        field: 'duration_minutes',
+        message: `Duration must be an integer between ${rules.min} and ${rules.max} minutes`,
+        code: 'INVALID_RANGE'
+      });
+    }
+  }
+
+  // Validate sort_order
+  if (data.sort_order !== undefined && data.sort_order !== null) {
+    const rules = ServiceValidationRules.sort_order;
+    
+    if (!Number.isInteger(data.sort_order) || 
+        data.sort_order < rules.min || 
+        data.sort_order > rules.max) {
+      errors.push({
+        field: 'sort_order',
+        message: `Sort order must be an integer between ${rules.min} and ${rules.max}`,
+        code: 'INVALID_RANGE'
+      });
+    }
+  }
+
+  // Validate resource_requirements array
+  if (typedData.resource_requirements !== undefined) {
+    this.validateResourceRequirements(typedData.resource_requirements, errors);
+  }
+
+  // Validate tags
+  if (data.tags !== undefined) {
+    this.validateTags(data.tags, errors);
+  }
+  
+  // Additional field validations
+  if (typedData.status !== undefined) {
+    this.validateStatus(typedData.status, errors);
+  }
+  
+  if (typedData.service_type !== undefined) {
+    this.validateServiceType(typedData.service_type, errors);
+  }
+  
+  if (typedData.is_variant !== undefined) {
+    this.validateIsVariant(typedData.is_variant, errors);
+  }
+  
+  if (typedData.parent_id !== undefined) {
+    this.validateParentId(typedData.parent_id, errors);
+  }
+  
+  // Validate relationships
+  this.validateVariantRelationship(data, errors);
+}
 
   /**
    * ✅ NEW: Validate pricing_records array
