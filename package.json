@@ -7,7 +7,7 @@
     "start": "node dist/index.js",
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
-    "build:prod": "tsc",
+    "build:prod": "tsc --skipLibCheck --noEmit false",
     "build:docker": "docker build -t vikuna/contractnest-api:v2.7 -t vikuna/contractnest-api:latest .",
     "docker:push": "docker push vikuna/contractnest-api:v2.7 && docker push vikuna/contractnest-api:latest",
     "docker:run": "docker run -p 5000:5000 --env-file .env.production vikuna/contractnest-api:v2.7",

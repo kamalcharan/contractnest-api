@@ -406,6 +406,27 @@ export class ServiceCatalogValidator {
     if (data.tags !== undefined) {
       this.validateTags(data.tags, errors);
     }
+
+    const typedData = data as any;
+    
+    // Validate status field
+    this.validateStatus(typedData.status, errors);
+    
+    // Validate service_type field
+    this.validateServiceType(typedData.service_type, errors);
+    
+    // Validate is_variant field
+    this.validateIsVariant(typedData.is_variant, errors);
+    
+    // Validate parent_id field
+    this.validateParentId(typedData.parent_id, errors);
+    
+    // Validate variant relationship (is_variant + parent_id)
+    this.validateVariantRelationship(data, errors);
+    
+    // Validate service type and resources relationship
+    this.validateServiceTypeResourcesRelationship(data, errors);
+
   }
 
   /**
@@ -965,61 +986,6 @@ private validateVariantRelationship(data: CreateServiceRequest | UpdateServiceRe
       });
     }
   }
-}
-
-/**
- * ✅ NEW: Validate service_type and resources relationship
- * Rule: If service_type = 'resource_based', then resources are required
- */
-private validateServiceTypeResourcesRelationship(data: CreateServiceRequest | UpdateServiceRequest, errors: ValidationError[]): void {
-  const typedData = data as any;
-  
-  if (typedData.service_type === 'resource_based') {
-    const hasLegacyResources = typedData.required_resources && Array.isArray(typedData.required_resources) && typedData.required_resources.length > 0;
-    const hasNewResources = typedData.resource_requirements && Array.isArray(typedData.resource_requirements) && typedData.resource_requirements.length > 0;
-    
-    if (!hasLegacyResources && !hasNewResources) {
-      errors.push({
-        field: 'resource_requirements',
-        message: 'At least one resource is required for resource_based service type',
-        code: 'RESOURCES_REQUIRED_FOR_RESOURCE_BASED'
-      });
-    }
-  }
-}
-
-// ============================================================================
-// UPDATE THE validateFieldFormats METHOD TO CALL THESE NEW VALIDATIONS
-// ============================================================================
-
-/**
- * ✅ UPDATED: Validate field formats and constraints
- * ADD THESE LINES AT THE END OF THE EXISTING validateFieldFormats METHOD
- */
-private validateFieldFormats(data: CreateServiceRequest | UpdateServiceRequest, errors: ValidationError[]): void {
-  // ... ALL YOUR EXISTING VALIDATION CODE STAYS HERE ...
-  
-  // ✅ ADD THESE NEW VALIDATIONS AT THE END:
-  
-  const typedData = data as any;
-  
-  // Validate status field
-  this.validateStatus(typedData.status, errors);
-  
-  // Validate service_type field
-  this.validateServiceType(typedData.service_type, errors);
-  
-  // Validate is_variant field
-  this.validateIsVariant(typedData.is_variant, errors);
-  
-  // Validate parent_id field
-  this.validateParentId(typedData.parent_id, errors);
-  
-  // Validate variant relationship (is_variant + parent_id)
-  this.validateVariantRelationship(data, errors);
-  
-  // Validate service type and resources relationship
-  this.validateServiceTypeResourcesRelationship(data, errors);
 }
 
 
