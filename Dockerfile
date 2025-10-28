@@ -1,47 +1,49 @@
-FROM node:18-alpine AS builder
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install all dependencies (including devDependencies for build)
-RUN npm ci --legacy-peer-deps
-
-# Copy tsconfig
-COPY tsconfig.json ./
-
-# Copy source code explicitly
-COPY src ./src
-
-# DEBUG: Check what files were copied
-RUN echo "=== Contents of src/controllers ===" && ls -la src/controllers/
-RUN echo "=== Checking for authController.ts ===" && ls -la src/controllers/authController.ts || echo "FILE NOT FOUND"
-RUN echo "=== First few lines of auth.ts ===" && head -20 src/routes/auth.ts
-
-# Build TypeScript (compiles to dist/)
-RUN npm run build
-
-# Production stage
 FROM node:18-alpine
 
 WORKDIR /app
 
+# Install supervisor and redis
+RUN apk add --no-cache supervisor redis
+
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --legacy-peer-deps --only=production
+# Install dependencies
+RUN npm ci --legacy-peer-deps
 
-# Copy compiled JavaScript from builder
-COPY --from=builder /app/dist ./dist
+# Copy source and build
+COPY . .
+RUN npm run build
 
-# Expose port
-EXPOSE 5000
+# Create supervisor config
+RUN mkdir -p /var/log/supervisor
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+COPY <<EOF /etc/supervisord.conf
+[supervisord]
+nodaemon=true
 
-# Start the compiled app
-CMD ["node", "dist/index.js"]
+[program:redis]
+command=redis-server
+autostart=true
+autorestart=true
+
+[program:api]
+command=node dist/index.js
+autostart=true
+autorestart=true
+environment=PORT=5000
+
+[program:n8n-main]
+command=npx n8n
+autostart=true
+autorestart=true
+
+[program:n8n-worker]
+command=npx n8n worker
+autostart=true
+autorestart=true
+EOF
+
+EXPOSE 5000 5678
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
