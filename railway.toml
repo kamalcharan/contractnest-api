@@ -1,2 +1,5 @@
 [build]
-builder = "DOCKERFILE"
+builder = "NIXPACKS"
+
+[deploy]
+dockerComposePath = "docker-compose.yml"
