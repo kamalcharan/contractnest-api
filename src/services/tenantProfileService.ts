@@ -1,4 +1,4 @@
-// src/services/tenantProfileService.ts
+// backend/src/services/tenantProfileService.ts
 import axios from 'axios';
 import { captureException } from '../utils/sentry';
 import { SUPABASE_URL } from '../utils/supabaseConfig';
@@ -20,6 +20,9 @@ export interface TenantProfile {
   business_phone: string | null;
   business_email: string | null;
   website_url: string | null;
+  // ✅ ADDED: WhatsApp fields for BBB integration
+  business_whatsapp_country_code: string | null;
+  business_whatsapp: string | null;
   primary_color: string | null;
   secondary_color: string | null;
   created_at: string;
@@ -156,7 +159,7 @@ export const tenantProfileService = {
       
       // In a real implementation, you would use the file buffer
       // This is a simplified version that would need to be adapted based on your file handling
-const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
+      const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
       formData.append('logo', blob, file.originalname);
 
       const response = await axios.post(

@@ -1,4 +1,4 @@
-// src/index.ts
+// backend/src/index.ts
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -27,6 +27,7 @@ import jtdRoutes from './routes/jtd';
 import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
+import groupsRoutes from './routes/groupsRoutes';
 
 // JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
@@ -208,6 +209,21 @@ try {
   } else {
     console.warn('⚠️  Continuing without product master data routes...');
     productMasterdataRoutes = null;
+  }
+}
+
+// Load Groups routes with error handling
+let groupsRoutesLoaded;
+try {
+  groupsRoutesLoaded = require('./routes/groupsRoutes').default;
+  console.log('✅ Groups routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load groups routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without groups routes...');
+    groupsRoutesLoaded = null;
   }
 }
 
@@ -436,6 +452,21 @@ try {
   });
 }
 
+// Register Groups routes with error handling
+try {
+  if (groupsRoutesLoaded) {
+    app.use('/api', groupsRoutesLoaded);
+    console.log('✅ Groups routes registered at /api');
+  } else {
+    console.log('⚠️  Groups routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register groups routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'groups' }
+  });
+}
+
 // Business model routes
 app.use('/api/business-model', businessModelRoutes);
 console.log('✅ Business model routes registered at /api/business-model');
@@ -467,7 +498,8 @@ app.get('/health', async (req, res) => {
       contacts: contactRoutes ? 'loaded' : 'not_loaded',
       blocks: blockRoutes ? 'loaded' : 'not_loaded',
       productMasterdata: productMasterdataRoutes ? 'loaded' : 'not_loaded',
-      serviceCatalog: 'loaded'
+      serviceCatalog: 'loaded',
+      groups: groupsRoutesLoaded ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
@@ -476,7 +508,8 @@ app.get('/health', async (req, res) => {
       block_system: blockRoutes !== null,
       product_masterdata: productMasterdataRoutes !== null,
       product_masterdata_enhanced: productMasterdataRoutes !== null,
-      service_catalog: true
+      service_catalog: true,
+      groups_directory: groupsRoutesLoaded !== null
     }
   };
 
@@ -537,6 +570,15 @@ app.get('/health', async (req, res) => {
       healthData.services.serviceCatalog = 'error';
     }
 
+    // Check groups service health if available
+    if (groupsRoutesLoaded) {
+      try {
+        healthData.services.groups = 'healthy';
+      } catch (error) {
+        healthData.services.groups = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -566,13 +608,15 @@ app.get('/', (req, res) => {
       blocks: blockRoutes ? 'available' : 'not_available',
       productMasterdata: productMasterdataRoutes ? 'available' : 'not_available',
       productMasterdataEnhanced: productMasterdataRoutes ? 'available' : 'not_available',
-      serviceCatalog: 'available'
+      serviceCatalog: 'available',
+      groups: groupsRoutesLoaded ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',
       resources: '/api/resources',
       productMasterdata: '/api/product-masterdata',
-      serviceCatalog: '/api/service-catalog'
+      serviceCatalog: '/api/service-catalog',
+      groups: '/api/groups'
     }
   });
 });
@@ -606,7 +650,8 @@ app.use((req, res) => {
       contacts: '/api/contacts',
       resources: '/api/resources',
       productMasterdata: '/api/product-masterdata',
-      serviceCatalog: '/api/service-catalog'
+      serviceCatalog: '/api/service-catalog',
+      groups: '/api/groups'
     }
   });
 });
@@ -819,6 +864,44 @@ const startServer = async () => {
       console.log('  ✅ Tags and custom attributes support');
       console.log('  ✅ Required resources with quantity and optional flag');
       console.log('  ✅ Automatic slug generation for SEO-friendly URLs');
+      
+      // Log groups routes if available
+      if (groupsRoutesLoaded) {
+        console.log('📍 Groups & Directory routes:');
+        console.log('- GET    /api/groups                                # List all business groups');
+        console.log('- GET    /api/groups/:groupId                       # Get specific group');
+        console.log('- POST   /api/groups/verify-access                  # Verify group password');
+        console.log('- POST   /api/memberships                           # Create membership (join group)');
+        console.log('- GET    /api/memberships/:membershipId             # Get membership details');
+        console.log('- PUT    /api/memberships/:membershipId             # Update membership profile');
+        console.log('- GET    /api/memberships/group/:groupId            # Get group memberships (admin)');
+        console.log('- DELETE /api/memberships/:membershipId             # Delete membership');
+        console.log('- POST   /api/profiles/enhance                      # AI enhance profile');
+        console.log('- POST   /api/profiles/scrape-website               # Scrape website for profile');
+        console.log('- POST   /api/profiles/generate-clusters            # Generate semantic clusters');
+        console.log('- POST   /api/profiles/save                         # Save profile with embedding');
+        console.log('- POST   /api/search                                # Search group directory');
+        console.log('- GET    /api/admin/stats/:groupId                  # Admin dashboard stats');
+        console.log('- PUT    /api/admin/memberships/:membershipId/status # Update membership status');
+        console.log('- GET    /api/admin/activity-logs/:groupId          # Activity logs');
+        console.log('📋 Groups & Directory features:');
+        console.log('  ✅ Business group management (BBB chapters, associations)');
+        console.log('  ✅ Multi-tenant membership system with profiles');
+        console.log('  ✅ Password-protected group access verification');
+        console.log('  ✅ AI-powered profile enhancement with OpenAI');
+        console.log('  ✅ Website scraping for automated profile generation');
+        console.log('  ✅ Semantic clustering for profile organization');
+        console.log('  ✅ Vector-based semantic search with pgvector');
+        console.log('  ✅ Profile embedding generation and storage');
+        console.log('  ✅ Admin dashboard with comprehensive statistics');
+        console.log('  ✅ Activity logging and audit trail');
+        console.log('  ✅ Membership status management (active/suspended/pending)');
+        console.log('  ✅ Flexible profile data structure with JSON storage');
+        console.log('  ✅ Multi-tenant isolation and security');
+        console.log('  ✅ Rate limiting and comprehensive validation');
+      } else {
+        console.log('⚠️  Groups routes not available');
+      }
       
       console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
       console.log('📁 Storage upload: POST /api/storage/files');
