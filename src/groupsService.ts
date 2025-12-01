@@ -512,6 +512,85 @@ export const groupsService = {
   },
 
   /**
+   * Save semantic clusters
+   */
+  async saveClusters(
+    authToken: string,
+    request: { membership_id: string; clusters: any[] }
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/profiles/clusters`,
+        request,
+        {
+          headers: {
+            Authorization: authToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error in saveClusters:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'saveClusters' },
+        extra: { membershipId: request.membership_id }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get semantic clusters for a membership
+   */
+  async getClusters(authToken: string, membershipId: string): Promise<any> {
+    try {
+      const response = await axios.get(
+        `${GROUPS_API_BASE}/profiles/clusters/${membershipId}`,
+        {
+          headers: {
+            Authorization: authToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error in getClusters:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'getClusters' },
+        extra: { membershipId }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Delete all clusters for a membership
+   */
+  async deleteClusters(authToken: string, membershipId: string): Promise<any> {
+    try {
+      const response = await axios.delete(
+        `${GROUPS_API_BASE}/profiles/clusters/${membershipId}`,
+        {
+          headers: {
+            Authorization: authToken,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error in deleteClusters:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'deleteClusters' },
+        extra: { membershipId }
+      });
+      throw error;
+    }
+  },
+
+  /**
    * Save profile and optionally generate embedding via n8n
    *
    * @param authToken - Auth token for Edge Function

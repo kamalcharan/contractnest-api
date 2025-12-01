@@ -544,7 +544,138 @@ export const generateClusters = async (req: Request, res: Response) => {
 
     const status = error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to generate clusters';
-    
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+/**
+ * POST /api/profiles/clusters
+ * Save semantic clusters
+ */
+export const saveClusters = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'saveClusters')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    const { membership_id, clusters } = req.body;
+
+    if (!membership_id || !clusters || !Array.isArray(clusters)) {
+      return res.status(400).json({
+        error: 'membership_id and clusters array are required'
+      });
+    }
+
+    const result = await groupsService.saveClusters(authHeader, {
+      membership_id,
+      clusters
+    });
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in saveClusters controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'saveClusters' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to save clusters';
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+/**
+ * GET /api/profiles/clusters/:membershipId
+ * Get semantic clusters for a membership
+ */
+export const getClusters = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'getClusters')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    const { membershipId } = req.params;
+
+    if (!membershipId) {
+      return res.status(400).json({ error: 'membershipId is required' });
+    }
+
+    const result = await groupsService.getClusters(authHeader, membershipId);
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in getClusters controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'getClusters' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to get clusters';
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+/**
+ * DELETE /api/profiles/clusters/:membershipId
+ * Delete all clusters for a membership
+ */
+export const deleteClusters = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'deleteClusters')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    const { membershipId } = req.params;
+
+    if (!membershipId) {
+      return res.status(400).json({ error: 'membershipId is required' });
+    }
+
+    const result = await groupsService.deleteClusters(authHeader, membershipId);
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in deleteClusters controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'deleteClusters' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to delete clusters';
+
     return res.status(status).json({ success: false, error: message });
   }
 };

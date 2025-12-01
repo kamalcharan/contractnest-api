@@ -2,6 +2,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -27,7 +28,7 @@ import jtdRoutes from './routes/jtd';
 import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
-import groupsRoutes from './routes/groupsRoutes';
+// NOTE: groupsRoutes is loaded dynamically below via require() for error handling
 
 // JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
