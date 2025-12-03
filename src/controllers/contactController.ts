@@ -18,6 +18,7 @@ class ContactController {
   listContacts = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -54,7 +55,7 @@ class ContactController {
       };
 
       // Call service
-      const result = await this.contactService.listContacts(filters, userJWT, tenantId);
+      const result = await this.contactService.listContacts(filters, userJWT, tenantId, environment);
       const transformedResult = this.contactService.transformForFrontend(result);
 
       if (!result.success) {
@@ -80,6 +81,7 @@ class ContactController {
   getContactStats = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -93,9 +95,9 @@ class ContactController {
 
       // Get counts for different statuses
       const [activeResult, inactiveResult, archivedResult] = await Promise.all([
-        this.contactService.listContacts({ status: 'active', limit: 1 }, userJWT, tenantId),
-        this.contactService.listContacts({ status: 'inactive', limit: 1 }, userJWT, tenantId),
-        this.contactService.listContacts({ status: 'archived', limit: 1 }, userJWT, tenantId)
+        this.contactService.listContacts({ status: 'active', limit: 1 }, userJWT, tenantId, environment),
+        this.contactService.listContacts({ status: 'inactive', limit: 1 }, userJWT, tenantId, environment),
+        this.contactService.listContacts({ status: 'archived', limit: 1 }, userJWT, tenantId, environment)
       ]);
 
       const stats = {
@@ -134,6 +136,7 @@ class ContactController {
     try {
       const { id } = req.params;
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -145,7 +148,7 @@ class ContactController {
         return;
       }
 
-      const result = await this.contactService.getContactById(id, userJWT, tenantId);
+      const result = await this.contactService.getContactById(id, userJWT, tenantId, environment);
       const transformedResult = this.contactService.transformForFrontend(result);
 
       if (!result.success) {
@@ -172,6 +175,7 @@ class ContactController {
   createContact = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
       const userId = req.user?.id || '';
 
@@ -188,7 +192,8 @@ class ContactController {
         req.body,
         userJWT,
         tenantId,
-        userId
+        userId,
+        environment
       );
       
       const transformedResult = this.contactService.transformForFrontend(result);
@@ -219,6 +224,7 @@ class ContactController {
     try {
       const { id } = req.params;
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
       const userId = req.user?.id || '';
 
@@ -236,7 +242,8 @@ class ContactController {
         req.body,
         userJWT,
         tenantId,
-        userId
+        userId,
+        environment
       );
       
       const transformedResult = this.contactService.transformForFrontend(result);
@@ -268,6 +275,7 @@ class ContactController {
       const { id } = req.params;
       const { status } = req.body;
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -292,7 +300,8 @@ class ContactController {
         id,
         status,
         userJWT,
-        tenantId
+        tenantId,
+        environment
       );
       
       const transformedResult = this.contactService.transformForFrontend(result);
@@ -323,6 +332,7 @@ class ContactController {
       const { id } = req.params;
       const { force = false } = req.body;
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -338,7 +348,8 @@ class ContactController {
         id,
         force,
         userJWT,
-        tenantId
+        tenantId,
+        environment
       );
       
       const transformedResult = this.contactService.transformForFrontend(result);
@@ -368,6 +379,7 @@ class ContactController {
     try {
       const { query, filters = {} } = req.body;
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -383,7 +395,8 @@ class ContactController {
         query,
         filters,
         userJWT,
-        tenantId
+        tenantId,
+        environment
       );
       
       const transformedResult = this.contactService.transformForFrontend(result);
@@ -406,6 +419,7 @@ class ContactController {
   checkDuplicates = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -420,7 +434,8 @@ class ContactController {
       const result = await this.contactService.checkDuplicates(
         req.body,
         userJWT,
-        tenantId
+        tenantId,
+        environment
       );
       
       res.status(200).json(result);
@@ -442,6 +457,7 @@ class ContactController {
     try {
       const { id } = req.params;
       const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
       if (!tenantId) {
@@ -456,7 +472,8 @@ class ContactController {
       const result = await this.contactService.sendInvitation(
         id,
         userJWT,
-        tenantId
+        tenantId,
+        environment
       );
       
       if (!result.success) {

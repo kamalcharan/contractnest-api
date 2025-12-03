@@ -45,33 +45,33 @@ class ContactService {
   // CORE API METHODS
   // ==========================================================
 
-  async listContacts(filters: any, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
-  const queryParams = new URLSearchParams();
-  
-  // Build query parameters
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      if (key === 'classifications' && Array.isArray(value)) {
-        // FIXED: Send as comma-separated string for classifications
-        queryParams.append(key, value.join(','));
-      } else if (Array.isArray(value)) {
-        queryParams.append(key, value.join(','));
-      } else {
-        queryParams.append(key, String(value));
+  async listContacts(filters: any, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
+    const queryParams = new URLSearchParams();
+
+    // Build query parameters
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        if (key === 'classifications' && Array.isArray(value)) {
+          // FIXED: Send as comma-separated string for classifications
+          queryParams.append(key, value.join(','));
+        } else if (Array.isArray(value)) {
+          queryParams.append(key, value.join(','));
+        } else {
+          queryParams.append(key, String(value));
+        }
       }
-    }
-  });
+    });
 
-  const url = `${this.edgeFunctionUrl}?${queryParams.toString()}`;
-  return await this.makeRequest('GET', url, null, userJWT, tenantId);
-}
-
-  async getContactById(contactId: string, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
-    const url = `${this.edgeFunctionUrl}/${contactId}`;
-    return await this.makeRequest('GET', url, null, userJWT, tenantId);
+    const url = `${this.edgeFunctionUrl}?${queryParams.toString()}`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 
-  async createContact(contactData: any, userJWT: string, tenantId: string, userId: string): Promise<EdgeFunctionResponse> {
+  async getContactById(contactId: string, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contactId}`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+  }
+
+  async createContact(contactData: any, userJWT: string, tenantId: string, userId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const requestPayload = {
       ...contactData,
       tenant_id: tenantId,
@@ -79,41 +79,41 @@ class ContactService {
       t_userprofile_id: userId
     };
 
-    return await this.makeRequest('POST', this.edgeFunctionUrl, requestPayload, userJWT, tenantId);
+    return await this.makeRequest('POST', this.edgeFunctionUrl, requestPayload, userJWT, tenantId, environment);
   }
 
-  async updateContact(contactId: string, updateData: any, userJWT: string, tenantId: string, userId: string): Promise<EdgeFunctionResponse> {
+  async updateContact(contactId: string, updateData: any, userJWT: string, tenantId: string, userId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const requestPayload = {
       ...updateData,
       updated_by: userId
     };
 
     const url = `${this.edgeFunctionUrl}/${contactId}`;
-    return await this.makeRequest('PUT', url, requestPayload, userJWT, tenantId);
+    return await this.makeRequest('PUT', url, requestPayload, userJWT, tenantId, environment);
   }
 
-  async updateContactStatus(contactId: string, status: string, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
+  async updateContactStatus(contactId: string, status: string, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contactId}`;
-    return await this.makeRequest('PATCH', url, { status }, userJWT, tenantId);
+    return await this.makeRequest('PATCH', url, { status }, userJWT, tenantId, environment);
   }
 
-  async deleteContact(contactId: string, force: boolean, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
+  async deleteContact(contactId: string, force: boolean, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contactId}`;
-    return await this.makeRequest('DELETE', url, { force }, userJWT, tenantId);
+    return await this.makeRequest('DELETE', url, { force }, userJWT, tenantId, environment);
   }
 
-  async searchContacts(searchQuery: string, filters: any, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
-    return await this.listContacts({ ...filters, search: searchQuery }, userJWT, tenantId);
+  async searchContacts(searchQuery: string, filters: any, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
+    return await this.listContacts({ ...filters, search: searchQuery }, userJWT, tenantId, environment);
   }
 
-  async sendInvitation(contactId: string, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
+  async sendInvitation(contactId: string, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contactId}/invite`;
-    return await this.makeRequest('POST', url, {}, userJWT, tenantId);
+    return await this.makeRequest('POST', url, {}, userJWT, tenantId, environment);
   }
 
-  async checkDuplicates(contactData: any, userJWT: string, tenantId: string): Promise<EdgeFunctionResponse> {
+  async checkDuplicates(contactData: any, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/duplicates`;
-    return await this.makeRequest('POST', url, contactData, userJWT, tenantId);
+    return await this.makeRequest('POST', url, contactData, userJWT, tenantId, environment);
   }
 
   // ==========================================================
@@ -125,15 +125,17 @@ class ContactService {
     url: string,
     body: any,
     userJWT: string,
-    tenantId: string
+    tenantId: string,
+    environment: string = 'live'
   ): Promise<EdgeFunctionResponse> {
     try {
       const requestBody = body ? JSON.stringify(body) : '';
-      
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${userJWT}`,
-        'x-tenant-id': tenantId
+        'x-tenant-id': tenantId,
+        'x-environment': environment
       };
 
       // Add HMAC signature if secret is available

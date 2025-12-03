@@ -39,7 +39,7 @@ process.on('uncaughtException', (error) => {
   console.error('🔴 UNCAUGHT EXCEPTION - Server will crash:');
   console.error('Error:', error.message);
   console.error('Stack:', error.stack);
-  
+
   try {
     captureException(error, {
       tags: { source: 'uncaught_exception', fatal: true }
@@ -47,14 +47,14 @@ process.on('uncaughtException', (error) => {
   } catch (sentryError) {
     console.error('Failed to send to Sentry:', sentryError);
   }
-  
+
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('🔴 UNHANDLED REJECTION at:', promise);
   console.error('Reason:', reason);
-  
+
   try {
     captureException(reason instanceof Error ? reason : new Error(String(reason)), {
       tags: { source: 'unhandled_rejection', fatal: true }
@@ -62,13 +62,13 @@ process.on('unhandledRejection', (reason, promise) => {
   } catch (sentryError) {
     console.error('Failed to send to Sentry:', sentryError);
   }
-  
+
   process.exit(1);
 });
 
 // Environment validation
 const requiredEnvVars = [
-  'SUPABASE_URL', 
+  'SUPABASE_URL',
   'SUPABASE_KEY',
   'VITE_FIREBASE_API_KEY',
   'VITE_FIREBASE_AUTH_DOMAIN',
@@ -228,6 +228,36 @@ try {
   }
 }
 
+// Load Sequence routes with error handling
+let sequenceRoutes;
+try {
+  sequenceRoutes = require('./routes/sequenceRoutes').default;
+  console.log('✅ Sequence routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load sequence routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without sequence routes...');
+    sequenceRoutes = null;
+  }
+}
+
+// Load Seed routes with error handling
+let seedRoutes;
+try {
+  seedRoutes = require('./routes/seedRoutes').default;
+  console.log('✅ Seed routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load seed routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without seed routes...');
+    seedRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -237,7 +267,7 @@ const PORT = process.env.PORT || 5000;
 // ====================
 
 // 1. CORS - needed for all routes
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
   : [
       'http://localhost:3000',
@@ -254,7 +284,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
-    
+
     // Check if origin is in allowed list or matches Railway pattern
     if (allowedOrigins.includes(origin) || origin.endsWith('.up.railway.app')) {
       callback(null, true);
@@ -266,11 +296,11 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'x-tenant-id', 
-    'x-request-id', 
-    'x-session-id', 
+    'Content-Type',
+    'Authorization',
+    'x-tenant-id',
+    'x-request-id',
+    'x-session-id',
     'x-environment',
     'x-user-id',
     'x-user-role',
@@ -284,7 +314,7 @@ app.use(cors({
 }));
 
 // 2. Helmet - security headers
-app.use(helmet({ 
+app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
     directives: {
       defaultSrc: ["'self'"],
@@ -468,6 +498,36 @@ try {
   });
 }
 
+// Register Sequence routes with error handling
+try {
+  if (sequenceRoutes) {
+    app.use('/api/sequences', sequenceRoutes);
+    console.log('✅ Sequence routes registered at /api/sequences');
+  } else {
+    console.log('⚠️  Sequence routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register sequence routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'sequences' }
+  });
+}
+
+// Register Seed routes with error handling
+try {
+  if (seedRoutes) {
+    app.use('/api/seeds', seedRoutes);
+    console.log('✅ Seed routes registered at /api/seeds');
+  } else {
+    console.log('⚠️  Seed routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register seed routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'seeds' }
+  });
+}
+
 // Business model routes
 app.use('/api/business-model', businessModelRoutes);
 console.log('✅ Business model routes registered at /api/business-model');
@@ -500,7 +560,9 @@ app.get('/health', async (req, res) => {
       blocks: blockRoutes ? 'loaded' : 'not_loaded',
       productMasterdata: productMasterdataRoutes ? 'loaded' : 'not_loaded',
       serviceCatalog: 'loaded',
-      groups: groupsRoutesLoaded ? 'loaded' : 'not_loaded'
+      groups: groupsRoutesLoaded ? 'loaded' : 'not_loaded',
+      sequences: sequenceRoutes ? 'loaded' : 'not_loaded',
+      seeds: seedRoutes ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
@@ -510,7 +572,9 @@ app.get('/health', async (req, res) => {
       product_masterdata: productMasterdataRoutes !== null,
       product_masterdata_enhanced: productMasterdataRoutes !== null,
       service_catalog: true,
-      groups_directory: groupsRoutesLoaded !== null
+      groups_directory: groupsRoutesLoaded !== null,
+      sequence_numbers: sequenceRoutes !== null,
+      tenant_seeds: seedRoutes !== null
     }
   };
 
@@ -580,6 +644,24 @@ app.get('/health', async (req, res) => {
       }
     }
 
+    // Check sequences service health if available
+    if (sequenceRoutes) {
+      try {
+        healthData.services.sequences = 'healthy';
+      } catch (error) {
+        healthData.services.sequences = 'error';
+      }
+    }
+
+    // Check seeds service health if available
+    if (seedRoutes) {
+      try {
+        healthData.services.seeds = 'healthy';
+      } catch (error) {
+        healthData.services.seeds = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -610,14 +692,18 @@ app.get('/', (req, res) => {
       productMasterdata: productMasterdataRoutes ? 'available' : 'not_available',
       productMasterdataEnhanced: productMasterdataRoutes ? 'available' : 'not_available',
       serviceCatalog: 'available',
-      groups: groupsRoutesLoaded ? 'available' : 'not_available'
+      groups: groupsRoutesLoaded ? 'available' : 'not_available',
+      sequences: sequenceRoutes ? 'available' : 'not_available',
+      seeds: seedRoutes ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',
       resources: '/api/resources',
       productMasterdata: '/api/product-masterdata',
       serviceCatalog: '/api/service-catalog',
-      groups: '/api/groups'
+      groups: '/api/groups',
+      sequences: '/api/sequences',
+      seeds: '/api/seeds'
     }
   });
 });
@@ -640,8 +726,8 @@ app.use(errorHandler);
 // Handle 404 routes
 app.use((req, res) => {
   console.log(`404 - Route not found: ${req.method} ${req.originalUrl}`);
-  res.status(404).json({ 
-    status: 'error', 
+  res.status(404).json({
+    status: 'error',
     message: 'Route not found',
     path: req.originalUrl,
     method: req.method,
@@ -652,7 +738,9 @@ app.use((req, res) => {
       resources: '/api/resources',
       productMasterdata: '/api/product-masterdata',
       serviceCatalog: '/api/service-catalog',
-      groups: '/api/groups'
+      groups: '/api/groups',
+      sequences: '/api/sequences',
+      seeds: '/api/seeds'
     }
   });
 });
@@ -663,7 +751,7 @@ const initializeJTD = async () => {
     // Start the realtime listener
     await jtdRealtimeListener.start();
     console.log('✅ JTD Realtime Listener initialized');
-    
+
     // If N8N is available, reprocess any queued events
     if (process.env.N8N_WEBHOOK_URL) {
       console.log('N8N webhook configured, checking for queued events...');
@@ -691,7 +779,7 @@ const startServer = async () => {
     const server = httpServer.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT}`);
       console.log(`📚 API Documentation available at http://localhost:${PORT}/api-docs`);
-      
+
       console.log('📍 Registered business model routes:');
       console.log('- GET  /api/business-model/plans');
       console.log('- POST /api/business-model/plans');
@@ -699,13 +787,13 @@ const startServer = async () => {
       console.log('- PUT  /api/business-model/plans/:id');
       console.log('- GET  /api/business-model/plan-versions');
       console.log('- POST /api/business-model/plan-versions');
-      
+
       console.log('📍 JTD routes:');
       console.log('- POST /api/jtd/events');
       console.log('- GET  /api/jtd/events/:eventId');
       console.log('- POST /api/jtd/webhooks/gupshup');
       console.log('- POST /api/jtd/webhooks/sendgrid');
-      
+
       // Resources API routes
       console.log('📍 Resources API routes:');
       console.log('- GET    /api/resources/health              # Resources health check');
@@ -725,7 +813,7 @@ const startServer = async () => {
       console.log('  ✅ Comprehensive Swagger documentation');
       console.log('  ✅ Rate limiting and error handling');
       console.log('  ✅ Complete validation and middleware protection');
-      
+
       // Log contact routes
       if (contactRoutes) {
         console.log('📍 Contact routes:');
@@ -754,7 +842,7 @@ const startServer = async () => {
       } else {
         console.log('⚠️  Contact routes not available');
       }
-      
+
       // Log tax settings routes if available
       if (taxSettingsRoutes) {
         console.log('📍 Tax Settings routes:');
@@ -777,7 +865,7 @@ const startServer = async () => {
       } else {
         console.log('⚠️  Tax Settings routes not available');
       }
-      
+
       // Log block routes if available
       if (blockRoutes) {
         console.log('📍 Service Contracts Block routes:');
@@ -800,7 +888,7 @@ const startServer = async () => {
       } else {
         console.log('⚠️  Block routes not available');
       }
-      
+
       // Log product master data routes if available (ENHANCED)
       if (productMasterdataRoutes) {
         console.log('📍 Product Master Data routes (ENHANCED):');
@@ -834,7 +922,7 @@ const startServer = async () => {
       } else {
         console.log('⚠️  Product Master Data routes not available');
       }
-      
+
       // Log service catalog routes
       console.log('📍 Service Catalog routes:');
       console.log('- GET    /api/service-catalog/health                          # Service health check');
@@ -865,7 +953,7 @@ const startServer = async () => {
       console.log('  ✅ Tags and custom attributes support');
       console.log('  ✅ Required resources with quantity and optional flag');
       console.log('  ✅ Automatic slug generation for SEO-friendly URLs');
-      
+
       // Log groups routes if available
       if (groupsRoutesLoaded) {
         console.log('📍 Groups & Directory routes:');
@@ -903,10 +991,53 @@ const startServer = async () => {
       } else {
         console.log('⚠️  Groups routes not available');
       }
-      
+
+      // Log sequence routes if available
+      if (sequenceRoutes) {
+        console.log('📍 Sequence Numbers routes:');
+        console.log('- GET    /api/sequences/health                       # Service health check');
+        console.log('- GET    /api/sequences/configs                      # List sequence configurations');
+        console.log('- POST   /api/sequences/configs                      # Create sequence config');
+        console.log('- PATCH  /api/sequences/configs/:id                  # Update sequence config');
+        console.log('- DELETE /api/sequences/configs/:id                  # Delete sequence config');
+        console.log('- GET    /api/sequences/status                       # Get current sequence values');
+        console.log('- GET    /api/sequences/next/:code                   # Get next sequence number');
+        console.log('- POST   /api/sequences/reset/:code                  # Reset sequence to start');
+        console.log('- POST   /api/sequences/seed                         # Seed default sequences');
+        console.log('- POST   /api/sequences/backfill/:code               # Backfill existing records');
+        console.log('📋 Sequence Numbers features:');
+        console.log('  ✅ Auto-generated numbers for contacts, invoices, contracts');
+        console.log('  ✅ Configurable prefix, suffix, padding');
+        console.log('  ✅ Reset frequency (never, yearly, monthly, quarterly)');
+        console.log('  ✅ Atomic increment with collision handling');
+        console.log('  ✅ Duplicate failover with A-Z suffix');
+        console.log('  ✅ Environment segregation (live/test)');
+      } else {
+        console.log('⚠️  Sequence routes not available');
+      }
+
+      // Log seed routes if available
+      if (seedRoutes) {
+        console.log('📍 Tenant Seed routes:');
+        console.log('- GET    /api/seeds/defaults                         # Get all seed previews');
+        console.log('- GET    /api/seeds/defaults/:category               # Get category preview');
+        console.log('- GET    /api/seeds/data/:category                   # Get raw seed data');
+        console.log('- POST   /api/seeds/tenant                           # Seed all defaults');
+        console.log('- POST   /api/seeds/tenant/:category                 # Seed specific category');
+        console.log('- GET    /api/seeds/status                           # Check seed status');
+        console.log('📋 Tenant Seed features:');
+        console.log('  ✅ Centralized seed data (single source of truth)');
+        console.log('  ✅ Preview data for onboarding UI');
+        console.log('  ✅ Dependency-aware seeding order');
+        console.log('  ✅ Idempotent seeding (skip existing)');
+        console.log('  ✅ Support for live/test environments');
+      } else {
+        console.log('⚠️  Seed routes not available');
+      }
+
       console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
       console.log('📁 Storage upload: POST /api/storage/files');
-      
+
       // Initialize JTD after server starts
       initializeJTD();
     });
@@ -914,7 +1045,7 @@ const startServer = async () => {
     // Graceful shutdown
     const gracefulShutdown = async (signal: string) => {
       console.log(`${signal} received, shutting down gracefully...`);
-      
+
       // Stop JTD listener
       try {
         await jtdRealtimeListener.stop();
@@ -922,7 +1053,7 @@ const startServer = async () => {
       } catch (error) {
         console.error('Error stopping JTD listener:', error);
       }
-      
+
       // Close HTTP server
       server.close(() => {
         console.log('HTTP server closed');
