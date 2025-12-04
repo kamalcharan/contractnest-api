@@ -162,7 +162,16 @@ export const createInvitation = async (req: Request, res: Response) => {
     }
     
     console.log('Creating invitation for tenant:', tenantId);
-    
+    console.log('📤 Forwarding to Supabase Edge Function:', {
+      url: `${SUPABASE_URL}/functions/v1/user-invitations`,
+      headers: {
+        'Authorization': authHeader ? 'Bearer [REDACTED]' : 'MISSING',
+        'x-tenant-id': tenantId || 'MISSING',
+        'Content-Type': 'application/json'
+      },
+      body: { email, mobile_number, invitation_method, role_id }
+    });
+
     const response = await axios.post(
       `${SUPABASE_URL}/functions/v1/user-invitations`,
       {
