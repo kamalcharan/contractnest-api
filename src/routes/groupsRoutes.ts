@@ -100,6 +100,25 @@ router.post('/profiles/generate-clusters', groupsController.generateClusters);
  */
 router.post('/profiles/save', groupsController.saveProfile);
 
+/**
+ * POST /api/profiles/clusters
+ * Save semantic clusters to database
+ * Body: { membership_id, clusters }
+ */
+router.post('/profiles/clusters', groupsController.saveClusters);
+
+/**
+ * GET /api/profiles/clusters/:membershipId
+ * Get saved clusters for a membership
+ */
+router.get('/profiles/clusters/:membershipId', groupsController.getClusters);
+
+/**
+ * DELETE /api/profiles/clusters/:membershipId
+ * Delete clusters for a membership
+ */
+router.delete('/profiles/clusters/:membershipId', groupsController.deleteClusters);
+
 // ============================================
 // SEARCH ROUTE
 // ============================================

@@ -37,8 +37,10 @@ export const N8N_PATHS = {
   // Embedding Generation
   GENERATE_EMBEDDING: '/generate-embedding',
 
+  // Semantic Clusters Generation
+  GENERATE_SEMANTIC_CLUSTERS: '/generate-semantic-clusters',
+
   // Future webhooks (add as needed)
-  // GENERATE_CLUSTERS: '/generate-clusters',
   // SEARCH_MEMBERS: '/search-members',
   // SEND_NOTIFICATION: '/send-notification',
 } as const;
@@ -135,6 +137,62 @@ export type N8NGenerateEmbeddingResponse =
   | N8NGenerateEmbeddingErrorResponse;
 
 // =================================================================
+// GENERATE SEMANTIC CLUSTERS TYPES
+// =================================================================
+
+/**
+ * Request body for generate-semantic-clusters webhook
+ */
+export interface N8NGenerateClustersRequest {
+  membership_id: string;
+  profile_text: string;
+  keywords?: string[];
+  chapter?: string;
+}
+
+/**
+ * Cluster item in response
+ */
+export interface N8NClusterItem {
+  primary_term: string;
+  related_terms: string[];
+  category: string;
+  confidence_score: number;
+}
+
+/**
+ * Success response from generate-semantic-clusters webhook
+ */
+export interface N8NGenerateClustersSuccessResponse {
+  status: 'success';
+  membership_id: string;
+  clusters_generated: number;
+  clusters: N8NClusterItem[];
+  tokens_used: number;
+}
+
+/**
+ * Error response from generate-semantic-clusters webhook
+ */
+export interface N8NGenerateClustersErrorResponse {
+  status: 'error';
+  errorCode?: string;
+  message: string;
+  details?: string;
+  suggestion?: string;
+  membership_id?: string;
+  recoverable?: boolean;
+  clusters_generated?: number;
+}
+
+/**
+ * Combined clusters response type
+ */
+export type N8NGenerateClustersResponse =
+  | N8NGenerateClustersSuccessResponse
+  | N8NGenerateClustersErrorResponse;
+
+// =================================================================
 // HELPER FUNCTIONS
 // =================================================================
 
@@ -168,8 +226,8 @@ export function getN8NWebhookUrl(
  * @returns N8NEnvironment ('production' | 'test')
  */
 export function mapEnvironmentToN8N(xEnvironment?: string): N8NEnvironment {
-  // 'test' maps to 'test', everything else (including undefined) maps to 'production'
-  return xEnvironment === 'test' ? 'test' : 'production';
+  // 'live' maps to 'production', everything else maps to 'test'
+  return xEnvironment === 'live' ? 'production' : 'test';
 }
 
 /**
@@ -200,6 +258,20 @@ export function isEmbeddingError(response: N8NGenerateEmbeddingResponse): respon
   return response.status === 'error';
 }
 
+/**
+ * Check if clusters response indicates success
+ */
+export function isClustersSuccess(response: N8NGenerateClustersResponse): response is N8NGenerateClustersSuccessResponse {
+  return response.status === 'success';
+}
+
+/**
+ * Check if clusters response indicates error
+ */
+export function isClustersError(response: N8NGenerateClustersResponse): response is N8NGenerateClustersErrorResponse {
+  return response.status === 'error';
+}
+
 // =================================================================
 // EXPORTS
 // =================================================================
@@ -214,6 +286,8 @@ export const VaNiN8NConfig = {
   isError: isN8NError,
   isEmbeddingSuccess,
   isEmbeddingError,
+  isClustersSuccess,
+  isClustersError,
 };
 
 export default VaNiN8NConfig;

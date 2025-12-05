@@ -11,6 +11,8 @@ import {
   type N8NProcessProfileResponse,
   type N8NGenerateEmbeddingRequest,
   type N8NGenerateEmbeddingResponse,
+  type N8NGenerateClustersRequest,
+  type N8NGenerateClustersResponse,
 } from '../config/VaNiN8NConfig';
 import type {
   BusinessGroup,
@@ -484,27 +486,75 @@ export const groupsService = {
   },
 
   /**
-   * Generate semantic clusters
+   * Generate semantic clusters via n8n webhook
+   * Routes to n8n webhook for AI-powered cluster generation
+   *
+   * @param authToken - Auth token (used for logging/tracking)
+   * @param request - Cluster generation request with membership_id and profile_text
+   * @param environment - 'live' or 'test' from x-environment header
    */
   async generateClusters(
     authToken: string,
-    request: GenerateClustersRequest
+    request: GenerateClustersRequest,
+    environment?: string
   ): Promise<GenerateClustersResponse> {
     try {
-      const response = await axios.post(
-        `${GROUPS_API_BASE}/profiles/generate-clusters`,
-        request,
+      // Map to n8n environment (live → production, test → test)
+      const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
+      const n8nUrl = VaNiN8NConfig.getWebhookUrl('GENERATE_SEMANTIC_CLUSTERS', n8nEnv);
+
+      console.log(`🤖 VaNi: Calling n8n generate-semantic-clusters [${n8nEnv}]:`, n8nUrl);
+
+      // Transform request to n8n format
+      const n8nRequest: N8NGenerateClustersRequest = {
+        membership_id: request.membership_id,
+        profile_text: request.profile_text,
+        keywords: request.keywords,
+      };
+
+      const response = await axios.post<N8NGenerateClustersResponse>(
+        n8nUrl,
+        n8nRequest,
         {
-          headers: getHeaders(authToken),
-          timeout: 30000
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 60000 // 60s timeout for AI processing
         }
       );
-      
-      return response.data;
+
+      // n8n may return an array - unwrap if needed
+      const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+      // Check for n8n error response
+      if (VaNiN8NConfig.isClustersError(n8nData)) {
+        console.error('🤖 VaNi: n8n returned error:', n8nData);
+        throw new Error(n8nData.message || 'Cluster generation failed');
+      }
+
+      // Transform n8n response to expected format
+      const successResponse = n8nData as N8NGenerateClustersResponse & { status: 'success' };
+      return {
+        success: true,
+        clusters_generated: successResponse.clusters_generated,
+        clusters: successResponse.clusters.map((cluster, index) => ({
+          id: `temp-${request.membership_id}-${index}`,
+          membership_id: request.membership_id,
+          primary_term: cluster.primary_term,
+          related_terms: cluster.related_terms,
+          category: cluster.category,
+          confidence_score: cluster.confidence_score,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        })),
+      };
     } catch (error) {
       console.error('Error in generateClusters:', error);
+
+      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+        throw new Error('Cluster generation timed out. Please try again.');
+      }
+
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'groupsService', action: 'generateClusters' },
+        tags: { source: 'groupsService', action: 'generateClusters', via: 'n8n' },
         extra: { membershipId: request.membership_id }
       });
       throw error;
@@ -760,6 +810,90 @@ export const groupsService = {
       captureException(error instanceof Error ? error : new Error(String(error)), {
         tags: { source: 'groupsService', action: 'getActivityLogs' },
         extra: { groupId, options }
+      });
+      throw error;
+    }
+  },
+
+  // ============================================
+  // CLUSTER CRUD OPERATIONS
+  // ============================================
+
+  /**
+   * Save semantic clusters for a membership
+   */
+  async saveClusters(
+    authToken: string,
+    request: { membership_id: string; clusters: any[] }
+  ): Promise<{ success: boolean; membership_id: string; clusters_saved: number }> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/profiles/clusters`,
+        request,
+        {
+          headers: getHeaders(authToken),
+          timeout: 30000
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in saveClusters:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'saveClusters' },
+        extra: { membershipId: request.membership_id }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get semantic clusters for a membership
+   */
+  async getClusters(
+    authToken: string,
+    membershipId: string
+  ): Promise<{ success: boolean; membership_id: string; clusters: any[] }> {
+    try {
+      const response = await axios.get(
+        `${GROUPS_API_BASE}/profiles/clusters/${membershipId}`,
+        {
+          headers: getHeaders(authToken)
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in getClusters:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'getClusters' },
+        extra: { membershipId }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Delete semantic clusters for a membership
+   */
+  async deleteClusters(
+    authToken: string,
+    membershipId: string
+  ): Promise<{ success: boolean; membership_id: string }> {
+    try {
+      const response = await axios.delete(
+        `${GROUPS_API_BASE}/profiles/clusters/${membershipId}`,
+        {
+          headers: getHeaders(authToken)
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in deleteClusters:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'deleteClusters' },
+        extra: { membershipId }
       });
       throw error;
     }
