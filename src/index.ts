@@ -15,6 +15,9 @@ import { specs } from './docs/swagger';
 
 import { authenticate } from './middleware/auth';
 import { errorHandler } from './middleware/error';
+import { setProductContext } from './middleware/productContext';
+import { logProductStatus } from './config/products';
+
 import { setTenantContext } from './middleware/tenantContext';
 import { initSentry, captureException } from './utils/sentry';
 import { initializeFirebase, checkFirebaseStatus } from './utils/firebaseConfig';
@@ -25,6 +28,8 @@ import integrationRoutes from './routes/integrationRoutes';
 import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
 import jtdRoutes from './routes/jtd';
+import productsRoutes from './routes/productsRoutes';
+
 import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
@@ -94,6 +99,9 @@ if (missingVars.length > 0) {
 
 // Initialize Sentry
 initSentry();
+// Log product configuration status
+logProductStatus();
+
 
 // Initialize Firebase
 try {
@@ -302,6 +310,7 @@ app.use(cors({
     'x-request-id',
     'x-session-id',
     'x-environment',
+    'x-product',
     'x-user-id',
     'x-user-role',
     'x-client-version',
@@ -332,6 +341,9 @@ app.use(helmet({
 
 // 3. Compression middleware
 app.use(compression());
+
+// 4.0. Product context - determines which Supabase to use
+app.use(setProductContext);
 
 // 4. Tenant context - only reads headers, doesn't touch body
 app.use(setTenantContext);
@@ -527,6 +539,10 @@ try {
     tags: { source: 'route_registration', route_type: 'seeds' }
   });
 }
+// Products Routes (multi-product support)
+app.use('/api/products', productsRoutes);
+console.log('✅ Products routes registered at /api/products');
+
 
 // Business model routes
 app.use('/api/business-model', businessModelRoutes);
