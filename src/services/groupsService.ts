@@ -13,6 +13,8 @@ import {
   type N8NGenerateEmbeddingResponse,
   type N8NGenerateClustersRequest,
   type N8NGenerateClustersResponse,
+  type N8NAISearchRequest,
+  type N8NAISearchResponse,
 } from '../config/VaNiN8NConfig';
 import type {
   BusinessGroup,
@@ -22,6 +24,8 @@ import type {
   UpdateMembershipRequest,
   SearchRequest,
   SearchResponse,
+  AISearchRequest,
+  AISearchResponse,
   AIEnhancementRequest,
   AIEnhancementResponse,
   WebsiteScrapingRequest,
@@ -44,10 +48,22 @@ import type {
 // ============================================
 const GROUPS_API_BASE = `${SUPABASE_URL}/functions/v1/groups`;
 
+// Internal API key for API-to-Edge communication
+const INTERNAL_API_SECRET = process.env.INTERNAL_SIGNING_SECRET || '';
+
 const getHeaders = (authToken: string, tenantId?: string) => ({
   'Authorization': authToken,
   'Content-Type': 'application/json',
   ...(tenantId && { 'x-tenant-id': tenantId })
+});
+
+// Headers for chat routes that require internal key authentication
+// Default to 'live' environment for n8n webhook routing
+const getChatHeaders = (authToken: string, environment: string = 'live') => ({
+  'Authorization': authToken,
+  'Content-Type': 'application/json',
+  'x-internal-key': INTERNAL_API_SECRET,
+  'x-environment': environment
 });
 
 // ============================================
@@ -684,7 +700,7 @@ export const groupsService = {
   // ============================================
 
   /**
-   * Search group directory
+   * Search group directory (legacy - uses Edge Function)
    */
   async search(
     authToken: string,
@@ -699,17 +715,110 @@ export const groupsService = {
           timeout: 15000 // 15s timeout
         }
       );
-      
+
       return response.data;
     } catch (error) {
       console.error('Error in search:', error);
-      
+
       if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
         throw new Error('Search timed out. Please try again.');
       }
-      
+
       captureException(error instanceof Error ? error : new Error(String(error)), {
         tags: { source: 'groupsService', action: 'search' },
+        extra: { request }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * AI Search - Intent-based search via n8n
+   * Routes to n8n webhook for AI-powered vector search with RBAC
+   *
+   * @param authToken - Auth token (used for logging/tracking)
+   * @param request - AI search request with intent, scope, channel
+   * @param environment - 'live' or 'test' from x-environment header
+   */
+  async aiSearch(
+    authToken: string,
+    request: AISearchRequest,
+    environment?: string
+  ): Promise<AISearchResponse> {
+    try {
+      // Map to n8n environment (live → production, test → test)
+      const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
+      const n8nUrl = VaNiN8NConfig.getWebhookUrl('AI_SEARCH', n8nEnv);
+
+      console.log(`🤖 VaNi: Calling n8n AI search [${n8nEnv}]:`, n8nUrl);
+
+      // Transform request to n8n format
+      const n8nRequest: N8NAISearchRequest = {
+        query: request.query,
+        group_id: request.group_id,
+        scope: request.scope || 'group',
+        intent_code: request.intent_code || 'search_offering',
+        user_role: request.user_role || 'member',
+        channel: request.channel || 'web',
+        limit: request.limit || 10,
+        use_cache: request.use_cache !== false,
+        similarity_threshold: request.similarity_threshold || 0.7,
+      };
+
+      const response = await axios.post<N8NAISearchResponse>(
+        n8nUrl,
+        n8nRequest,
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 30000 // 30s timeout for AI search
+        }
+      );
+
+      // n8n may return an array - unwrap if needed
+      const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+      // Check for n8n error response
+      if (VaNiN8NConfig.isAISearchError(n8nData)) {
+        console.error('🤖 VaNi: n8n AI search returned error:', n8nData);
+        return {
+          success: false,
+          from_cache: false,
+          results_count: 0,
+          results: [],
+          query: request.query,
+          search_scope: request.scope || 'group',
+          error: n8nData.error,
+          denial_reason: n8nData.denial_reason,
+          intent_code: n8nData.intent_code,
+          user_role: n8nData.user_role,
+          channel: n8nData.channel,
+        };
+      }
+
+      // Transform n8n success response to expected format
+      const successResponse = n8nData as N8NAISearchResponse & { success: true };
+      return {
+        success: true,
+        from_cache: successResponse.from_cache,
+        cache_hit_count: successResponse.cache_hit_count,
+        results_count: successResponse.results_count,
+        results: successResponse.results,
+        query: successResponse.query || request.query,
+        search_scope: successResponse.search_scope || request.scope || 'group',
+        intent_code: successResponse.intent_code,
+        user_role: successResponse.user_role,
+        channel: successResponse.channel,
+        max_results_allowed: successResponse.max_results_allowed,
+      };
+    } catch (error) {
+      console.error('Error in aiSearch:', error);
+
+      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+        throw new Error('AI search timed out. Please try again.');
+      }
+
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'aiSearch', via: 'n8n' },
         extra: { request }
       });
       throw error;
@@ -894,6 +1003,268 @@ export const groupsService = {
       captureException(error instanceof Error ? error : new Error(String(error)), {
         tags: { source: 'groupsService', action: 'deleteClusters' },
         extra: { membershipId }
+      });
+      throw error;
+    }
+  },
+
+  // ============================================
+  // CHAT SESSION OPERATIONS
+  // Proxies to Edge Function /chat/* endpoints
+  // ============================================
+
+  /**
+   * Initialize chat - get VaNi intro message
+   */
+  async chatInit(
+    authToken: string,
+    channel: string = 'web'
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/chat/init`,
+        { channel },
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatInit:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatInit' }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get or create chat session
+   */
+  async chatSession(
+    authToken: string,
+    channel: string = 'web'
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/chat/session`,
+        { channel },
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatSession:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatSession' }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get session by ID
+   */
+  async chatSessionById(
+    authToken: string,
+    sessionId: string
+  ): Promise<any> {
+    try {
+      const response = await axios.get(
+        `${GROUPS_API_BASE}/chat/session/${sessionId}`,
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatSessionById:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatSessionById' },
+        extra: { sessionId }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Activate group in chat session
+   */
+  async chatActivate(
+    authToken: string,
+    request: { trigger_phrase?: string; group_id?: string; session_id?: string }
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/chat/activate`,
+        request,
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatActivate:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatActivate' }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Set intent in chat session
+   */
+  async chatIntent(
+    authToken: string,
+    request: { session_id: string; intent: string; prompt?: string }
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/chat/intent`,
+        request,
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatIntent:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatIntent' }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * AI-powered search with caching (via Edge Function -> n8n)
+   */
+  async chatSearch(
+    authToken: string,
+    request: {
+      group_id: string;
+      query: string;
+      session_id?: string;
+      intent?: string;
+      limit?: number;
+      use_cache?: boolean;
+      similarity_threshold?: number;
+    }
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/chat/search`,
+        request,
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatSearch:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatSearch' }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * End chat session
+   */
+  async chatEnd(
+    authToken: string,
+    sessionId: string
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/chat/end`,
+        { session_id: sessionId },
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in chatEnd:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'chatEnd' }
+      });
+      throw error;
+    }
+  },
+
+  // ============================================
+  // TENANT STATS & INTENTS
+  // ============================================
+
+  /**
+   * Get tenant statistics for dashboard
+   * Calls Supabase RPC function get_tenant_stats
+   */
+  async getTenantStats(
+    authToken: string,
+    groupId?: string
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/tenants/stats`,
+        { group_id: groupId },
+        { headers: getHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in getTenantStats:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'getTenantStats' },
+        extra: { groupId }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get resolved intents for a group/user/channel
+   * Returns intents filtered by RBAC
+   */
+  async getIntents(
+    authToken: string,
+    groupId: string,
+    userRole: string = 'member',
+    channel: string = 'web'
+  ): Promise<any> {
+    try {
+      const response = await axios.get(
+        `${GROUPS_API_BASE}/intents?group_id=${groupId}&user_role=${userRole}&channel=${channel}`,
+        { headers: getHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in getIntents:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'getIntents' },
+        extra: { groupId, userRole, channel }
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * NLP-based tenant search
+   * Sends natural language query to AI for interpretation and search
+   */
+  async searchTenants(
+    authToken: string,
+    query: string,
+    groupId?: string,
+    intentCode?: string
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${GROUPS_API_BASE}/tenants/search`,
+        {
+          query,
+          group_id: groupId,
+          intent_code: intentCode,
+          channel: 'web',
+          user_role: 'admin'
+        },
+        { headers: getChatHeaders(authToken) }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error in searchTenants:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'searchTenants' },
+        extra: { query, groupId, intentCode }
       });
       throw error;
     }

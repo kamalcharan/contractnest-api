@@ -40,8 +40,10 @@ export const N8N_PATHS = {
   // Semantic Clusters Generation
   GENERATE_SEMANTIC_CLUSTERS: '/generate-semantic-clusters',
 
+  // AI Search (unified intent-based search)
+  AI_SEARCH: '/search',
+
   // Future webhooks (add as needed)
-  // SEARCH_MEMBERS: '/search-members',
   // SEND_NOTIFICATION: '/send-notification',
 } as const;
 
@@ -193,6 +195,87 @@ export type N8NGenerateClustersResponse =
   | N8NGenerateClustersErrorResponse;
 
 // =================================================================
+// AI SEARCH TYPES
+// =================================================================
+
+/**
+ * Request body for AI search webhook
+ * Matches the n8n workflow input format
+ */
+export interface N8NAISearchRequest {
+  query: string;
+  group_id: string;
+  scope?: 'group' | 'tenant' | 'product';
+  intent_code?: string;
+  user_role?: 'admin' | 'member' | 'guest';
+  channel?: 'web' | 'mobile' | 'whatsapp' | 'chatbot' | 'api';
+  limit?: number;
+  use_cache?: boolean;
+  similarity_threshold?: number;
+}
+
+/**
+ * Search result item from AI search
+ */
+export interface N8NAISearchResultItem {
+  membership_id: string;
+  tenant_id: string;
+  group_id: string;
+  group_name: string;
+  business_name: string;
+  business_email: string | null;
+  mobile_number: string | null;
+  city: string | null;
+  industry: string | null;
+  profile_snippet: string;
+  ai_enhanced_description: string;
+  approved_keywords: string[];
+  similarity: number;
+  similarity_original: number;
+  boost_applied: string | null;
+  match_type: 'vector' | 'keyword' | 'semantic';
+  search_scope: string;
+}
+
+/**
+ * Success response from AI search webhook
+ */
+export interface N8NAISearchSuccessResponse {
+  success: true;
+  status?: 'success';
+  from_cache: boolean;
+  cache_hit_count?: number;
+  results_count: number;
+  results: N8NAISearchResultItem[];
+  query: string;
+  search_scope: string;
+  intent_code?: string;
+  user_role?: string;
+  channel?: string;
+  max_results_allowed?: number;
+}
+
+/**
+ * Error response from AI search webhook
+ */
+export interface N8NAISearchErrorResponse {
+  success: false;
+  error: string;
+  details?: string;
+  denial_reason?: string;
+  intent_code?: string;
+  user_role?: string;
+  channel?: string;
+}
+
+/**
+ * Combined AI search response type
+ */
+export type N8NAISearchResponse =
+  | N8NAISearchSuccessResponse
+  | N8NAISearchErrorResponse;
+
+// =================================================================
 // HELPER FUNCTIONS
 // =================================================================
 
@@ -272,6 +355,20 @@ export function isClustersError(response: N8NGenerateClustersResponse): response
   return response.status === 'error';
 }
 
+/**
+ * Check if AI search response indicates success
+ */
+export function isAISearchSuccess(response: N8NAISearchResponse): response is N8NAISearchSuccessResponse {
+  return response.success === true;
+}
+
+/**
+ * Check if AI search response indicates error
+ */
+export function isAISearchError(response: N8NAISearchResponse): response is N8NAISearchErrorResponse {
+  return response.success === false;
+}
+
 // =================================================================
 // EXPORTS
 // =================================================================
@@ -288,6 +385,8 @@ export const VaNiN8NConfig = {
   isEmbeddingError,
   isClustersSuccess,
   isClustersError,
+  isAISearchSuccess,
+  isAISearchError,
 };
 
 export default VaNiN8NConfig;
