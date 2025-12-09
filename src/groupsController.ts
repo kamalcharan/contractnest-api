@@ -942,7 +942,191 @@ export const getActivityLogs = async (req: Request, res: Response) => {
 
     const status = error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to fetch activity logs';
-    
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+// ============================================
+// SMARTPROFILE CONTROLLERS
+// ============================================
+
+/**
+ * GET /api/smartprofiles/:tenantId
+ * Get SmartProfile for a tenant
+ */
+export const getSmartProfile = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'getSmartProfile')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    const tenantId = req.params.tenantId;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenantId parameter is required' });
+    }
+
+    const result = await groupsService.getSmartProfile(authHeader, tenantId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in getSmartProfile controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'getSmartProfile' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to fetch SmartProfile';
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+/**
+ * POST /api/smartprofiles
+ * Save SmartProfile (basic save without AI)
+ */
+export const saveSmartProfile = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'saveSmartProfile')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    const { tenant_id, short_description, approved_keywords, profile_type } = req.body;
+
+    if (!tenant_id) {
+      return res.status(400).json({ error: 'tenant_id is required' });
+    }
+
+    const result = await groupsService.saveSmartProfile(authHeader, tenant_id, {
+      short_description,
+      approved_keywords,
+      profile_type
+    });
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in saveSmartProfile controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'saveSmartProfile' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to save SmartProfile';
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+/**
+ * POST /api/smartprofiles/generate
+ * Generate SmartProfile via n8n (AI enhancement + embedding)
+ */
+export const generateSmartProfile = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'generateSmartProfile')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    const { tenant_id } = req.body;
+
+    if (!tenant_id) {
+      return res.status(400).json({ error: 'tenant_id is required' });
+    }
+
+    const environment = req.headers['x-environment'] as string | undefined;
+
+    const result = await groupsService.generateSmartProfile(authHeader, tenant_id, environment);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in generateSmartProfile controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'generateSmartProfile' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to generate SmartProfile';
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+/**
+ * POST /api/smartprofiles/search
+ * Search SmartProfiles via n8n
+ */
+export const searchSmartProfiles = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'searchSmartProfiles')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    const { query, scope, group_id, tenant_id, limit, use_cache } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: 'query is required' });
+    }
+
+    const environment = req.headers['x-environment'] as string | undefined;
+
+    const result = await groupsService.searchSmartProfiles(authHeader, {
+      query,
+      scope,
+      group_id,
+      tenant_id,
+      limit,
+      use_cache
+    }, environment);
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in searchSmartProfiles controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'searchSmartProfiles' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'Failed to search SmartProfiles';
+
     return res.status(status).json({ success: false, error: message });
   }
 };

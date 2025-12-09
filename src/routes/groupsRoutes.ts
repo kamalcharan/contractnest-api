@@ -225,28 +225,89 @@ router.put('/admin/memberships/:membershipId/status', groupsController.updateMem
 router.get('/admin/activity-logs/:groupId', groupsController.getActivityLogs);
 
 // ============================================
-// TENANT ROUTES (Dashboard & NLP Search)
+// SMARTPROFILE ROUTES (Tenant-level AI profiles)
+// ============================================
+
+/**
+ * GET /api/smartprofiles/:tenantId
+ * Get SmartProfile for a tenant
+ */
+router.get('/smartprofiles/:tenantId', groupsController.getSmartProfile);
+
+/**
+ * POST /api/smartprofiles
+ * Save SmartProfile (basic save without AI)
+ * Body: { tenant_id, short_description?, approved_keywords?, profile_type? }
+ */
+router.post('/smartprofiles', groupsController.saveSmartProfile);
+
+/**
+ * POST /api/smartprofiles/generate
+ * Generate SmartProfile via n8n (AI enhancement + embedding)
+ * Body: { tenant_id }
+ * Headers: x-environment: 'live' | 'test'
+ */
+router.post('/smartprofiles/generate', groupsController.generateSmartProfile);
+
+/**
+ * POST /api/smartprofiles/search
+ * Search SmartProfiles via n8n
+ * Body: { query, scope?, group_id?, tenant_id?, limit?, use_cache? }
+ * Headers: x-environment: 'live' | 'test'
+ */
+router.post('/smartprofiles/search', groupsController.searchSmartProfiles);
+
+/**
+ * POST /api/smartprofiles/enhance
+ * AI enhance SmartProfile description
+ * Body: { tenant_id, short_description }
+ */
+router.post('/smartprofiles/enhance', groupsController.enhanceSmartProfile);
+
+/**
+ * POST /api/smartprofiles/scrape-website
+ * Scrape website for SmartProfile
+ * Body: { tenant_id, website_url }
+ */
+router.post('/smartprofiles/scrape-website', groupsController.scrapeWebsiteForSmartProfile);
+
+/**
+ * POST /api/smartprofiles/generate-clusters
+ * Generate semantic clusters for SmartProfile
+ * Body: { tenant_id, profile_text, keywords }
+ */
+router.post('/smartprofiles/generate-clusters', groupsController.generateSmartProfileClusters);
+
+/**
+ * POST /api/smartprofiles/clusters
+ * Save SmartProfile clusters
+ * Body: { tenant_id, clusters }
+ */
+router.post('/smartprofiles/clusters', groupsController.saveSmartProfileClusters);
+
+/**
+ * GET /api/smartprofiles/clusters/:tenantId
+ * Get SmartProfile clusters
+ */
+router.get('/smartprofiles/clusters/:tenantId', groupsController.getSmartProfileClusters);
+
+// ============================================
+// TENANT DASHBOARD ROUTES
 // ============================================
 
 /**
  * POST /api/tenants/stats
  * Get tenant statistics for dashboard
- * Body: { group_id?: string }
+ * Body: { group_id? }
  */
 router.post('/tenants/stats', groupsController.getTenantStats);
 
 /**
  * POST /api/tenants/search
- * NLP-based tenant search
- * Body: { query: string, group_id?: string, intent_code?: string }
+ * NLP-based tenant search via n8n
+ * Body: { query, group_id?, intent_code? }
+ * Headers: x-environment: 'live' | 'test'
  */
 router.post('/tenants/search', groupsController.searchTenants);
-
-/**
- * GET /api/intents
- * Get resolved intents for a group/user/channel
- * Query params: ?group_id=xxx&user_role=admin&channel=web
- */
-router.get('/intents', groupsController.getIntents);
 
 export default router;
