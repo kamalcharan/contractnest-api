@@ -1377,16 +1377,35 @@ export const saveSmartProfile = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Authorization header is required' });
     }
 
-    const { tenant_id, short_description, approved_keywords, profile_type } = req.body;
+    const {
+      tenant_id,
+      short_description,
+      ai_enhanced_description,
+      approved_keywords,
+      profile_type,
+      website_url,
+      generation_method
+    } = req.body;
 
     if (!tenant_id) {
       return res.status(400).json({ error: 'tenant_id is required' });
     }
 
+    console.log('📝 saveSmartProfile controller received:', {
+      tenant_id,
+      hasEnhancedDesc: !!ai_enhanced_description,
+      enhancedDescLength: ai_enhanced_description?.length || 0,
+      shortDescLength: short_description?.length || 0,
+      keywordsCount: approved_keywords?.length || 0
+    });
+
     const result = await groupsService.saveSmartProfile(authHeader, tenant_id, {
       short_description,
+      ai_enhanced_description,
       approved_keywords,
-      profile_type
+      profile_type,
+      website_url,
+      generation_method
     });
 
     return res.status(200).json(result);

@@ -1306,11 +1306,20 @@ export const groupsService = {
     tenantId: string,
     profileData: {
       short_description?: string;
+      ai_enhanced_description?: string;
       approved_keywords?: string[];
       profile_type?: string;
+      website_url?: string;
+      generation_method?: 'manual' | 'website';
     }
   ): Promise<any> {
     try {
+      console.log('📝 groupsService.saveSmartProfile sending to Edge:', {
+        tenantId,
+        hasEnhancedDesc: !!profileData.ai_enhanced_description,
+        enhancedDescLength: profileData.ai_enhanced_description?.length || 0
+      });
+
       const response = await axios.post(
         `${GROUPS_API_BASE}/smartprofiles`,
         { tenant_id: tenantId, ...profileData },
