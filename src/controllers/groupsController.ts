@@ -1507,9 +1507,10 @@ export const enhanceSmartProfile = async (req: Request, res: Response) => {
     }
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    const environment = req.headers['x-environment'] as string || 'live';
     const { tenant_id, short_description } = req.body;
     if (!tenant_id || !short_description) return res.status(400).json({ error: 'tenant_id and short_description are required' });
-    const result = await groupsService.enhanceSmartProfile(authHeader, tenant_id, short_description);
+    const result = await groupsService.enhanceSmartProfile(authHeader, tenant_id, short_description, environment);
     return res.status(200).json(result);
   } catch (error: any) {
     console.error('Error in enhanceSmartProfile:', error.message);
@@ -1525,9 +1526,10 @@ export const scrapeWebsiteForSmartProfile = async (req: Request, res: Response) 
     }
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    const environment = req.headers['x-environment'] as string || 'live';
     const { tenant_id, website_url } = req.body;
     if (!tenant_id || !website_url) return res.status(400).json({ error: 'tenant_id and website_url are required' });
-    const result = await groupsService.scrapeWebsiteForSmartProfile(authHeader, tenant_id, website_url);
+    const result = await groupsService.scrapeWebsiteForSmartProfile(authHeader, tenant_id, website_url, environment);
     return res.status(200).json(result);
   } catch (error: any) {
     console.error('Error in scrapeWebsiteForSmartProfile:', error.message);
@@ -1543,9 +1545,10 @@ export const generateSmartProfileClusters = async (req: Request, res: Response) 
     }
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    const environment = req.headers['x-environment'] as string || 'live';
     const { tenant_id, profile_text, keywords } = req.body;
     if (!tenant_id || !profile_text) return res.status(400).json({ error: 'tenant_id and profile_text are required' });
-    const result = await groupsService.generateSmartProfileClusters(authHeader, tenant_id, profile_text, keywords);
+    const result = await groupsService.generateSmartProfileClusters(authHeader, tenant_id, profile_text, keywords, environment);
     return res.status(200).json(result);
   } catch (error: any) {
     console.error('Error in generateSmartProfileClusters:', error.message);

@@ -67,6 +67,241 @@ const getChatHeaders = (authToken: string, environment: string = 'live') => ({
 });
 
 // ============================================
+// Shared Internal Functions (Phase 2 Refactor)
+// Used by both Groups and SmartProfile methods
+// ============================================
+
+type EntityType = 'membership' | 'tenant';
+
+interface EnhanceProfileParams {
+  entityType: EntityType;
+  entityId: string;
+  shortDescription: string;
+  environment?: string;
+}
+
+interface ScrapeWebsiteParams {
+  entityType: EntityType;
+  entityId: string;
+  websiteUrl: string;
+  environment?: string;
+}
+
+interface GenerateClustersParams {
+  entityType: EntityType;
+  entityId: string;
+  profileText: string;
+  keywords?: string[];
+  environment?: string;
+}
+
+/**
+ * Shared internal function for AI profile enhancement
+ * Used by both enhanceProfile (Groups) and enhanceSmartProfile (SmartProfile)
+ */
+async function _enhanceProfileInternal(params: EnhanceProfileParams): Promise<any> {
+  const { entityType, entityId, shortDescription, environment } = params;
+  const label = entityType === 'membership' ? 'VaNi' : 'SmartProfile';
+
+  try {
+    const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
+    const n8nUrl = VaNiN8NConfig.getWebhookUrl('PROCESS_PROFILE', n8nEnv);
+
+    console.log(`🤖 ${label}: Calling n8n enhance profile [${n8nEnv}]:`, n8nUrl);
+
+    const n8nRequest: N8NProcessProfileRequest = {
+      type: 'manual',
+      content: shortDescription,
+      userId: entityId,
+      groupId: entityId,
+    };
+
+    const response = await axios.post<N8NProcessProfileResponse>(
+      n8nUrl,
+      n8nRequest,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 60000
+      }
+    );
+
+    const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+    if (VaNiN8NConfig.isError(n8nData)) {
+      console.error(`🤖 ${label}: n8n returned error:`, n8nData);
+      throw new Error(n8nData.message || 'AI enhancement failed');
+    }
+
+    const successResponse = n8nData as N8NProcessProfileResponse & { status: 'success' };
+    return {
+      success: true,
+      ai_enhanced_description: successResponse.enhancedContent,
+      original_description: shortDescription,
+      suggested_keywords: [],
+      source: 'n8n'
+    };
+  } catch (error: any) {
+    console.error(`Error in _enhanceProfileInternal (${entityType}):`, error);
+
+    if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+      throw new Error('AI enhancement timed out. Please try again.');
+    }
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'groupsService', action: 'enhanceProfile', entityType, via: 'n8n' },
+      extra: { entityId }
+    });
+    throw error;
+  }
+}
+
+/**
+ * Shared internal function for website scraping
+ * Used by both scrapeWebsite (Groups) and scrapeWebsiteForSmartProfile (SmartProfile)
+ */
+async function _scrapeWebsiteInternal(params: ScrapeWebsiteParams): Promise<any> {
+  const { entityType, entityId, websiteUrl, environment } = params;
+  const label = entityType === 'membership' ? 'VaNi' : 'SmartProfile';
+
+  try {
+    const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
+    const n8nUrl = VaNiN8NConfig.getWebhookUrl('PROCESS_PROFILE', n8nEnv);
+
+    console.log(`🤖 ${label}: Calling n8n scrape website [${n8nEnv}]:`, n8nUrl);
+
+    const n8nRequest: N8NProcessProfileRequest = {
+      type: 'website',
+      websiteUrl: websiteUrl,
+      userId: entityId,
+      groupId: entityId,
+    };
+
+    const response = await axios.post<N8NProcessProfileResponse>(
+      n8nUrl,
+      n8nRequest,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 90000
+      }
+    );
+
+    const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+    if (VaNiN8NConfig.isError(n8nData)) {
+      const errorResponse = n8nData;
+      console.error(`🤖 ${label}: n8n returned error:`, errorResponse);
+
+      if (errorResponse.errorCode === 'WEBSITE_FETCH_FAILED') {
+        throw new Error(errorResponse.suggestion || 'Unable to access website. Please check the URL.');
+      }
+      throw new Error(errorResponse.message || 'Website scraping failed');
+    }
+
+    const successResponse = n8nData as N8NProcessProfileResponse & { status: 'success' };
+    return {
+      success: true,
+      ai_enhanced_description: successResponse.enhancedContent,
+      original_description: successResponse.originalContent,
+      source_url: websiteUrl,
+      suggested_keywords: [],
+      scraped_data: {
+        title: '',
+        meta_description: '',
+        content_snippets: [successResponse.originalContent],
+      },
+      source: 'n8n'
+    };
+  } catch (error: any) {
+    console.error(`Error in _scrapeWebsiteInternal (${entityType}):`, error);
+
+    if (axios.isAxiosError(error)) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Website scraping timed out. Please try again.');
+      }
+      if (error.response?.status === 400 && error.response?.data?.suggestion) {
+        throw new Error(error.response.data.suggestion);
+      }
+    }
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'groupsService', action: 'scrapeWebsite', entityType, via: 'n8n' },
+      extra: { entityId, websiteUrl }
+    });
+    throw error;
+  }
+}
+
+/**
+ * Shared internal function for semantic cluster generation
+ * Used by both generateClusters (Groups) and generateSmartProfileClusters (SmartProfile)
+ */
+async function _generateClustersInternal(params: GenerateClustersParams): Promise<any> {
+  const { entityType, entityId, profileText, keywords, environment } = params;
+  const label = entityType === 'membership' ? 'VaNi' : 'SmartProfile';
+
+  try {
+    const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
+    const n8nUrl = VaNiN8NConfig.getWebhookUrl('GENERATE_SEMANTIC_CLUSTERS', n8nEnv);
+
+    console.log(`🤖 ${label}: Calling n8n generate-semantic-clusters [${n8nEnv}]:`, n8nUrl);
+
+    const n8nRequest: N8NGenerateClustersRequest = {
+      membership_id: entityId,
+      profile_text: profileText,
+      keywords: keywords || [],
+    };
+
+    const response = await axios.post<N8NGenerateClustersResponse>(
+      n8nUrl,
+      n8nRequest,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 60000
+      }
+    );
+
+    const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+    if (VaNiN8NConfig.isClustersError(n8nData)) {
+      console.error(`🤖 ${label}: n8n returned error:`, n8nData);
+      throw new Error(n8nData.message || 'Cluster generation failed');
+    }
+
+    const successResponse = n8nData as N8NGenerateClustersResponse & { status: 'success' };
+
+    // Return with appropriate ID field based on entity type
+    const idField = entityType === 'membership' ? 'membership_id' : 'tenant_id';
+
+    return {
+      success: true,
+      clusters_generated: successResponse.clusters_generated,
+      clusters: successResponse.clusters.map((cluster, index) => ({
+        id: `temp-${entityId}-${index}`,
+        [idField]: entityId,
+        primary_term: cluster.primary_term,
+        related_terms: cluster.related_terms,
+        category: cluster.category,
+        confidence_score: cluster.confidence_score,
+        is_active: true,
+        created_at: new Date().toISOString(),
+      })),
+    };
+  } catch (error: any) {
+    console.error(`Error in _generateClustersInternal (${entityType}):`, error);
+
+    if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+      throw new Error('Cluster generation timed out. Please try again.');
+    }
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'groupsService', action: 'generateClusters', entityType, via: 'n8n' },
+      extra: { entityId }
+    });
+    throw error;
+  }
+}
+
+// ============================================
 // Service Implementation
 // ============================================
 export const groupsService = {
@@ -360,60 +595,21 @@ export const groupsService = {
     request: AIEnhancementRequest,
     environment?: string
   ): Promise<AIEnhancementResponse> {
-    try {
-      // Map to n8n environment (live → production, test → test)
-      const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
-      const n8nUrl = VaNiN8NConfig.getWebhookUrl('PROCESS_PROFILE', n8nEnv);
+    // Use shared internal function
+    const result = await _enhanceProfileInternal({
+      entityType: 'membership',
+      entityId: request.membership_id,
+      shortDescription: request.short_description,
+      environment
+    });
 
-      console.log(`🤖 VaNi: Calling n8n enhance profile [${n8nEnv}]:`, n8nUrl);
-
-      // Transform request to n8n format
-      const n8nRequest: N8NProcessProfileRequest = {
-        type: 'manual',
-        content: request.short_description,
-        userId: request.membership_id, // Using membership_id as userId for tracking
-        groupId: request.membership_id, // Will be updated when we have proper group context
-      };
-
-      const response = await axios.post<N8NProcessProfileResponse>(
-        n8nUrl,
-        n8nRequest,
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 60000 // 60s timeout for AI processing
-        }
-      );
-
-      // n8n may return an array - unwrap if needed
-      const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
-
-      // Check for n8n error response
-      if (VaNiN8NConfig.isError(n8nData)) {
-        console.error('🤖 VaNi: n8n returned error:', n8nData);
-        throw new Error(n8nData.message || 'AI enhancement failed');
-      }
-
-      // Transform n8n response to expected format
-      const successResponse = n8nData as N8NProcessProfileResponse & { status: 'success' };
-      return {
-        success: true,
-        ai_enhanced_description: successResponse.enhancedContent,
-        suggested_keywords: [], // n8n doesn't return keywords yet
-        processing_time_ms: 0,  // Could add timing if needed
-      };
-    } catch (error) {
-      console.error('Error in enhanceProfile:', error);
-
-      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
-        throw new Error('AI enhancement timed out. Please try again.');
-      }
-
-      captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'groupsService', action: 'enhanceProfile', via: 'n8n' },
-        extra: { membershipId: request.membership_id }
-      });
-      throw error;
-    }
+    // Map to AIEnhancementResponse format
+    return {
+      success: result.success,
+      ai_enhanced_description: result.ai_enhanced_description,
+      suggested_keywords: result.suggested_keywords,
+      processing_time_ms: 0,
+    };
   },
 
   /**
@@ -429,76 +625,21 @@ export const groupsService = {
     request: WebsiteScrapingRequest,
     environment?: string
   ): Promise<WebsiteScrapingResponse> {
-    try {
-      // Map to n8n environment (live → production, test → test)
-      const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
-      const n8nUrl = VaNiN8NConfig.getWebhookUrl('PROCESS_PROFILE', n8nEnv);
+    // Use shared internal function
+    const result = await _scrapeWebsiteInternal({
+      entityType: 'membership',
+      entityId: request.membership_id,
+      websiteUrl: request.website_url,
+      environment
+    });
 
-      console.log(`🤖 VaNi: Calling n8n scrape website [${n8nEnv}]:`, n8nUrl);
-
-      // Transform request to n8n format
-      const n8nRequest: N8NProcessProfileRequest = {
-        type: 'website',
-        websiteUrl: request.website_url,
-        userId: request.membership_id,
-        groupId: request.membership_id,
-      };
-
-      const response = await axios.post<N8NProcessProfileResponse>(
-        n8nUrl,
-        n8nRequest,
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 90000 // 90s timeout for scraping + AI
-        }
-      );
-
-      // n8n may return an array - unwrap if needed
-      const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
-
-      // Check for n8n error response
-      if (VaNiN8NConfig.isError(n8nData)) {
-        const errorResponse = n8nData;
-        console.error('🤖 VaNi: n8n returned error:', errorResponse);
-
-        // Map n8n error codes to user-friendly messages
-        if (errorResponse.errorCode === 'WEBSITE_FETCH_FAILED') {
-          throw new Error(errorResponse.suggestion || 'Unable to access website. Please check the URL.');
-        }
-        throw new Error(errorResponse.message || 'Website scraping failed');
-      }
-
-      // Transform n8n response to expected format
-      const successResponse = n8nData as N8NProcessProfileResponse & { status: 'success' };
-      return {
-        success: true,
-        ai_enhanced_description: successResponse.enhancedContent,
-        suggested_keywords: [], // n8n doesn't return keywords yet
-        scraped_data: {
-          title: '',
-          meta_description: '',
-          content_snippets: [successResponse.originalContent],
-        },
-      };
-    } catch (error) {
-      console.error('Error in scrapeWebsite:', error);
-
-      if (axios.isAxiosError(error)) {
-        if (error.code === 'ECONNABORTED') {
-          throw new Error('Website scraping timed out. Please try again.');
-        }
-        // Handle n8n 400 responses (error responses)
-        if (error.response?.status === 400 && error.response?.data?.suggestion) {
-          throw new Error(error.response.data.suggestion);
-        }
-      }
-
-      captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'groupsService', action: 'scrapeWebsite', via: 'n8n' },
-        extra: { membershipId: request.membership_id, websiteUrl: request.website_url }
-      });
-      throw error;
-    }
+    // Map to WebsiteScrapingResponse format
+    return {
+      success: result.success,
+      ai_enhanced_description: result.ai_enhanced_description,
+      suggested_keywords: result.suggested_keywords,
+      scraped_data: result.scraped_data,
+    };
   },
 
   /**
@@ -514,67 +655,16 @@ export const groupsService = {
     request: GenerateClustersRequest,
     environment?: string
   ): Promise<GenerateClustersResponse> {
-    try {
-      // Map to n8n environment (live → production, test → test)
-      const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
-      const n8nUrl = VaNiN8NConfig.getWebhookUrl('GENERATE_SEMANTIC_CLUSTERS', n8nEnv);
+    // Use shared internal function
+    const result = await _generateClustersInternal({
+      entityType: 'membership',
+      entityId: request.membership_id,
+      profileText: request.profile_text,
+      keywords: request.keywords,
+      environment
+    });
 
-      console.log(`🤖 VaNi: Calling n8n generate-semantic-clusters [${n8nEnv}]:`, n8nUrl);
-
-      // Transform request to n8n format
-      const n8nRequest: N8NGenerateClustersRequest = {
-        membership_id: request.membership_id,
-        profile_text: request.profile_text,
-        keywords: request.keywords,
-      };
-
-      const response = await axios.post<N8NGenerateClustersResponse>(
-        n8nUrl,
-        n8nRequest,
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 60000 // 60s timeout for AI processing
-        }
-      );
-
-      // n8n may return an array - unwrap if needed
-      const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
-
-      // Check for n8n error response
-      if (VaNiN8NConfig.isClustersError(n8nData)) {
-        console.error('🤖 VaNi: n8n returned error:', n8nData);
-        throw new Error(n8nData.message || 'Cluster generation failed');
-      }
-
-      // Transform n8n response to expected format
-      const successResponse = n8nData as N8NGenerateClustersResponse & { status: 'success' };
-      return {
-        success: true,
-        clusters_generated: successResponse.clusters_generated,
-        clusters: successResponse.clusters.map((cluster, index) => ({
-          id: `temp-${request.membership_id}-${index}`,
-          membership_id: request.membership_id,
-          primary_term: cluster.primary_term,
-          related_terms: cluster.related_terms,
-          category: cluster.category,
-          confidence_score: cluster.confidence_score,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        })),
-      };
-    } catch (error) {
-      console.error('Error in generateClusters:', error);
-
-      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
-        throw new Error('Cluster generation timed out. Please try again.');
-      }
-
-      captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'groupsService', action: 'generateClusters', via: 'n8n' },
-        extra: { membershipId: request.membership_id }
-      });
-      throw error;
-    }
+    return result;
   },
 
   /**
@@ -1308,38 +1398,49 @@ export const groupsService = {
     }
   },
 
-  // SmartProfile wizard methods
-  async enhanceSmartProfile(authToken: string, tenantId: string, shortDescription: string): Promise<any> {
-    try {
-      const response = await axios.post(`${GROUPS_API_BASE}/smartprofiles/enhance`, { tenant_id: tenantId, short_description: shortDescription }, { headers: getHeaders(authToken, tenantId), timeout: 60000 });
-      return response.data;
-    } catch (error: any) {
-      console.error('Error in enhanceSmartProfile:', error);
-      captureException(error instanceof Error ? error : new Error(String(error)), { tags: { source: 'groupsService', action: 'enhanceSmartProfile' } });
-      throw error;
-    }
+  // SmartProfile wizard methods - using shared internal functions
+
+  /**
+   * Enhance SmartProfile description with AI via n8n
+   * Uses shared _enhanceProfileInternal function
+   */
+  async enhanceSmartProfile(authToken: string, tenantId: string, shortDescription: string, environment?: string): Promise<any> {
+    // Use shared internal function with tenant entity type
+    return _enhanceProfileInternal({
+      entityType: 'tenant',
+      entityId: tenantId,
+      shortDescription,
+      environment
+    });
   },
 
-  async scrapeWebsiteForSmartProfile(authToken: string, tenantId: string, websiteUrl: string): Promise<any> {
-    try {
-      const response = await axios.post(`${GROUPS_API_BASE}/smartprofiles/scrape-website`, { tenant_id: tenantId, website_url: websiteUrl }, { headers: getHeaders(authToken, tenantId), timeout: 60000 });
-      return response.data;
-    } catch (error: any) {
-      console.error('Error in scrapeWebsiteForSmartProfile:', error);
-      captureException(error instanceof Error ? error : new Error(String(error)), { tags: { source: 'groupsService', action: 'scrapeWebsiteForSmartProfile' } });
-      throw error;
-    }
+  /**
+   * Scrape website for SmartProfile via n8n
+   * Uses shared _scrapeWebsiteInternal function
+   */
+  async scrapeWebsiteForSmartProfile(authToken: string, tenantId: string, websiteUrl: string, environment?: string): Promise<any> {
+    // Use shared internal function with tenant entity type
+    return _scrapeWebsiteInternal({
+      entityType: 'tenant',
+      entityId: tenantId,
+      websiteUrl,
+      environment
+    });
   },
 
-  async generateSmartProfileClusters(authToken: string, tenantId: string, profileText: string, keywords?: string[]): Promise<any> {
-    try {
-      const response = await axios.post(`${GROUPS_API_BASE}/smartprofiles/generate-clusters`, { tenant_id: tenantId, profile_text: profileText, keywords }, { headers: getHeaders(authToken, tenantId), timeout: 60000 });
-      return response.data;
-    } catch (error: any) {
-      console.error('Error in generateSmartProfileClusters:', error);
-      captureException(error instanceof Error ? error : new Error(String(error)), { tags: { source: 'groupsService', action: 'generateSmartProfileClusters' } });
-      throw error;
-    }
+  /**
+   * Generate semantic clusters for SmartProfile via n8n
+   * Uses shared _generateClustersInternal function
+   */
+  async generateSmartProfileClusters(authToken: string, tenantId: string, profileText: string, keywords?: string[], environment?: string): Promise<any> {
+    // Use shared internal function with tenant entity type
+    return _generateClustersInternal({
+      entityType: 'tenant',
+      entityId: tenantId,
+      profileText,
+      keywords,
+      environment
+    });
   },
 
   async saveSmartProfileClusters(authToken: string, tenantId: string, clusters: any[]): Promise<any> {
