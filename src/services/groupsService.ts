@@ -15,6 +15,9 @@ import {
   type N8NGenerateClustersResponse,
   type N8NAISearchRequest,
   type N8NAISearchResponse,
+  type N8NAIAgentRequest,
+  type N8NAIAgentResponse,
+  type AIAgentChannel,
 } from '../config/VaNiN8NConfig';
 import type {
   BusinessGroup,
@@ -1494,6 +1497,105 @@ export const groupsService = {
       console.error('Error in searchTenants:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), { tags: { source: 'groupsService', action: 'searchTenants' } });
       throw error;
+    }
+  },
+
+  // ============================================
+  // AI AGENT - Conversational Group Discovery
+  // Calls N8N webhook for AI-powered chat
+  // ============================================
+
+  /**
+   * Send message to AI Agent via N8N webhook
+   * Supports chat, whatsapp, and web channels
+   *
+   * @param request - AI Agent request containing message, channel, and user identifier
+   * @param environment - 'live' or 'test' for N8N routing
+   * @returns AI Agent response with message and optional search results
+   */
+  async aiAgentMessage(
+    request: {
+      message: string;
+      channel: AIAgentChannel;
+      user_id?: string;
+      phone?: string;
+      group_id?: string;
+      tenant_id?: string;
+    },
+    environment?: string
+  ): Promise<N8NAIAgentResponse> {
+    try {
+      const n8nEnv = VaNiN8NConfig.mapEnvironment(environment);
+      const n8nUrl = VaNiN8NConfig.getWebhookUrl('AI_AGENT', n8nEnv);
+
+      console.log(`🤖 AI Agent: Calling N8N webhook [${n8nEnv}]:`, n8nUrl);
+      console.log(`🤖 AI Agent: Request:`, {
+        channel: request.channel,
+        message: request.message.substring(0, 50) + '...',
+        hasUserId: !!request.user_id,
+        hasPhone: !!request.phone,
+        groupId: request.group_id
+      });
+
+      const n8nRequest: N8NAIAgentRequest = {
+        message: request.message,
+        channel: request.channel,
+        ...(request.user_id && { user_id: request.user_id }),
+        ...(request.phone && { phone: request.phone }),
+        ...(request.group_id && { group_id: request.group_id }),
+        ...(request.tenant_id && { tenant_id: request.tenant_id }),
+      };
+
+      const response = await axios.post<N8NAIAgentResponse>(
+        n8nUrl,
+        n8nRequest,
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 90000 // 90 seconds for AI processing
+        }
+      );
+
+      // Handle array response (N8N sometimes wraps in array)
+      const n8nData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+      console.log(`🤖 AI Agent: Response received:`, {
+        success: n8nData.success,
+        hasResults: !!(n8nData as any).results,
+        resultsCount: (n8nData as any).results_count
+      });
+
+      return n8nData;
+    } catch (error: any) {
+      console.error('Error in aiAgentMessage:', error.message);
+
+      // Handle timeout
+      if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
+        return {
+          success: false,
+          error: 'AI Agent request timed out. Please try again.',
+          message: 'The request took too long to process.'
+        };
+      }
+
+      // Handle network errors
+      if (axios.isAxiosError(error) && !error.response) {
+        return {
+          success: false,
+          error: 'Unable to reach AI Agent. Please try again later.',
+          message: 'Network error occurred.'
+        };
+      }
+
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'groupsService', action: 'aiAgentMessage', via: 'n8n' },
+        extra: { channel: request.channel, hasMessage: !!request.message }
+      });
+
+      return {
+        success: false,
+        error: error.response?.data?.error || error.message || 'AI Agent request failed',
+        message: 'An error occurred while processing your request.'
+      };
     }
   }
 };

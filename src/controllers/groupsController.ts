@@ -1648,3 +1648,126 @@ export const searchTenants = async (req: Request, res: Response) => {
     return res.status(error.response?.status || 500).json({ success: false, error: error.response?.data?.error || error.message });
   }
 };
+
+// ============================================
+// AI AGENT CONTROLLERS
+// Conversational AI for Group Discovery
+// ============================================
+
+/**
+ * POST /api/ai-agent/message
+ * Send message to AI Agent via N8N webhook
+ *
+ * Body:
+ * - message: string (required) - User's message
+ * - channel: 'chat' | 'whatsapp' | 'web' (required) - Channel type
+ * - group_id?: string - Optional group context
+ *
+ * Headers:
+ * - Authorization: Bearer token (required for chat/web)
+ * - x-environment: 'live' | 'test' (for n8n routing)
+ *
+ * For WhatsApp: phone is extracted from auth context
+ * For Chat/Web: user_id is extracted from auth token
+ */
+export const aiAgentMessage = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_groups', 'aiAgentMessage')) {
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const { message, channel, group_id, phone } = req.body;
+
+    // Validate required fields
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'message is required and must be a string'
+      });
+    }
+
+    if (!channel || !['chat', 'whatsapp', 'web'].includes(channel)) {
+      return res.status(400).json({
+        success: false,
+        error: 'channel is required and must be "chat", "whatsapp", or "web"'
+      });
+    }
+
+    // Extract user_id from auth token for chat/web channels
+    let user_id: string | undefined;
+
+    if (channel === 'chat' || channel === 'web') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return res.status(401).json({
+          success: false,
+          error: 'Authorization header is required for chat/web channels'
+        });
+      }
+
+      // Extract user_id from JWT token (assuming it's in the payload)
+      // The actual user_id extraction depends on your auth implementation
+      // For now, we'll pass the auth header and let the service handle it
+      // In production, you'd decode the JWT here
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        // Decode JWT to get user_id (base64 decode the payload)
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        user_id = payload.sub || payload.user_id;
+      } catch (e) {
+        console.warn('Could not extract user_id from token, proceeding without it');
+      }
+    }
+
+    // For WhatsApp, phone should be provided in the request body
+    if (channel === 'whatsapp' && !phone) {
+      return res.status(400).json({
+        success: false,
+        error: 'phone is required for whatsapp channel'
+      });
+    }
+
+    // Get environment from header for n8n routing
+    const environment = req.headers['x-environment'] as string | undefined;
+
+    console.log(`🤖 AI Agent Controller: Processing ${channel} message`, {
+      hasUserId: !!user_id,
+      hasPhone: !!phone,
+      groupId: group_id,
+      messageLength: message.length
+    });
+
+    const result = await groupsService.aiAgentMessage(
+      {
+        message,
+        channel,
+        user_id,
+        phone,
+        group_id
+      },
+      environment
+    );
+
+    // Return appropriate status based on success
+    if (!result.success) {
+      return res.status(500).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in aiAgentMessage controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_groups', action: 'aiAgentMessage' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'AI Agent request failed';
+
+    return res.status(status).json({ success: false, error: message });
+  }
+};

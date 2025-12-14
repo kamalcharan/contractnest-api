@@ -310,4 +310,26 @@ router.post('/tenants/stats', groupsController.getTenantStats);
  */
 router.post('/tenants/search', groupsController.searchTenants);
 
+// ============================================
+// AI AGENT ROUTES (Conversational Group Discovery)
+// ============================================
+
+/**
+ * POST /api/ai-agent/message
+ * Send message to AI Agent via N8N webhook
+ * Supports chat, whatsapp, and web channels
+ *
+ * Body: {
+ *   message: string (required) - User's message
+ *   channel: 'chat' | 'whatsapp' | 'web' (required)
+ *   group_id?: string - Optional group context
+ *   phone?: string - Required for whatsapp channel
+ * }
+ *
+ * Headers:
+ * - Authorization: Bearer token (required for chat/web)
+ * - x-environment: 'live' | 'test' (for n8n routing)
+ */
+router.post('/ai-agent/message', groupsController.aiAgentMessage);
+
 export default router;

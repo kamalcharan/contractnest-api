@@ -43,6 +43,9 @@ export const N8N_PATHS = {
   // AI Search (unified intent-based search)
   AI_SEARCH: '/search',
 
+  // AI Agent - Conversational group discovery (Chat, WhatsApp, Web)
+  AI_AGENT: '/group-discovery-agent',
+
   // Future webhooks (add as needed)
   // SEND_NOTIFICATION: '/send-notification',
 } as const;
@@ -276,6 +279,89 @@ export type N8NAISearchResponse =
   | N8NAISearchErrorResponse;
 
 // =================================================================
+// AI AGENT TYPES (Conversational Group Discovery)
+// =================================================================
+
+/**
+ * Channel types for AI Agent
+ */
+export type AIAgentChannel = 'chat' | 'whatsapp' | 'web';
+
+/**
+ * Request body for AI Agent webhook
+ * Supports both phone (WhatsApp) and user_id (Web/Chat) identification
+ */
+export interface N8NAIAgentRequest {
+  message: string;
+  channel: AIAgentChannel;
+  phone?: string;      // For WhatsApp channel
+  user_id?: string;    // For Web/Chat channels
+  group_id?: string;   // Optional: specific group context
+  tenant_id?: string;  // Optional: tenant context
+}
+
+/**
+ * Search result from AI Agent
+ */
+export interface N8NAIAgentSearchResult {
+  membership_id: string;
+  tenant_id: string;
+  business_name: string;
+  business_category: string | null;
+  city: string | null;
+  chapter: string | null;
+  business_phone: string | null;
+  business_email: string | null;
+  website_url: string | null;
+  ai_enhanced_description: string | null;
+  similarity?: number;
+}
+
+/**
+ * Success response from AI Agent webhook
+ */
+export interface N8NAIAgentSuccessResponse {
+  success: true;
+  message: string;           // AI-generated natural language response
+  results?: N8NAIAgentSearchResult[];  // Search results if applicable
+  results_count?: number;
+  session_id?: string;       // Session ID for continuity
+  intent_detected?: string;  // What intent the AI detected
+  from_cache?: boolean;
+}
+
+/**
+ * Error response from AI Agent webhook
+ */
+export interface N8NAIAgentErrorResponse {
+  success: false;
+  error: string;
+  message?: string;
+  details?: string;
+}
+
+/**
+ * Combined AI Agent response type
+ */
+export type N8NAIAgentResponse =
+  | N8NAIAgentSuccessResponse
+  | N8NAIAgentErrorResponse;
+
+/**
+ * Check if AI Agent response indicates success
+ */
+export function isAIAgentSuccess(response: N8NAIAgentResponse): response is N8NAIAgentSuccessResponse {
+  return response.success === true;
+}
+
+/**
+ * Check if AI Agent response indicates error
+ */
+export function isAIAgentError(response: N8NAIAgentResponse): response is N8NAIAgentErrorResponse {
+  return response.success === false;
+}
+
+// =================================================================
 // HELPER FUNCTIONS
 // =================================================================
 
@@ -387,6 +473,8 @@ export const VaNiN8NConfig = {
   isClustersError,
   isAISearchSuccess,
   isAISearchError,
+  isAIAgentSuccess,
+  isAIAgentError,
 };
 
 export default VaNiN8NConfig;
