@@ -580,3 +580,113 @@ export interface GetIntentsResponse {
   intents?: ResolvedIntent[];
   error?: string;
 }
+
+// ============================================
+// AI AGENT TYPES
+// ============================================
+
+export interface AIAgentConfig {
+  enabled: boolean;
+  activation_keywords: string[];
+  exit_keywords: string[];
+  welcome_message: string;
+  goodbye_message: string;
+  session_timeout_minutes: number;
+  default_language: string;
+  system_prompt_override?: string | null;
+}
+
+export interface AIAgentSession {
+  session_id: string;
+  user_id: string | null;
+  group_id: string | null;
+  group_code: string | null;
+  group_name: string | null;
+  session_scope: string;
+  channel: string;
+  context: Record<string, any>;
+  conversation_history: AIAgentMessage[];
+  detected_language: string;
+  started_at: string;
+  last_activity_at: string;
+}
+
+export interface AIAgentMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface AIAgentUserInfo {
+  user_id: string;
+  name: string;
+  email: string;
+  mobile_number: string;
+  country_code: string;
+  preferred_language: string;
+  is_admin: boolean;
+}
+
+export interface AIAgentGroupActivation {
+  group_id: string | null;
+  group_name: string | null;
+  group_code: string | null;
+  group_type: string | null;
+  is_activation: boolean;
+  is_exit: boolean;
+  ai_config: AIAgentConfig | null;
+}
+
+export interface AIAgentAccessCheck {
+  has_access: boolean;
+  scope: 'product' | 'group' | null;
+  access_level: 'admin' | 'member' | 'inactive_member' | 'unknown_user' | null;
+  membership_id: string | null;
+  membership_status: string | null;
+}
+
+export interface AIAgentSearchResult {
+  membership_id: string;
+  tenant_id: string;
+  group_id: string;
+  group_name: string;
+  business_name: string;
+  short_description: string;
+  ai_enhanced_description: string;
+  industry: string;
+  city: string;
+  contact_phone: string;
+  contact_email: string;
+  website_url: string;
+  logo_url: string;
+  approved_keywords: string[];
+  similarity_score: number;
+}
+
+export interface AIAgentMemberContact {
+  membership_id: string;
+  tenant_id: string;
+  group_id: string;
+  group_name: string;
+  business_name: string;
+  short_description: string;
+  ai_enhanced_description: string;
+  industry: string;
+  city: string;
+  state_code: string;
+  address_line1: string;
+  contact_phone: string;
+  contact_phone_country_code: string;
+  contact_email: string;
+  website_url: string;
+  logo_url: string;
+  member_number: string;
+  approved_keywords: string[];
+  has_access: boolean;
+}
+
+export interface AIAgentSegment {
+  segment_name: string;
+  industry_id: string;
+  member_count: number;
+}
