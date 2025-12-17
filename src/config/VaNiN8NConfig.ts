@@ -319,15 +319,19 @@ export interface N8NAIAgentSearchResult {
 
 /**
  * Success response from AI Agent webhook
+ * Note: N8N returns 'response' field, backend normalizes to 'message' for frontend
  */
 export interface N8NAIAgentSuccessResponse {
   success: true;
-  message: string;           // AI-generated natural language response
+  message: string;           // AI-generated natural language response (normalized from N8N's 'response')
   results?: N8NAIAgentSearchResult[];  // Search results if applicable
   results_count?: number;
   session_id?: string;       // Session ID for continuity
+  group_id?: string;         // Group context from N8N
+  channel?: string;          // Channel type returned by N8N
   intent_detected?: string;  // What intent the AI detected
   from_cache?: boolean;
+  duration_ms?: number;      // Processing time in milliseconds
 }
 
 /**

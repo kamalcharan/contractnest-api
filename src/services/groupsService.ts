@@ -1560,13 +1560,61 @@ export const groupsService = {
 
       console.log(`🤖 AI Agent: Response received:`, {
         success: n8nData.success,
+        hasResponse: !!(n8nData as any).response,
         hasResults: !!(n8nData as any).results,
         resultsCount: (n8nData as any).results_count
       });
 
-      return n8nData;
+      // Normalize N8N response: map 'response' field to 'message' for frontend compatibility
+      // N8N returns { success, response, session_id, ... }
+      // Frontend expects { success, message, session_id, ... }
+
+      // Handle session_id - it might be a string, object with error, or undefined
+      let sessionId = (n8nData as any).session_id;
+      if (typeof sessionId === 'object' && sessionId !== null) {
+        // N8N returned an error object instead of string - log and set to undefined
+        console.warn('⚠️ AI Agent: session_id is an object (possible N8N error):', sessionId);
+        sessionId = undefined;
+      }
+
+      const normalizedData: N8NAIAgentResponse = {
+        success: n8nData.success,
+        // Map 'response' to 'message' (N8N uses 'response', our frontend expects 'message')
+        message: (n8nData as any).response || (n8nData as any).message || '',
+        session_id: sessionId,
+        group_id: (n8nData as any).group_id,
+        channel: (n8nData as any).channel,
+        results: (n8nData as any).results,
+        results_count: (n8nData as any).results_count,
+        intent_detected: (n8nData as any).intent_detected,
+        from_cache: (n8nData as any).from_cache,
+        duration_ms: (n8nData as any).duration_ms,
+      } as N8NAIAgentResponse;
+
+      return normalizedData;
     } catch (error: any) {
       console.error('Error in aiAgentMessage:', error.message);
+
+      // Try to extract data from error response (N8N might return 500 with valid data)
+      if (axios.isAxiosError(error) && error.response?.data) {
+        const errorData = Array.isArray(error.response.data) ? error.response.data[0] : error.response.data;
+        if (errorData && (errorData.response || errorData.message)) {
+          console.log('⚠️ AI Agent: Extracting data from error response');
+          // Handle session_id that might be an error object
+          let sessionId = errorData.session_id;
+          if (typeof sessionId === 'object' && sessionId !== null) {
+            sessionId = undefined;
+          }
+          return {
+            success: true,
+            message: errorData.response || errorData.message || '',
+            session_id: sessionId,
+            group_id: errorData.group_id,
+            channel: errorData.channel,
+            duration_ms: errorData.duration_ms,
+          } as N8NAIAgentResponse;
+        }
+      }
 
       // Handle timeout
       if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
