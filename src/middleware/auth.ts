@@ -1,29 +1,41 @@
 // src/middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { captureException } from '../utils/sentry';
+import {
+  getSupabaseClientFromRequest,
+  getSupabaseUrlForProduct,
+  getSupabaseKeyForProduct,
+  validateProductSupabaseConfig
+} from '../utils/supabaseConfig';
 
-// Lazy initialize Supabase client
-let supabase: SupabaseClient | null = null;
-
-const getSupabaseClient = () => {
-  if (!supabase) {
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY; // Fallback to SUPABASE_KEY
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase configuration:', {
-        url: !!supabaseUrl,
-        key: !!supabaseKey,
-        env: process.env.NODE_ENV
-      });
-      throw new Error('Missing Supabase configuration');
-    }
-    
-    supabase = createClient(supabaseUrl, supabaseKey);
+/**
+ * Get Supabase client for the product in the request
+ * Falls back to contractnest if no product specified
+ */
+const getSupabaseClientForRequest = (req: Request): SupabaseClient => {
+  const client = getSupabaseClientFromRequest(req);
+  if (!client) {
+    const productCode = (req as any).productCode || 'contractnest';
+    throw new Error(`Supabase not configured for product: ${productCode}`);
   }
-  return supabase;
+  return client;
+};
+
+/**
+ * Get Supabase URL and Key for the product in the request
+ */
+const getSupabaseConfigForRequest = (req: Request): { url: string; key: string } => {
+  const productCode = (req as any).productCode || 'contractnest';
+  const url = getSupabaseUrlForProduct(productCode);
+  const key = getSupabaseKeyForProduct(productCode);
+
+  if (!url || !key) {
+    throw new Error(`Supabase not configured for product: ${productCode}`);
+  }
+
+  return { url, key };
 };
 
 // Extend Request type to include user property
@@ -38,50 +50,40 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    
+
     // Extract the token
     const token = authHeader.substring(7);
-    
+
     // Store the token in the request for downstream use
     req.headers.authorization = authHeader;
-    
+
+    // Get product-specific configuration
+    const productCode = (req as any).productCode || 'contractnest';
+
     try {
-      // Get Supabase client
-      const supabaseClient = getSupabaseClient();
-      
+      // Get Supabase client for this product
+      const supabaseClient = getSupabaseClientForRequest(req);
+
       // Try Supabase SDK verification (works for both Google OAuth and password users)
       const { data: { user }, error } = await supabaseClient.auth.getUser(token);
-      
+
       if (!error && user) {
-        console.log('Authenticated via Supabase token');
-        
-        // Get user profile from database using Edge Function
-        const SUPABASE_URL = process.env.SUPABASE_URL;
-        const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
-        
-        if (!SUPABASE_URL || !SUPABASE_KEY) {
-          console.error('Missing Supabase URL or KEY for Edge Function call');
-          // Still continue with basic user data
-          req.user = {
-            id: user.id,
-            email: user.email,
-            user_metadata: user.user_metadata,
-            app_metadata: user.app_metadata
-          };
-          return next();
-        }
-        
+        console.log(`Authenticated via Supabase token (product: ${productCode})`);
+
+        // Get product-specific Supabase config for Edge Function calls
         try {
+          const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+
           const response = await axios.get(
             `${SUPABASE_URL}/functions/v1/auth/user`,
-            { 
-              headers: { 
+            {
+              headers: {
                 Authorization: authHeader,
                 apikey: SUPABASE_KEY
-              } 
+              }
             }
           );
-          
+
           // Merge Supabase user data with profile
           req.user = {
             id: user.id,
@@ -91,7 +93,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
             user_metadata: user.user_metadata,
             app_metadata: user.app_metadata
           };
-          
+
           return next();
         } catch (profileError: any) {
           console.error('Error fetching user profile:', profileError.message);
@@ -108,36 +110,33 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     } catch (supabaseError) {
       console.error('Supabase token verification failed:', supabaseError);
       // If Supabase client initialization fails, try Edge Function directly
-      const SUPABASE_URL = process.env.SUPABASE_URL;
-      const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
-      
-      if (SUPABASE_URL && SUPABASE_KEY) {
-        try {
-          const response = await axios.get(
-            `${SUPABASE_URL}/functions/v1/auth/user`,
-            { 
-              headers: { 
-                Authorization: authHeader,
-                apikey: SUPABASE_KEY
-              } 
+      try {
+        const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+
+        const response = await axios.get(
+          `${SUPABASE_URL}/functions/v1/auth/user`,
+          {
+            headers: {
+              Authorization: authHeader,
+              apikey: SUPABASE_KEY
             }
-          );
-          
-          req.user = response.data;
-          return next();
-        } catch (edgeFunctionError: any) {
-          console.error('Edge Function verification also failed:', edgeFunctionError.message);
-        }
+          }
+        );
+
+        req.user = response.data;
+        return next();
+      } catch (edgeFunctionError: any) {
+        console.error('Edge Function verification also failed:', edgeFunctionError.message);
       }
     }
-    
+
     // If Supabase verification failed, token might be invalid
     return res.status(401).json({ error: 'Invalid or expired token' });
-    
+
   } catch (error: any) {
     console.error('Auth middleware error:', error);
     captureException(error instanceof Error ? error : new Error(String(error)), {
-      tags: { source: 'api_auth' },
+      tags: { source: 'api_auth', product: (req as any).productCode },
       path: req.path,
       operation: 'authenticate'
     });
@@ -153,15 +152,15 @@ export const requireTenant = async (req: AuthRequest, res: Response, next: NextF
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID is required' });
     }
-    
+
     // Check if user has access to this tenant
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    
+
     // For now, we trust the Edge Function has already verified tenant access
     // You could add additional verification here if needed
-    
+
     next();
   } catch (error: any) {
     console.error('Tenant middleware error:', error);
@@ -184,25 +183,16 @@ export const requireRole = (roles: string[]) => {
       if (!tenantId) {
         return res.status(400).json({ error: 'Tenant ID is required' });
       }
-      
+
       // Check for user and authentication
       if (!req.user) {
         return res.status(401).json({ error: 'Authentication required' });
       }
-      
-      // Call Edge Function to check roles
-      const SUPABASE_URL = process.env.SUPABASE_URL;
-      
-      if (!SUPABASE_URL) {
-        captureException(new Error('Missing SUPABASE_URL environment variable'), {
-          tags: { source: 'api_auth' },
-          operation: 'requireRole',
-          path: req.path
-        });
-        return res.status(500).json({ error: 'Server configuration error' });
-      }
-      
+
+      // Get product-specific Supabase config
       try {
+        const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+
         const response = await axios.post(
           `${SUPABASE_URL}/functions/v1/tenant-roles/check`,
           {
@@ -212,11 +202,11 @@ export const requireRole = (roles: string[]) => {
           {
             headers: {
               Authorization: req.headers.authorization || '',
-              apikey: process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY
+              apikey: SUPABASE_KEY
             }
           }
         );
-        
+
         // If roles check out, proceed
         if (response.data.hasRoles) {
           next();
@@ -226,7 +216,7 @@ export const requireRole = (roles: string[]) => {
       } catch (error: any) {
         // If role check fails
         captureException(error instanceof Error ? error : new Error(String(error)), {
-          tags: { source: 'api_auth', error_type: 'permission_denied' },
+          tags: { source: 'api_auth', error_type: 'permission_denied', product: (req as any).productCode },
           operation: 'requireRole',
           path: req.path,
           roles: roles,
@@ -237,7 +227,7 @@ export const requireRole = (roles: string[]) => {
     } catch (error: any) {
       console.error('Role middleware error:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'api_auth' },
+        tags: { source: 'api_auth', product: (req as any).productCode },
         operation: 'requireRole',
         path: req.path,
         roles: roles
@@ -256,47 +246,38 @@ export const optionalAuthenticate = async (req: AuthRequest, res: Response, next
       req.user = null;
       return next();
     }
-    
+
     // If auth is provided, use the main authenticate logic
     const token = authHeader.substring(7);
-    
+
     try {
-      const supabaseClient = getSupabaseClient();
+      const supabaseClient = getSupabaseClientForRequest(req);
       const { data: { user }, error } = await supabaseClient.auth.getUser(token);
-      
+
       if (!error && user) {
-        // Try to get profile
-        const SUPABASE_URL = process.env.SUPABASE_URL;
-        
-        if (SUPABASE_URL) {
-          try {
-            const response = await axios.get(
-              `${SUPABASE_URL}/functions/v1/auth/user`,
-              { 
-                headers: { 
-                  Authorization: authHeader,
-                  apikey: process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY
-                } 
+        // Try to get profile using product-specific config
+        try {
+          const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+
+          const response = await axios.get(
+            `${SUPABASE_URL}/functions/v1/auth/user`,
+            {
+              headers: {
+                Authorization: authHeader,
+                apikey: SUPABASE_KEY
               }
-            );
-            
-            req.user = {
-              id: user.id,
-              email: user.email,
-              ...response.data,
-              user_metadata: user.user_metadata,
-              app_metadata: user.app_metadata
-            };
-          } catch (profileError) {
-            // If profile fetch fails, use basic data
-            req.user = {
-              id: user.id,
-              email: user.email,
-              user_metadata: user.user_metadata,
-              app_metadata: user.app_metadata
-            };
-          }
-        } else {
+            }
+          );
+
+          req.user = {
+            id: user.id,
+            email: user.email,
+            ...response.data,
+            user_metadata: user.user_metadata,
+            app_metadata: user.app_metadata
+          };
+        } catch (profileError) {
+          // If profile fetch fails, use basic data
           req.user = {
             id: user.id,
             email: user.email,
@@ -310,7 +291,7 @@ export const optionalAuthenticate = async (req: AuthRequest, res: Response, next
     } catch (error) {
       req.user = null;
     }
-    
+
     next();
   } catch (error: any) {
     // On error, continue without auth
