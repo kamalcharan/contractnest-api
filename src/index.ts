@@ -34,6 +34,7 @@ import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
 import fkauthProxyRoutes from './routes/fkauthProxy';
+import fkonboardingProxyRoutes from './routes/fkonboardingProxy';
 
 // NOTE: groupsRoutes is loaded dynamically below via require() for error handling
 
@@ -388,6 +389,13 @@ try {
   console.error('❌ Failed to register FKauth proxy routes:', error);
 }
 
+// FKonboarding Proxy for FamilyKnows Edge Function
+try {
+  app.use('/api/FKonboarding', fkonboardingProxyRoutes);
+  console.log('✅ FKonboarding proxy routes registered at /api/FKonboarding');
+} catch (error) {
+  console.error('❌ Failed to register FKonboarding proxy routes:', error);
+}
 
 try {
   app.use('/api/tenants', tenantRoutes);
