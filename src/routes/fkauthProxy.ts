@@ -7,8 +7,8 @@ import { Router, Request, Response } from 'express';
 const router = Router();
 
 // FamilyKnows Supabase Edge Function URL
-const FK_EDGE_URL = process.env.FAMILYKNOWS_SUPABASE_URL
-  ? `${process.env.FAMILYKNOWS_SUPABASE_URL}/functions/v1/FKauth`
+const FK_EDGE_URL = process.env.FK_SUPABASE_URL
+  ? `${process.env.FK_SUPABASE_URL}/functions/v1/FKauth`
   : null;
 
 // Proxy all FKauth requests to FamilyKnows Edge Function
@@ -25,10 +25,10 @@ router.all('/:path(*)', async (req: Request, res: Response) => {
 
     // Check if FamilyKnows Edge URL is configured
     if (!FK_EDGE_URL) {
-      console.error('FAMILYKNOWS_SUPABASE_URL not configured');
+      console.error('FK_SUPABASE_URL not configured');
       return res.status(503).json({
         error: 'FamilyKnows service not configured',
-        message: 'FAMILYKNOWS_SUPABASE_URL environment variable is not set'
+        message: 'FK_SUPABASE_URL environment variable is not set'
       });
     }
 
@@ -43,19 +43,22 @@ router.all('/:path(*)', async (req: Request, res: Response) => {
       'x-product': 'familyknows',
     };
 
-    // Forward authorization header if present
-    if (req.headers.authorization) {
-      forwardHeaders['Authorization'] = req.headers.authorization as string;
-    }
-
     // Forward x-tenant-id if present
     if (req.headers['x-tenant-id']) {
       forwardHeaders['x-tenant-id'] = req.headers['x-tenant-id'] as string;
     }
 
     // Add Supabase anon key for Edge Function access
-    if (process.env.FAMILYKNOWS_SUPABASE_ANON_KEY) {
-      forwardHeaders['apikey'] = process.env.FAMILYKNOWS_SUPABASE_ANON_KEY;
+    if (process.env.FK_SUPABASE_KEY) {
+      forwardHeaders['apikey'] = process.env.FK_SUPABASE_KEY;
+      
+      // For unauthenticated requests (register, login), use anon key as Bearer token
+      // For authenticated requests, forward the user's Authorization header
+      if (req.headers.authorization) {
+        forwardHeaders['Authorization'] = req.headers.authorization as string;
+      } else {
+        forwardHeaders['Authorization'] = `Bearer ${process.env.FK_SUPABASE_KEY}`;
+      }
     }
 
     // Make the request to FKauth Edge Function
