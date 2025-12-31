@@ -33,6 +33,8 @@ import productsRoutes from './routes/productsRoutes';
 import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
+import fkauthProxyRoutes from './routes/fkauthProxy';
+
 // NOTE: groupsRoutes is loaded dynamically below via require() for error handling
 
 // JTD services
@@ -377,6 +379,15 @@ try {
 } catch (error) {
   console.error('❌ Failed to register auth routes:', error);
 }
+
+// FKauth Proxy for FamilyKnows Edge Function
+try {
+  app.use('/api/FKauth', fkauthProxyRoutes);
+  console.log('✅ FKauth proxy routes registered at /api/FKauth');
+} catch (error) {
+  console.error('❌ Failed to register FKauth proxy routes:', error);
+}
+
 
 try {
   app.use('/api/tenants', tenantRoutes);
