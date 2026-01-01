@@ -269,6 +269,21 @@ try {
   }
 }
 
+// Load Catalog Studio routes with error handling
+let catalogStudioRoutes;
+try {
+  catalogStudioRoutes = require('./routes/catalogStudioRoutes').default;
+  console.log('✅ Catalog Studio routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load catalog studio routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without catalog studio routes...');
+    catalogStudioRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -558,6 +573,22 @@ try {
     tags: { source: 'route_registration', route_type: 'seeds' }
   });
 }
+
+// Register Catalog Studio routes with error handling
+try {
+  if (catalogStudioRoutes) {
+    app.use('/api/catalog-studio', catalogStudioRoutes);
+    console.log('✅ Catalog Studio routes registered at /api/catalog-studio');
+  } else {
+    console.log('⚠️  Catalog Studio routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register catalog studio routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'catalog_studio' }
+  });
+}
+
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -597,7 +628,8 @@ app.get('/health', async (req, res) => {
       serviceCatalog: 'loaded',
       groups: groupsRoutesLoaded ? 'loaded' : 'not_loaded',
       sequences: sequenceRoutes ? 'loaded' : 'not_loaded',
-      seeds: seedRoutes ? 'loaded' : 'not_loaded'
+      seeds: seedRoutes ? 'loaded' : 'not_loaded',
+      catalogStudio: catalogStudioRoutes ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
@@ -609,7 +641,8 @@ app.get('/health', async (req, res) => {
       service_catalog: true,
       groups_directory: groupsRoutesLoaded !== null,
       sequence_numbers: sequenceRoutes !== null,
-      tenant_seeds: seedRoutes !== null
+      tenant_seeds: seedRoutes !== null,
+      catalog_studio: catalogStudioRoutes !== null
     }
   };
 
@@ -697,6 +730,15 @@ app.get('/health', async (req, res) => {
       }
     }
 
+    // Check catalog studio service health if available
+    if (catalogStudioRoutes) {
+      try {
+        healthData.services.catalogStudio = 'healthy';
+      } catch (error) {
+        healthData.services.catalogStudio = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -729,7 +771,8 @@ app.get('/', (req, res) => {
       serviceCatalog: 'available',
       groups: groupsRoutesLoaded ? 'available' : 'not_available',
       sequences: sequenceRoutes ? 'available' : 'not_available',
-      seeds: seedRoutes ? 'available' : 'not_available'
+      seeds: seedRoutes ? 'available' : 'not_available',
+      catalogStudio: catalogStudioRoutes ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',
@@ -738,7 +781,8 @@ app.get('/', (req, res) => {
       serviceCatalog: '/api/service-catalog',
       groups: '/api/groups',
       sequences: '/api/sequences',
-      seeds: '/api/seeds'
+      seeds: '/api/seeds',
+      catalogStudio: '/api/catalog-studio'
     }
   });
 });
@@ -775,7 +819,8 @@ app.use((req, res) => {
       serviceCatalog: '/api/service-catalog',
       groups: '/api/groups',
       sequences: '/api/sequences',
-      seeds: '/api/seeds'
+      seeds: '/api/seeds',
+      catalogStudio: '/api/catalog-studio'
     }
   });
 });
@@ -1068,6 +1113,37 @@ const startServer = async () => {
         console.log('  ✅ Support for live/test environments');
       } else {
         console.log('⚠️  Seed routes not available');
+      }
+
+      // Log catalog studio routes if available
+      if (catalogStudioRoutes) {
+        console.log('📍 Catalog Studio routes:');
+        console.log('- GET    /api/catalog-studio/health                           # Service health check');
+        console.log('- GET    /api/catalog-studio/blocks                           # List blocks (filtered by admin)');
+        console.log('- GET    /api/catalog-studio/blocks/:id                       # Get block by ID');
+        console.log('- POST   /api/catalog-studio/blocks                           # Create block (admin only)');
+        console.log('- PATCH  /api/catalog-studio/blocks/:id                       # Update block (admin only)');
+        console.log('- DELETE /api/catalog-studio/blocks/:id                       # Delete block (admin only)');
+        console.log('- GET    /api/catalog-studio/templates                        # List tenant templates');
+        console.log('- GET    /api/catalog-studio/templates/system                 # List system templates');
+        console.log('- GET    /api/catalog-studio/templates/public                 # List public templates');
+        console.log('- GET    /api/catalog-studio/templates/:id                    # Get template by ID');
+        console.log('- POST   /api/catalog-studio/templates                        # Create template');
+        console.log('- POST   /api/catalog-studio/templates/:id/copy               # Copy system template');
+        console.log('- PATCH  /api/catalog-studio/templates/:id                    # Update template');
+        console.log('- DELETE /api/catalog-studio/templates/:id                    # Delete template');
+        console.log('📋 Catalog Studio features:');
+        console.log('  ✅ Global blocks library (service, spare, billing, text, video, image, checklist, document)');
+        console.log('  ✅ Admin-only block creation and management');
+        console.log('  ✅ Template builder with block composition');
+        console.log('  ✅ System templates for quick start');
+        console.log('  ✅ Template copying from system to tenant');
+        console.log('  ✅ Multi-tenant template isolation');
+        console.log('  ✅ Environment segregation (live/test)');
+        console.log('  ✅ HMAC-secured edge function communication');
+        console.log('  ✅ Flexible pricing modes (independent, resource_based, variant_based, multi_resource)');
+      } else {
+        console.log('⚠️  Catalog Studio routes not available');
       }
 
       console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
