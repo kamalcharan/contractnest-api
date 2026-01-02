@@ -5,14 +5,14 @@
  */
 
 // Types
-export * from './catalogStudioTypes';
+export * from '../../types/catalogStudioTypes';
 
 // Services
-export { CatBlocksService, catBlocksService } from './catBlocksService';
-export { CatTemplatesService, catTemplatesService } from './catTemplatesService';
+export { CatBlocksService, catBlocksService } from '../../services/catBlocksService';
+export { CatTemplatesService, catTemplatesService } from '../../services/catTemplatesService';
 
 // Controller
-export { catalogStudioController } from './catalogStudioController';
+export { catalogStudioController } from '../../controllers/catalogStudioController';
 
 // Routes
-export { default as catalogStudioRoutes } from './catalogStudioRoutes';
+export { default as catalogStudioRoutes } from '../../routes/catalogStudioRoutes';

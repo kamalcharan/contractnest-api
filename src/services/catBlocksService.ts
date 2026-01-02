@@ -13,7 +13,7 @@ import {
   ApiResponse,
   BlockListResponse,
   RequestContext,
-} from './catalogStudioTypes';
+} from '../types/catalogStudioTypes';
 
 export class CatBlocksService {
   private readonly edgeFunctionUrl: string;

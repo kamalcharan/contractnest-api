@@ -5,8 +5,8 @@
  */
 
 import { Request, Response } from 'express';
-import { CatBlocksService } from './catBlocksService';
-import { CatTemplatesService } from './catTemplatesService';
+import { CatBlocksService } from '../services/catBlocksService';
+import { CatTemplatesService } from '../services/catTemplatesService';
 import {
   RequestContext,
   CreateBlockRequest,
@@ -16,7 +16,7 @@ import {
   CopyTemplateRequest,
   BlockQueryParams,
   TemplateQueryParams,
-} from './catalogStudioTypes';
+} from '../types/catalogStudioTypes';
 
 // Extended Request with auth context
 interface AuthRequest extends Request {

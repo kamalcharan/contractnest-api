@@ -5,7 +5,7 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
-import catalogStudioController from './catalogStudioController';
+import catalogStudioController from '../controllers/catalogStudioController';
 
 const router = express.Router();
 
