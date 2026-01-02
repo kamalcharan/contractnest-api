@@ -1,3 +1,4 @@
+// backend/src/types/catalogStudioTypes.ts
 /**
  * Catalog Studio Types
  * TypeScript interfaces for blocks and templates

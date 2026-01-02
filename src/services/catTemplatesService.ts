@@ -1,3 +1,4 @@
+// backend/src/services/catTemplatesService.ts
 /**
  * Cat Templates Service
  * Communicates with cat-templates edge function

@@ -1,3 +1,4 @@
+// backend/src/services/catBlocksService.ts
 /**
  * Cat Blocks Service
  * Communicates with cat-blocks edge function

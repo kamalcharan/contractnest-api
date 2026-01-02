@@ -1,3 +1,4 @@
+// backend/src/controllers/catalogStudioController.ts
 /**
  * Catalog Studio Controller
  * Handles HTTP requests for blocks and templates

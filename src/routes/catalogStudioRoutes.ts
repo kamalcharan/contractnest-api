@@ -1,3 +1,4 @@
+// backend/src/routes/catalogStudioRoutes.ts
 /**
  * Catalog Studio Routes
  * Express router for blocks and templates endpoints
