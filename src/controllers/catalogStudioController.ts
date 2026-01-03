@@ -1,12 +1,8 @@
 // backend/src/controllers/catalogStudioController.ts
-/**
- * Catalog Studio Controller
- * Handles HTTP requests for blocks and templates
- */
 
 import { Request, Response } from 'express';
-import { CatBlocksService } from '../services/catBlocksService';
-import { CatTemplatesService } from '../services/catTemplatesService';
+import { catBlocksService } from '../services/catBlocksService';      // ✅ Import singleton
+import { catTemplatesService } from '../services/catTemplatesService'; // ✅ Import singleton
 import {
   RequestContext,
   CreateBlockRequest,
@@ -27,13 +23,7 @@ interface AuthRequest extends Request {
 }
 
 class CatalogStudioController {
-  private catBlocksService: CatBlocksService;
-  private catTemplatesService: CatTemplatesService;
-
-  constructor() {
-    this.catBlocksService = new CatBlocksService();
-    this.catTemplatesService = new CatTemplatesService();
-  }
+  // ✅ Remove constructor - use imported singletons directly
 
   /**
    * Extract request context from headers
@@ -94,9 +84,6 @@ class CatalogStudioController {
   // Block Endpoints
   // ============================================
 
-  /**
-   * GET /blocks - List all blocks
-   */
   getBlocks = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -108,7 +95,7 @@ class CatalogStudioController {
     }
 
     const params = this.parseBlockQueryParams(req);
-    const result = await this.catBlocksService.listBlocks(context, params);
+    const result = await catBlocksService.listBlocks(context, params);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -118,9 +105,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * GET /blocks/:id - Get single block
-   */
   getBlockById = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -140,7 +124,7 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await this.catBlocksService.getBlock(context, id);
+    const result = await catBlocksService.getBlock(context, id);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(404).json(result);
@@ -150,9 +134,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * POST /blocks - Create new block (admin only)
-   */
   createBlock = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -173,7 +154,6 @@ class CatalogStudioController {
 
     const data: CreateBlockRequest = req.body;
 
-    // Validate required fields
     if (!data.name || !data.block_type_id || !data.pricing_mode_id) {
       res.status(400).json({
         success: false,
@@ -182,7 +162,7 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await this.catBlocksService.createBlock(context, data);
+    const result = await catBlocksService.createBlock(context, data);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -192,9 +172,6 @@ class CatalogStudioController {
     res.status(201).json(result);
   };
 
-  /**
-   * PATCH /blocks/:id - Update block (admin only)
-   */
   updateBlock = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -223,7 +200,7 @@ class CatalogStudioController {
     }
 
     const data: UpdateBlockRequest = req.body;
-    const result = await this.catBlocksService.updateBlock(context, id, data);
+    const result = await catBlocksService.updateBlock(context, id, data);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -233,9 +210,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * DELETE /blocks/:id - Delete block (admin only)
-   */
   deleteBlock = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -263,7 +237,7 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await this.catBlocksService.deleteBlock(context, id);
+    const result = await catBlocksService.deleteBlock(context, id);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -277,9 +251,6 @@ class CatalogStudioController {
   // Template Endpoints
   // ============================================
 
-  /**
-   * GET /templates - List tenant templates
-   */
   getTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -291,7 +262,7 @@ class CatalogStudioController {
     }
 
     const params = this.parseTemplateQueryParams(req);
-    const result = await this.catTemplatesService.listTemplates(context, params);
+    const result = await catTemplatesService.listTemplates(context, params);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -301,9 +272,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * GET /templates/system - List system templates
-   */
   getSystemTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -315,7 +283,7 @@ class CatalogStudioController {
     }
 
     const params = this.parseTemplateQueryParams(req);
-    const result = await this.catTemplatesService.listSystemTemplates(context, params);
+    const result = await catTemplatesService.listSystemTemplates(context, params);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -325,9 +293,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * GET /templates/public - List public templates
-   */
   getPublicTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -339,7 +304,7 @@ class CatalogStudioController {
     }
 
     const params = this.parseTemplateQueryParams(req);
-    const result = await this.catTemplatesService.listPublicTemplates(context, params);
+    const result = await catTemplatesService.listPublicTemplates(context, params);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -349,9 +314,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * GET /templates/:id - Get single template
-   */
   getTemplateById = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -371,7 +333,7 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await this.catTemplatesService.getTemplate(context, id);
+    const result = await catTemplatesService.getTemplate(context, id);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(404).json(result);
@@ -381,9 +343,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * POST /templates - Create new template
-   */
   createTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -396,7 +355,6 @@ class CatalogStudioController {
 
     const data: CreateTemplateRequest = req.body;
 
-    // Validate required fields
     if (!data.name || !data.blocks) {
       res.status(400).json({
         success: false,
@@ -405,7 +363,7 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await this.catTemplatesService.createTemplate(context, data);
+    const result = await catTemplatesService.createTemplate(context, data);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -415,9 +373,6 @@ class CatalogStudioController {
     res.status(201).json(result);
   };
 
-  /**
-   * POST /templates/:id/copy - Copy system template to tenant
-   */
   copyTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -438,7 +393,7 @@ class CatalogStudioController {
     }
 
     const data: CopyTemplateRequest = req.body;
-    const result = await this.catTemplatesService.copyTemplate(context, id, data);
+    const result = await catTemplatesService.copyTemplate(context, id, data);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -448,9 +403,6 @@ class CatalogStudioController {
     res.status(201).json(result);
   };
 
-  /**
-   * PATCH /templates/:id - Update template
-   */
   updateTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -471,7 +423,7 @@ class CatalogStudioController {
     }
 
     const data: UpdateTemplateRequest = req.body;
-    const result = await this.catTemplatesService.updateTemplate(context, id, data);
+    const result = await catTemplatesService.updateTemplate(context, id, data);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -481,9 +433,6 @@ class CatalogStudioController {
     res.json(result);
   };
 
-  /**
-   * DELETE /templates/:id - Delete template
-   */
   deleteTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
@@ -503,7 +452,7 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await this.catTemplatesService.deleteTemplate(context, id);
+    const result = await catTemplatesService.deleteTemplate(context, id);  // ✅ Use singleton
 
     if (!result.success) {
       res.status(400).json(result);
@@ -517,9 +466,6 @@ class CatalogStudioController {
   // Utility Methods
   // ============================================
 
-  /**
-   * Validate UUID format
-   */
   private isValidUUID(id: string): boolean {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     return uuidRegex.test(id);

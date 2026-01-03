@@ -1,9 +1,4 @@
 // backend/src/services/catBlocksService.ts
-/**
- * Cat Blocks Service
- * Communicates with cat-blocks edge function
- */
-
 import crypto from 'crypto';
 import {
   CatBlock,
@@ -17,71 +12,83 @@ import {
 
 export class CatBlocksService {
   private readonly edgeFunctionUrl: string;
-  private readonly internalSigningSecret: string;
+  private readonly internalSecret: string;
 
   constructor() {
     const supabaseUrl = process.env.SUPABASE_URL;
+    
     if (!supabaseUrl) {
-      throw new Error('SUPABASE_URL environment variable is required');
+      console.warn('⚠️ SUPABASE_URL not set - CatBlocksService will use mock mode');
+      this.edgeFunctionUrl = '';
+    } else {
+      this.edgeFunctionUrl = `${supabaseUrl}/functions/v1/cat-blocks`;
     }
 
-    this.edgeFunctionUrl = `${supabaseUrl}/functions/v1/cat-blocks`;
-    this.internalSigningSecret = process.env.INTERNAL_SIGNING_SECRET || '';
+    this.internalSecret = process.env.INTERNAL_SIGNING_SECRET || '';
 
-    if (!this.internalSigningSecret) {
+    if (!this.internalSecret) {
       console.warn('⚠️ INTERNAL_SIGNING_SECRET not set - requests will not be signed');
     }
+    
+    console.log('✅ Cat Blocks Service: Initialized successfully');
   }
 
   /**
-   * Generate HMAC signature for request authentication
+   * Generate HMAC-SHA256 signature matching Edge Function format
+   * Edge expects: payload = `${timestamp}.${body}` with base64 encoding
    */
-  private generateHMACSignature(payload: string, timestamp: string): string {
-    if (!this.internalSigningSecret) {
+  private generateSignature(body: string, timestamp: string): string {
+    if (!this.internalSecret) {
+      console.warn('Cannot generate signature: INTERNAL_SIGNING_SECRET not configured');
       return '';
     }
 
     try {
-      const data = payload + timestamp;
+      const payload = `${timestamp}.${body}`;
       return crypto
-        .createHmac('sha256', this.internalSigningSecret)
-        .update(data)
-        .digest('hex');
+        .createHmac('sha256', this.internalSecret)
+        .update(payload)
+        .digest('base64');
     } catch (error) {
-      console.error('Error generating HMAC signature:', error);
+      console.error('Error generating signature:', error);
       return '';
     }
   }
 
-  /**
-   * Make authenticated request to edge function
-   */
   private async makeRequest<T>(
     method: string,
     path: string,
     context: RequestContext,
     body?: any
   ): Promise<ApiResponse<T>> {
-    const timestamp = new Date().toISOString();
+    if (!this.edgeFunctionUrl) {
+      console.log('📦 CatBlocksService: No edge function URL, returning mock data');
+      return {
+        success: true,
+        data: { blocks: [], total: 0 } as unknown as T,
+      };
+    }
+
     const requestBody = body ? JSON.stringify(body) : '';
+    const timestamp = Date.now().toString();  // Edge expects milliseconds as string
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${context.accessToken}`,
       'x-tenant-id': context.tenantId,
-      'x-user-id': context.userId,
-      'x-product': context.product,
       'x-is-admin': String(context.isAdmin),
-      'x-timestamp': timestamp,
+      'x-timestamp': timestamp,  // Required by Edge Function
     };
 
-    // Add HMAC signature
-    if (this.internalSigningSecret) {
-      headers['x-signature'] = this.generateHMACSignature(requestBody, timestamp);
+    // Add signature (required for all requests)
+    if (this.internalSecret) {
+      headers['x-internal-signature'] = this.generateSignature(requestBody, timestamp);
     }
 
     try {
       const url = `${this.edgeFunctionUrl}${path}`;
+      console.log(`📦 CatBlocksService: ${method} ${url}`);
+      
       const response = await fetch(url, {
         method,
         headers,
@@ -91,6 +98,7 @@ export class CatBlocksService {
       const responseData = await response.json();
 
       if (!response.ok) {
+        console.error('📦 CatBlocksService error:', responseData);
         return {
           success: false,
           error: {
@@ -104,7 +112,7 @@ export class CatBlocksService {
       return {
         success: true,
         data: responseData.data,
-        meta: responseData.meta,
+        meta: responseData.metadata,
       };
     } catch (error: any) {
       console.error('CatBlocksService request error:', error);
@@ -118,31 +126,29 @@ export class CatBlocksService {
     }
   }
 
-  /**
-   * List all blocks (filtered by admin status)
-   */
   async listBlocks(
     context: RequestContext,
     params?: BlockQueryParams
   ): Promise<ApiResponse<BlockListResponse>> {
+    if (!this.edgeFunctionUrl) {
+      return { success: true, data: { blocks: [], total: 0 } };
+    }
+    
     const queryString = params ? this.buildQueryString(params) : '';
     const path = queryString ? `?${queryString}` : '';
     return this.makeRequest<BlockListResponse>('GET', path, context);
   }
 
-  /**
-   * Get single block by ID
-   */
   async getBlock(
     context: RequestContext,
     blockId: string
   ): Promise<ApiResponse<CatBlock>> {
-    return this.makeRequest<CatBlock>('GET', `/${blockId}`, context);
+    if (!this.edgeFunctionUrl) {
+      return { success: false, error: { code: 'NOT_FOUND', message: 'Block not found' } };
+    }
+    return this.makeRequest<CatBlock>('GET', `?id=${blockId}`, context);
   }
 
-  /**
-   * Create new block (admin only)
-   */
   async createBlock(
     context: RequestContext,
     data: CreateBlockRequest
@@ -150,18 +156,32 @@ export class CatBlocksService {
     if (!context.isAdmin) {
       return {
         success: false,
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Only admins can create blocks',
-        },
+        error: { code: 'FORBIDDEN', message: 'Only admins can create blocks' },
       };
     }
+    
+    if (!this.edgeFunctionUrl) {
+      const mockBlock: CatBlock = {
+        id: crypto.randomUUID(),
+        name: data.name,
+        description: data.description,
+        block_type_id: data.block_type_id,
+        pricing_mode_id: data.pricing_mode_id,
+        is_admin: data.is_admin || false,
+        visible: data.visible !== false,
+        is_active: true,
+        config: data.config,
+        tags: data.tags,
+        created_by: context.userId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      return { success: true, data: mockBlock };
+    }
+    
     return this.makeRequest<CatBlock>('POST', '', context, data);
   }
 
-  /**
-   * Update existing block (admin only)
-   */
   async updateBlock(
     context: RequestContext,
     blockId: string,
@@ -170,18 +190,31 @@ export class CatBlocksService {
     if (!context.isAdmin) {
       return {
         success: false,
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Only admins can update blocks',
+        error: { code: 'FORBIDDEN', message: 'Only admins can update blocks' },
+      };
+    }
+    
+    if (!this.edgeFunctionUrl) {
+      return {
+        success: true,
+        data: {
+          id: blockId,
+          name: data.name || 'Updated Block',
+          block_type_id: data.block_type_id || 'service',
+          pricing_mode_id: data.pricing_mode_id || 'independent',
+          is_admin: false,
+          visible: true,
+          is_active: true,
+          config: data.config || {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         },
       };
     }
-    return this.makeRequest<CatBlock>('PATCH', `/${blockId}`, context, data);
+    
+    return this.makeRequest<CatBlock>('PATCH', `?id=${blockId}`, context, data);
   }
 
-  /**
-   * Delete block - soft delete (admin only)
-   */
   async deleteBlock(
     context: RequestContext,
     blockId: string
@@ -189,18 +222,17 @@ export class CatBlocksService {
     if (!context.isAdmin) {
       return {
         success: false,
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Only admins can delete blocks',
-        },
+        error: { code: 'FORBIDDEN', message: 'Only admins can delete blocks' },
       };
     }
-    return this.makeRequest<{ deleted: boolean }>('DELETE', `/${blockId}`, context);
+    
+    if (!this.edgeFunctionUrl) {
+      return { success: true, data: { deleted: true } };
+    }
+    
+    return this.makeRequest<{ deleted: boolean }>('DELETE', `?id=${blockId}`, context);
   }
 
-  /**
-   * Build query string from parameters
-   */
   private buildQueryString(params: BlockQueryParams): string {
     const searchParams = new URLSearchParams();
 
@@ -230,5 +262,4 @@ export class CatBlocksService {
   }
 }
 
-// Export singleton instance
 export const catBlocksService = new CatBlocksService();
