@@ -144,13 +144,8 @@ class CatalogStudioController {
       return;
     }
 
-    if (!context.isAdmin) {
-      res.status(403).json({
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Admin access required' },
-      });
-      return;
-    }
+    // REMOVED: isAdmin check - anyone can create blocks for their tenant
+    // Permission checks are now in the Edge Function
 
     const data: CreateBlockRequest = req.body;
 
@@ -182,13 +177,8 @@ class CatalogStudioController {
       return;
     }
 
-    if (!context.isAdmin) {
-      res.status(403).json({
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Admin access required' },
-      });
-      return;
-    }
+    // REMOVED: isAdmin check - anyone can update their tenant's blocks
+    // Permission checks are now in the Edge Function
 
     const { id } = req.params;
     if (!this.isValidUUID(id)) {
@@ -220,13 +210,8 @@ class CatalogStudioController {
       return;
     }
 
-    if (!context.isAdmin) {
-      res.status(403).json({
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Admin access required' },
-      });
-      return;
-    }
+    // REMOVED: isAdmin check - anyone can delete their tenant's blocks
+    // Permission checks are now in the Edge Function
 
     const { id } = req.params;
     if (!this.isValidUUID(id)) {

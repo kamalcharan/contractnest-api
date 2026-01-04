@@ -595,8 +595,9 @@ class ProductMasterdataService {
     return transformed;
   }
 
-  /**
+    /**
    * Transform master data for frontend consumption
+   * Maps DB column names to frontend-friendly names
    */
   private transformMasterData(data: any[]): any[] {
     if (!Array.isArray(data)) {
@@ -606,7 +607,9 @@ class ProductMasterdataService {
     return data.map(item => ({
       id: item.id,
       category_id: item.category_id,
-      detail_name: item.detail_name,
+      // Map from actual DB column names
+      detail_name: item.sub_cat_name || item.detail_name,  // DB uses sub_cat_name
+      sub_cat_name: item.sub_cat_name,  // Keep original for backwards compat
       detail_value: item.detail_value,
       description: item.description,
       sequence_no: item.sequence_no,
@@ -614,11 +617,15 @@ class ProductMasterdataService {
       tenant_id: item.tenant_id,
       created_at: item.created_at,
       updated_at: item.updated_at,
-      // Add any additional frontend-specific fields
-      display_name: item.detail_name || item.detail_value,
+      // DB stores these directly
+      display_name: item.display_name || item.sub_cat_name,
+      icon_name: item.icon_name,
+      hexcolor: item.hexcolor,
+      is_deletable: item.is_deletable,
       is_selectable: item.is_active
     }));
   }
+
 
   /**
    * Get master data with caching (if needed later)

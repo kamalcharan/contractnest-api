@@ -16,7 +16,7 @@ export class CatBlocksService {
 
   constructor() {
     const supabaseUrl = process.env.SUPABASE_URL;
-    
+
     if (!supabaseUrl) {
       console.warn('⚠️ SUPABASE_URL not set - CatBlocksService will use mock mode');
       this.edgeFunctionUrl = '';
@@ -29,7 +29,7 @@ export class CatBlocksService {
     if (!this.internalSecret) {
       console.warn('⚠️ INTERNAL_SIGNING_SECRET not set - requests will not be signed');
     }
-    
+
     console.log('✅ Cat Blocks Service: Initialized successfully');
   }
 
@@ -88,7 +88,7 @@ export class CatBlocksService {
     try {
       const url = `${this.edgeFunctionUrl}${path}`;
       console.log(`📦 CatBlocksService: ${method} ${url}`);
-      
+
       const response = await fetch(url, {
         method,
         headers,
@@ -133,7 +133,7 @@ export class CatBlocksService {
     if (!this.edgeFunctionUrl) {
       return { success: true, data: { blocks: [], total: 0 } };
     }
-    
+
     const queryString = params ? this.buildQueryString(params) : '';
     const path = queryString ? `?${queryString}` : '';
     return this.makeRequest<BlockListResponse>('GET', path, context);
@@ -153,13 +153,9 @@ export class CatBlocksService {
     context: RequestContext,
     data: CreateBlockRequest
   ): Promise<ApiResponse<CatBlock>> {
-    if (!context.isAdmin) {
-      return {
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Only admins can create blocks' },
-      };
-    }
-    
+    // REMOVED: isAdmin check - permission checks are now in the Edge Function
+    // Edge function enforces: anyone can create for their tenant, only admin for global/seed
+
     if (!this.edgeFunctionUrl) {
       const mockBlock: CatBlock = {
         id: crypto.randomUUID(),
@@ -175,11 +171,21 @@ export class CatBlocksService {
         created_by: context.userId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        // NEW FIELDS
+        tenant_id: context.tenantId,
+        is_seed: data.is_seed || false,
       };
       return { success: true, data: mockBlock };
     }
-    
-    return this.makeRequest<CatBlock>('POST', '', context, data);
+
+    // Pass tenant_id from context if not explicitly set
+    const blockData = {
+      ...data,
+      tenant_id: data.tenant_id !== undefined ? data.tenant_id : context.tenantId,
+      created_by: context.userId,
+    };
+
+    return this.makeRequest<CatBlock>('POST', '', context, blockData);
   }
 
   async updateBlock(
@@ -187,13 +193,9 @@ export class CatBlocksService {
     blockId: string,
     data: UpdateBlockRequest
   ): Promise<ApiResponse<CatBlock>> {
-    if (!context.isAdmin) {
-      return {
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Only admins can update blocks' },
-      };
-    }
-    
+    // REMOVED: isAdmin check - permission checks are now in the Edge Function
+    // Edge function enforces: can only update own tenant's blocks unless admin
+
     if (!this.edgeFunctionUrl) {
       return {
         success: true,
@@ -208,28 +210,32 @@ export class CatBlocksService {
           config: data.config || {},
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          tenant_id: context.tenantId,
+          is_seed: false,
         },
       };
     }
-    
-    return this.makeRequest<CatBlock>('PATCH', `?id=${blockId}`, context, data);
+
+    // Add updated_by from context
+    const updateData = {
+      ...data,
+      updated_by: context.userId,
+    };
+
+    return this.makeRequest<CatBlock>('PATCH', `?id=${blockId}`, context, updateData);
   }
 
   async deleteBlock(
     context: RequestContext,
     blockId: string
   ): Promise<ApiResponse<{ deleted: boolean }>> {
-    if (!context.isAdmin) {
-      return {
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Only admins can delete blocks' },
-      };
-    }
-    
+    // REMOVED: isAdmin check - permission checks are now in the Edge Function
+    // Edge function enforces: can only delete own tenant's blocks unless admin
+
     if (!this.edgeFunctionUrl) {
       return { success: true, data: { deleted: true } };
     }
-    
+
     return this.makeRequest<{ deleted: boolean }>('DELETE', `?id=${blockId}`, context);
   }
 
