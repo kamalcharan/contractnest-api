@@ -68,11 +68,13 @@ export interface BlockConfig {
 
 export interface CatBlock {
   id: string;
+  tenant_id?: string;
   name: string;
   description?: string;
   block_type_id: string;
   pricing_mode_id: string;
   is_admin: boolean;
+  is_seed?: boolean;
   visible: boolean;
   is_active: boolean;
   config: BlockConfig;
@@ -90,6 +92,8 @@ export interface CreateBlockRequest {
   block_type_id: string;
   pricing_mode_id: string;
   is_admin?: boolean;
+  is_seed?: boolean;
+  tenant_id?: string;
   visible?: boolean;
   config: BlockConfig;
   resource_pricing?: ResourcePricingConfig;

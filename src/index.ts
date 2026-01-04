@@ -37,6 +37,7 @@ import fkauthProxyRoutes from './routes/fkauthProxy';
 import fkonboardingProxyRoutes from './routes/fkonboardingProxy';
 
 // NOTE: groupsRoutes is loaded dynamically below via require() for error handling
+import cardProxyRoutes from './routes/cardProxyRoutes';
 
 // JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
@@ -388,6 +389,14 @@ app.use('/api', systemRoutes);
 // ====================
 
 console.log('🔧 Registering routes...');
+
+// Card proxy routes - public access (no auth required)
+try {
+  app.use('/', cardProxyRoutes);
+  console.log('✅ Card proxy routes registered at /card and /vcard');
+} catch (error) {
+  console.error('❌ Failed to register card proxy routes:', error);
+}
 
 try {
   app.use('/api/auth', authRoutes);
@@ -1145,6 +1154,16 @@ const startServer = async () => {
       } else {
         console.log('⚠️  Catalog Studio routes not available');
       }
+
+      // Log card proxy routes
+      console.log('📍 Card Proxy routes:');
+      console.log('- GET    /card/:membershipId                          # View business card (HTML)');
+      console.log('- GET    /vcard/:membershipId                         # Download vCard');
+      console.log('📋 Card Proxy features:');
+      console.log('  ✅ Public access (no auth required)');
+      console.log('  ✅ Proxies to N8N webhooks for card generation');
+      console.log('  ✅ HTML business card view');
+      console.log('  ✅ vCard download support');
 
       console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
       console.log('📁 Storage upload: POST /api/storage/files');
