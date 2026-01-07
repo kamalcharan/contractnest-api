@@ -130,6 +130,31 @@ export const getSupabaseUrlForProduct = (productCode: string): string | null => 
 };
 
 /**
+ * Get Supabase config from Express request (uses x-product header or productCode)
+ * Returns { url, key } for the appropriate product's Supabase instance
+ * Falls back to default ContractNest config if product not found
+ */
+export const getSupabaseConfigForRequest = (req: Request): { url: string; key: string } => {
+  // Get product code from request (set by productContext middleware or x-product header)
+  const productCode = (req as any).productCode || req.headers['x-product'] || 'contractnest';
+
+  // Get product-specific config
+  const config = getSupabaseConfig(productCode);
+
+  if (config) {
+    console.log(`Using Supabase config for product: ${productCode}`);
+    return config;
+  }
+
+  // Fall back to default ContractNest config
+  console.log(`Falling back to ContractNest Supabase config (product: ${productCode} not configured)`);
+  return {
+    url: SUPABASE_URL!,
+    key: SUPABASE_KEY!,
+  };
+};
+
+/**
  * Get Supabase Key for a product (for Edge Function calls)
  */
 export const getSupabaseKeyForProduct = (productCode: string): string | null => {

@@ -2,7 +2,7 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { captureException } from '../utils/sentry';
-import { SUPABASE_URL, validateSupabaseConfig } from '../utils/supabaseConfig';
+import { SUPABASE_URL, validateSupabaseConfig, getSupabaseConfigForRequest } from '../utils/supabaseConfig';
 
 /**
  * List all users for the current tenant
@@ -72,20 +72,23 @@ export const listUsers = async (req: Request, res: Response) => {
 export const getCurrentUserProfile = async (req: Request, res: Response) => {
   try {
     if (!validateSupabaseConfig('api_users', 'getCurrentUserProfile')) {
-      return res.status(500).json({ 
-        error: 'Server configuration error: Missing Supabase configuration' 
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
       });
     }
 
     const authHeader = req.headers.authorization;
     const tenantId = req.headers['x-tenant-id'] as string; // Optional for this endpoint
-    
+
     if (!authHeader) {
       return res.status(401).json({ error: 'Authorization header is required' });
     }
-    
+
+    // Get product-specific Supabase URL
+    const { url: supabaseUrl } = getSupabaseConfigForRequest(req);
+
     const response = await axios.get(
-      `${SUPABASE_URL}/functions/v1/user-management/me`,
+      `${supabaseUrl}/functions/v1/user-management/me`,
       {
         headers: {
           Authorization: authHeader,
@@ -94,11 +97,11 @@ export const getCurrentUserProfile = async (req: Request, res: Response) => {
         }
       }
     );
-    
+
     return res.status(200).json(response.data);
   } catch (error: any) {
     console.error('Error in getCurrentUserProfile:', error.message);
-    
+
     captureException(error instanceof Error ? error : new Error(String(error)), {
       tags: { source: 'api_users', action: 'getCurrentUserProfile' },
       status: error.response?.status
@@ -106,7 +109,7 @@ export const getCurrentUserProfile = async (req: Request, res: Response) => {
 
     const status = error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to fetch profile';
-    
+
     return res.status(status).json({ error: message });
   }
 };
@@ -117,19 +120,22 @@ export const getCurrentUserProfile = async (req: Request, res: Response) => {
 export const updateCurrentUserProfile = async (req: Request, res: Response) => {
   try {
     if (!validateSupabaseConfig('api_users', 'updateCurrentUserProfile')) {
-      return res.status(500).json({ 
-        error: 'Server configuration error: Missing Supabase configuration' 
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
       });
     }
 
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader) {
       return res.status(401).json({ error: 'Authorization header is required' });
     }
-    
+
+    // Get product-specific Supabase URL
+    const { url: supabaseUrl } = getSupabaseConfigForRequest(req);
+
     const response = await axios.patch(
-      `${SUPABASE_URL}/functions/v1/user-management/me`,
+      `${supabaseUrl}/functions/v1/user-management/me`,
       req.body,
       {
         headers: {
@@ -138,11 +144,11 @@ export const updateCurrentUserProfile = async (req: Request, res: Response) => {
         }
       }
     );
-    
+
     return res.status(200).json(response.data);
   } catch (error: any) {
     console.error('Error in updateCurrentUserProfile:', error.message);
-    
+
     captureException(error instanceof Error ? error : new Error(String(error)), {
       tags: { source: 'api_users', action: 'updateCurrentUserProfile' },
       status: error.response?.status
@@ -150,7 +156,7 @@ export const updateCurrentUserProfile = async (req: Request, res: Response) => {
 
     const status = error.response?.status || 500;
     const message = error.response?.data?.error || error.message || 'Failed to update profile';
-    
+
     return res.status(status).json({ error: message });
   }
 };
