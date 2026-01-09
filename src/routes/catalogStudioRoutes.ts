@@ -95,28 +95,29 @@ router.get(
   catalogStudioController.getBlockById
 );
 
-// POST /blocks - Create block (admin only)
+// POST /blocks - Create block
+// Permission: Anyone can create blocks for their tenant
+// Admin-only for global/seed blocks (enforced by Edge Function)
 router.post(
   '/blocks',
   validateHeaders,
-  requireAdmin,
   catalogStudioController.createBlock
 );
 
-// PATCH /blocks/:id - Update block (admin only)
+// PATCH /blocks/:id - Update block
+// Permission: Can update own tenant's blocks (enforced by Edge Function)
 router.patch(
   '/blocks/:id',
   validateHeaders,
-  requireAdmin,
   validateUUID('id'),
   catalogStudioController.updateBlock
 );
 
-// DELETE /blocks/:id - Delete block (admin only)
+// DELETE /blocks/:id - Delete block
+// Permission: Can delete own tenant's blocks (enforced by Edge Function)
 router.delete(
   '/blocks/:id',
   validateHeaders,
-  requireAdmin,
   validateUUID('id'),
   catalogStudioController.deleteBlock
 );
