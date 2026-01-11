@@ -23,6 +23,10 @@ export interface TenantProfile {
   // ✅ ADDED: WhatsApp fields for BBB integration
   business_whatsapp_country_code: string | null;
   business_whatsapp: string | null;
+  // ✅ ADDED: Contact person and booking fields
+  booking_url: string | null;
+  contact_first_name: string | null;
+  contact_last_name: string | null;
   primary_color: string | null;
   secondary_color: string | null;
   created_at: string;

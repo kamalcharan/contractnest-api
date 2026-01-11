@@ -79,7 +79,22 @@ export const createTenantProfileValidation: ValidationChain[] = [
   body('secondary_color')
     .optional()
     .isString().withMessage('Secondary color must be a string')
-    .matches(/^#([0-9A-F]{3}){1,2}$/i).withMessage('Secondary color must be a valid hex color code')
+    .matches(/^#([0-9A-F]{3}){1,2}$/i).withMessage('Secondary color must be a valid hex color code'),
+
+  // ✅ ADDED: Contact person and booking fields
+  body('booking_url')
+    .optional()
+    .isURL().withMessage('Booking URL must be a valid URL'),
+
+  body('contact_first_name')
+    .optional()
+    .isString().withMessage('Contact first name must be a string')
+    .isLength({ max: 100 }).withMessage('Contact first name must be at most 100 characters'),
+
+  body('contact_last_name')
+    .optional()
+    .isString().withMessage('Contact last name must be a string')
+    .isLength({ max: 100 }).withMessage('Contact last name must be at most 100 characters')
 ];
 
 /**
@@ -161,5 +176,20 @@ export const updateTenantProfileValidation: ValidationChain[] = [
   body('secondary_color')
     .optional()
     .isString().withMessage('Secondary color must be a string')
-    .matches(/^#([0-9A-F]{3}){1,2}$/i).withMessage('Secondary color must be a valid hex color code')
+    .matches(/^#([0-9A-F]{3}){1,2}$/i).withMessage('Secondary color must be a valid hex color code'),
+
+  // ✅ ADDED: Contact person and booking fields
+  body('booking_url')
+    .optional()
+    .isURL().withMessage('Booking URL must be a valid URL'),
+
+  body('contact_first_name')
+    .optional()
+    .isString().withMessage('Contact first name must be a string')
+    .isLength({ max: 100 }).withMessage('Contact first name must be at most 100 characters'),
+
+  body('contact_last_name')
+    .optional()
+    .isString().withMessage('Contact last name must be a string')
+    .isLength({ max: 100 }).withMessage('Contact last name must be at most 100 characters')
 ];
