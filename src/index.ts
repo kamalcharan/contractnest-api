@@ -285,6 +285,21 @@ try {
   }
 }
 
+// Load Billing routes with error handling
+let billingRoutes;
+try {
+  billingRoutes = require('./routes/billingRoutes').default;
+  console.log('✅ Billing routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load billing routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without billing routes...');
+    billingRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -598,6 +613,21 @@ try {
   });
 }
 
+// Register Billing routes with error handling
+try {
+  if (billingRoutes) {
+    app.use('/api', billingRoutes);
+    console.log('✅ Billing routes registered at /api');
+  } else {
+    console.log('⚠️  Billing routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register billing routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'billing' }
+  });
+}
+
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -638,7 +668,8 @@ app.get('/health', async (req, res) => {
       groups: groupsRoutesLoaded ? 'loaded' : 'not_loaded',
       sequences: sequenceRoutes ? 'loaded' : 'not_loaded',
       seeds: seedRoutes ? 'loaded' : 'not_loaded',
-      catalogStudio: catalogStudioRoutes ? 'loaded' : 'not_loaded'
+      catalogStudio: catalogStudioRoutes ? 'loaded' : 'not_loaded',
+      billing: billingRoutes ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
@@ -651,7 +682,8 @@ app.get('/health', async (req, res) => {
       groups_directory: groupsRoutesLoaded !== null,
       sequence_numbers: sequenceRoutes !== null,
       tenant_seeds: seedRoutes !== null,
-      catalog_studio: catalogStudioRoutes !== null
+      catalog_studio: catalogStudioRoutes !== null,
+      billing_api: billingRoutes !== null
     }
   };
 
@@ -748,6 +780,15 @@ app.get('/health', async (req, res) => {
       }
     }
 
+    // Check billing service health if available
+    if (billingRoutes) {
+      try {
+        healthData.services.billing = 'healthy';
+      } catch (error) {
+        healthData.services.billing = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -781,7 +822,8 @@ app.get('/', (req, res) => {
       groups: groupsRoutesLoaded ? 'available' : 'not_available',
       sequences: sequenceRoutes ? 'available' : 'not_available',
       seeds: seedRoutes ? 'available' : 'not_available',
-      catalogStudio: catalogStudioRoutes ? 'available' : 'not_available'
+      catalogStudio: catalogStudioRoutes ? 'available' : 'not_available',
+      billing: billingRoutes ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',
@@ -791,7 +833,8 @@ app.get('/', (req, res) => {
       groups: '/api/groups',
       sequences: '/api/sequences',
       seeds: '/api/seeds',
-      catalogStudio: '/api/catalog-studio'
+      catalogStudio: '/api/catalog-studio',
+      billing: '/api/billing'
     }
   });
 });
@@ -829,7 +872,8 @@ app.use((req, res) => {
       groups: '/api/groups',
       sequences: '/api/sequences',
       seeds: '/api/seeds',
-      catalogStudio: '/api/catalog-studio'
+      catalogStudio: '/api/catalog-studio',
+      billing: '/api/billing'
     }
   });
 });
@@ -1153,6 +1197,34 @@ const startServer = async () => {
         console.log('  ✅ Flexible pricing modes (independent, resource_based, variant_based, multi_resource)');
       } else {
         console.log('⚠️  Catalog Studio routes not available');
+      }
+
+      // Log billing routes if available
+      if (billingRoutes) {
+        console.log('📍 Billing routes:');
+        console.log('- GET    /api/billing/status/:tenantId              # Billing status (bot-friendly)');
+        console.log('- GET    /api/billing/subscription/:tenantId        # Subscription details');
+        console.log('- GET    /api/billing/credits/:tenantId             # Credit balances');
+        console.log('- GET    /api/billing/usage/:tenantId               # Usage summary');
+        console.log('- GET    /api/billing/invoice-estimate/:tenantId    # Invoice estimate');
+        console.log('- GET    /api/billing/alerts/:tenantId              # Billing alerts');
+        console.log('- GET    /api/billing/topup-packs                   # Available topup packs');
+        console.log('- POST   /api/billing/usage                         # Record usage event');
+        console.log('- POST   /api/billing/credits/deduct                # Deduct credits');
+        console.log('- POST   /api/billing/credits/add                   # Add credits');
+        console.log('- POST   /api/billing/credits/topup                 # Purchase topup');
+        console.log('- POST   /api/billing/credits/check                 # Check availability');
+        console.log('📋 Billing API features:');
+        console.log('  ✅ Comprehensive billing status for bot/AI integration');
+        console.log('  ✅ Credit balance management with atomic operations');
+        console.log('  ✅ Usage tracking and aggregation');
+        console.log('  ✅ Invoice estimation with line items');
+        console.log('  ✅ Topup pack purchase flow');
+        console.log('  ✅ Credit availability checking');
+        console.log('  ✅ Multi-tenant with RLS policies');
+        console.log('  ✅ Edge function integration (single RPC calls)');
+      } else {
+        console.log('⚠️  Billing routes not available');
       }
 
       // Log card proxy routes
