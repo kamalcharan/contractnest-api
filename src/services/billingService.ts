@@ -1,14 +1,14 @@
 // ============================================================================
 // Billing Service
 // ============================================================================
-// Purpose: HTTP client to call billing Edge functions
+// Purpose: HTTP client to call billing Edge functions with HMAC signing
 // Pattern: API service → Edge function → RPC
-// Note: NO business logic here - just HTTP client to Edge
+// Note: NO business logic here - just HTTP client to Edge with signing
 // ============================================================================
 
 import axios from 'axios';
+import crypto from 'crypto';
 import { captureException } from '../utils/sentry';
-import { SUPABASE_URL } from '../utils/supabaseConfig';
 import {
   RecordUsageRequest,
   DeductCreditsRequest,
@@ -27,10 +27,63 @@ import {
 } from '../types/billing.dto';
 
 // Edge function base URL
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const BILLING_EDGE_URL = `${SUPABASE_URL}/functions/v1/billing`;
+const INTERNAL_SIGNING_SECRET = process.env.INTERNAL_SIGNING_SECRET || '';
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
+
+// ============================================================================
+// INTERNAL SIGNING SERVICE
+// ============================================================================
 
 /**
- * Helper to make authenticated requests to Edge function
+ * Internal signing service - Matches contacts Edge pattern
+ * Generates HMAC-SHA256 signature for API → Edge communication
+ */
+class InternalSigningService {
+  /**
+   * Generate HMAC-SHA256 signature matching Edge function verification
+   * HMAC-SHA256(secret, body) → hex string
+   */
+  static generateSignature(body: string): string {
+    if (!INTERNAL_SIGNING_SECRET) {
+      console.warn('⚠️ INTERNAL_SIGNING_SECRET not configured');
+      return '';
+    }
+
+    try {
+      const hmac = crypto.createHmac('sha256', INTERNAL_SIGNING_SECRET);
+      hmac.update(body);
+      return hmac.digest('hex');
+    } catch (error) {
+      console.error('🔐 Error generating HMAC signature:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Create signed headers for Edge function request
+   */
+  static createSignedHeaders(body: string = ''): Record<string, string> {
+    const headers: Record<string, string> = {};
+
+    if (INTERNAL_SIGNING_SECRET) {
+      const signature = this.generateSignature(body);
+      if (signature) {
+        headers['x-internal-signature'] = signature;
+      }
+    }
+
+    return headers;
+  }
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Helper to make authenticated requests to Edge function with HMAC signing
  */
 async function callBillingEdge<T>(
   method: 'GET' | 'POST',
@@ -41,16 +94,24 @@ async function callBillingEdge<T>(
   params?: Record<string, string>
 ): Promise<T> {
   try {
+    // Prepare body for signing
+    const bodyString = method === 'POST' && data ? JSON.stringify(data) : '';
+
+    // Generate signed headers
+    const signedHeaders = InternalSigningService.createSignedHeaders(bodyString);
+
     const response = await axios({
       method,
       url: `${BILLING_EDGE_URL}${path}`,
       headers: {
         'Authorization': authToken,
         'x-tenant-id': tenantId,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...signedHeaders
       },
       data: method === 'POST' ? data : undefined,
-      params: method === 'GET' ? params : undefined
+      params: method === 'GET' ? params : undefined,
+      timeout: DEFAULT_TIMEOUT
     });
 
     return response.data;
