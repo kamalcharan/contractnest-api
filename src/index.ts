@@ -300,6 +300,21 @@ try {
   }
 }
 
+// Load Tenant Context routes with error handling
+let tenantContextRoutes;
+try {
+  tenantContextRoutes = require('./routes/tenantContextRoutes').default;
+  console.log('✅ Tenant context routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load tenant context routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without tenant context routes...');
+    tenantContextRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -345,6 +360,7 @@ app.use(cors({
     'x-session-id',
     'x-environment',
     'x-product',
+    'x-product-code',
     'x-user-id',
     'x-user-role',
     'x-client-version',
@@ -628,6 +644,21 @@ try {
   });
 }
 
+// Register Tenant Context routes with error handling
+try {
+  if (tenantContextRoutes) {
+    app.use('/api/tenant-context', tenantContextRoutes);
+    console.log('✅ Tenant context routes registered at /api/tenant-context');
+  } else {
+    console.log('⚠️  Tenant context routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register tenant context routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'tenant_context' }
+  });
+}
+
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -669,7 +700,8 @@ app.get('/health', async (req, res) => {
       sequences: sequenceRoutes ? 'loaded' : 'not_loaded',
       seeds: seedRoutes ? 'loaded' : 'not_loaded',
       catalogStudio: catalogStudioRoutes ? 'loaded' : 'not_loaded',
-      billing: billingRoutes ? 'loaded' : 'not_loaded'
+      billing: billingRoutes ? 'loaded' : 'not_loaded',
+      tenantContext: tenantContextRoutes ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
@@ -683,7 +715,8 @@ app.get('/health', async (req, res) => {
       sequence_numbers: sequenceRoutes !== null,
       tenant_seeds: seedRoutes !== null,
       catalog_studio: catalogStudioRoutes !== null,
-      billing_api: billingRoutes !== null
+      billing_api: billingRoutes !== null,
+      tenant_context: tenantContextRoutes !== null
     }
   };
 
@@ -789,6 +822,15 @@ app.get('/health', async (req, res) => {
       }
     }
 
+    // Check tenant context service health if available
+    if (tenantContextRoutes) {
+      try {
+        healthData.services.tenantContext = 'healthy';
+      } catch (error) {
+        healthData.services.tenantContext = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -823,7 +865,8 @@ app.get('/', (req, res) => {
       sequences: sequenceRoutes ? 'available' : 'not_available',
       seeds: seedRoutes ? 'available' : 'not_available',
       catalogStudio: catalogStudioRoutes ? 'available' : 'not_available',
-      billing: billingRoutes ? 'available' : 'not_available'
+      billing: billingRoutes ? 'available' : 'not_available',
+      tenantContext: tenantContextRoutes ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',
@@ -834,7 +877,8 @@ app.get('/', (req, res) => {
       sequences: '/api/sequences',
       seeds: '/api/seeds',
       catalogStudio: '/api/catalog-studio',
-      billing: '/api/billing'
+      billing: '/api/billing',
+      tenantContext: '/api/tenant-context'
     }
   });
 });
@@ -873,7 +917,8 @@ app.use((req, res) => {
       sequences: '/api/sequences',
       seeds: '/api/seeds',
       catalogStudio: '/api/catalog-studio',
-      billing: '/api/billing'
+      billing: '/api/billing',
+      tenantContext: '/api/tenant-context'
     }
   });
 });
@@ -927,318 +972,24 @@ const startServer = async () => {
       console.log('- POST /api/jtd/webhooks/gupshup');
       console.log('- POST /api/jtd/webhooks/sendgrid');
 
-      // Resources API routes
-      console.log('📍 Resources API routes:');
-      console.log('- GET    /api/resources/health              # Resources health check');
-      console.log('- GET    /api/resources/resource-types      # Get all resource types');
-      console.log('- GET    /api/resources                     # List resources with filters');
-      console.log('- POST   /api/resources                     # Create new resource');
-      console.log('- GET    /api/resources/:id                 # Get resource by ID');
-      console.log('- PATCH  /api/resources/:id                 # Update resource');
-      console.log('- DELETE /api/resources/:id                 # Delete resource (soft)');
-      console.log('📋 Resources API features:');
-      console.log('  ✅ Complete CRUD operations for catalog resources');
-      console.log('  ✅ Internal signature verification with edge functions');
-      console.log('  ✅ Multi-tenant resource management');
-      console.log('  ✅ Resource type validation and contact integration');
-      console.log('  ✅ Sequence number management');
-      console.log('  ✅ Idempotency support for safe retries');
-      console.log('  ✅ Comprehensive Swagger documentation');
-      console.log('  ✅ Rate limiting and error handling');
-      console.log('  ✅ Complete validation and middleware protection');
-
-      // Log contact routes
-      if (contactRoutes) {
-        console.log('📍 Contact routes:');
-        console.log('- GET    /api/contacts                      # List contacts with filters');
-        console.log('- POST   /api/contacts                      # Create new contact');
-        console.log('- GET    /api/contacts/:id                  # Get contact by ID');
-        console.log('- PUT    /api/contacts/:id                  # Update contact');
-        console.log('- PATCH  /api/contacts/:id/status           # Update contact status');
-        console.log('- DELETE /api/contacts/:id                  # Delete/archive contact');
-        console.log('- POST   /api/contacts/search               # Advanced contact search');
-        console.log('- POST   /api/contacts/duplicates           # Check for duplicates');
-        console.log('- POST   /api/contacts/:id/invite           # Send user invitation');
-        console.log('- GET    /api/contacts/stats                # Get contact statistics');
-        console.log('- GET    /api/contacts/health               # Contact service health');
-        console.log('- GET    /api/contacts/constants            # Contact form constants');
-        console.log('📋 Contact features:');
-        console.log('  ✅ Individual & Corporate contact types');
-        console.log('  ✅ Multiple contact channels & addresses');
-        console.log('  ✅ Compliance numbers for corporate entities');
-        console.log('  ✅ Contact persons for corporate contacts');
-        console.log('  ✅ Advanced search & duplicate detection');
-        console.log('  ✅ User invitation integration');
-        console.log('  ✅ Status management (active/inactive/archived)');
-        console.log('  ✅ Classification system (buyer/seller/vendor/partner/team_member)');
-        console.log('  ✅ Complete audit trail & rate limiting');
+      // Log tenant context routes if available
+      if (tenantContextRoutes) {
+        console.log('📍 Tenant Context routes:');
+        console.log('- GET    /api/tenant-context                          # Get tenant context');
+        console.log('- GET    /api/tenant-context/can-send/:channel        # Check if can send via channel');
+        console.log('- GET    /api/tenant-context/waiting-jtds             # Get waiting JTD count');
+        console.log('- POST   /api/tenant-context/init                     # Initialize context');
+        console.log('- POST   /api/tenant-context/invalidate-cache         # Invalidate cache');
+        console.log('- GET    /api/tenant-context/health                   # Health check');
+        console.log('📋 Tenant Context features:');
+        console.log('  ✅ Centralized tenant state (credits, subscription, limits)');
+        console.log('  ✅ Credit availability checking per channel');
+        console.log('  ✅ JTD credit-gating support');
+        console.log('  ✅ In-memory caching with 30s TTL');
+        console.log('  ✅ Multi-product isolation (x-product-code header)');
       } else {
-        console.log('⚠️  Contact routes not available');
+        console.log('⚠️  Tenant Context routes not available');
       }
-
-      // Log tax settings routes if available
-      if (taxSettingsRoutes) {
-        console.log('📍 Tax Settings routes:');
-        console.log('- GET    /api/tax-settings                  # Get settings and rates');
-        console.log('- POST   /api/tax-settings/settings         # Create/update settings');
-        console.log('- GET    /api/tax-settings/rates            # Get all rates');
-        console.log('- POST   /api/tax-settings/rates            # Create new rate');
-        console.log('- PUT    /api/tax-settings/rates/:id        # Update rate');
-        console.log('- DELETE /api/tax-settings/rates/:id        # Delete rate');
-        console.log('- POST   /api/tax-settings/rates/:id/activate # Activate rate');
-        console.log('📋 Tax Settings features:');
-        console.log('  ✅ Display mode configuration (including/excluding tax)');
-        console.log('  ✅ Tax rates management with CRUD operations');
-        console.log('  ✅ Default rate designation');
-        console.log('  ✅ Soft delete functionality');
-        console.log('  ✅ Sequence ordering for display');
-        console.log('  ✅ Optimistic locking for concurrent updates');
-        console.log('  ✅ Idempotency support');
-        console.log('  ✅ Complete audit trail');
-      } else {
-        console.log('⚠️  Tax Settings routes not available');
-      }
-
-      // Log block routes if available
-      if (blockRoutes) {
-        console.log('📍 Service Contracts Block routes:');
-        console.log('- GET    /api/service-contracts/blocks/categories                    # List block categories');
-        console.log('- GET    /api/service-contracts/blocks/masters                      # List block masters');
-        console.log('- GET    /api/service-contracts/blocks/masters/:masterId/variants   # List variants for master');
-        console.log('- GET    /api/service-contracts/blocks/hierarchy                    # Complete block hierarchy');
-        console.log('- GET    /api/service-contracts/blocks/variant/:variantId           # Get variant details');
-        console.log('- GET    /api/service-contracts/blocks/template-builder             # Blocks for template builder');
-        console.log('- GET    /api/service-contracts/blocks/search                       # Search blocks');
-        console.log('- GET    /api/service-contracts/blocks/stats                        # Block system statistics');
-        console.log('📋 Block System features:');
-        console.log('  ✅ Read-only block data API (Categories → Masters → Variants)');
-        console.log('  ✅ Complete hierarchy with joined relationships');
-        console.log('  ✅ Template builder optimization');
-        console.log('  ✅ Block search and filtering');
-        console.log('  ✅ Dependency tracking and validation metadata');
-        console.log('  ✅ Statistics and health monitoring');
-        console.log('  ✅ HMAC-secured communication with Edge Functions');
-      } else {
-        console.log('⚠️  Block routes not available');
-      }
-
-      // Log product master data routes if available (ENHANCED)
-      if (productMasterdataRoutes) {
-        console.log('📍 Product Master Data routes (ENHANCED):');
-        console.log('- GET    /api/product-masterdata/health                     # Service health check');
-        console.log('- GET    /api/product-masterdata/constants                  # API constants and configuration');
-        console.log('- GET    /api/product-masterdata/global                     # Global master data by category');
-        console.log('- GET    /api/product-masterdata/tenant                     # Tenant master data by category');
-        console.log('- GET    /api/product-masterdata/global/categories          # All global categories');
-        console.log('- GET    /api/product-masterdata/tenant/categories          # All tenant categories');
-        console.log('🚀 NEW: Industry-First Onboarding Endpoints:');
-        console.log('- GET    /api/product-masterdata/industries                 # Industries with pagination & search');
-        console.log('- GET    /api/product-masterdata/categories/all             # All categories with pagination & search');
-        console.log('- GET    /api/product-masterdata/categories/by-industry     # Industry-specific categories with filtering');
-        console.log('📋 Product Master Data features (ENHANCED):');
-        console.log('  ✅ Global & tenant-specific master data management');
-        console.log('  ✅ Category-based data organization (pricing_type, status_type, etc.)');
-        console.log('  ✅ Complete category listings and detailed data retrieval');
-        console.log('  🚀 NEW: Industry catalog with pagination and search');
-        console.log('  🚀 NEW: Category-industry mapping with primary flag filtering');
-        console.log('  🚀 NEW: Enhanced pagination (page, limit, total_pages, has_next/prev)');
-        console.log('  🚀 NEW: Full-text search with 3+ character minimum');
-        console.log('  🚀 NEW: Industry-specific category filtering (is_primary support)');
-        console.log('  🚀 NEW: Enhanced rate limiting (100 req/15min for search vs 200 req/15min standard)');
-        console.log('  🚀 NEW: Comprehensive parameter validation and sanitization');
-        console.log('  ✅ Edge Function integration with HMAC security');
-        console.log('  ✅ Frontend-optimized data transformation');
-        console.log('  ✅ Comprehensive error handling and validation');
-        console.log('  ✅ Complete Swagger documentation with detailed schemas');
-        console.log('  ✅ Backward compatibility maintained (no breaking changes)');
-        console.log('  ✅ Production-ready with comprehensive logging');
-      } else {
-        console.log('⚠️  Product Master Data routes not available');
-      }
-
-      // Log service catalog routes
-      console.log('📍 Service Catalog routes:');
-      console.log('- GET    /api/service-catalog/health                          # Service health check');
-      console.log('- GET    /api/service-catalog/master-data                     # Get categories, industries, currencies');
-      console.log('- GET    /api/service-catalog/services                        # List services with filters & pagination');
-      console.log('- POST   /api/service-catalog/services                        # Create new service');
-      console.log('- GET    /api/service-catalog/services/:id                    # Get service by ID');
-      console.log('- PUT    /api/service-catalog/services/:id                    # Update service');
-      console.log('- DELETE /api/service-catalog/services/:id                    # Delete service (soft)');
-      console.log('- GET    /api/service-catalog/services/:id/resources          # Get service resources');
-      console.log('📋 Service Catalog features:');
-      console.log('  ✅ Complete CRUD operations for service management');
-      console.log('  ✅ Advanced filtering & search (by name, category, industry, price, etc.)');
-      console.log('  ✅ Comprehensive pagination with metadata');
-      console.log('  ✅ Multi-field sorting (name, price, created_at, sort_order)');
-      console.log('  ✅ Service resource associations and management');
-      console.log('  ✅ Flexible pricing configuration with currency support');
-      console.log('  ✅ Master data integration (categories, industries, currencies)');
-      console.log('  ✅ Production-grade validation with business rule enforcement');
-      console.log('  ✅ Multi-tenant security with JWT + tenant isolation');
-      console.log('  ✅ HMAC-secured communication with Edge Functions');
-      console.log('  ✅ Idempotency support for safe operations');
-      console.log('  ✅ Environment segregation (live/test data)');
-      console.log('  ✅ Rate limiting and comprehensive error handling');
-      console.log('  ✅ Complete audit trail (created_by, updated_by, timestamps)');
-      console.log('  ✅ Swagger documentation with detailed schemas');
-      console.log('  ✅ Service status management (active/inactive/draft/deleted)');
-      console.log('  ✅ Tags and custom attributes support');
-      console.log('  ✅ Required resources with quantity and optional flag');
-      console.log('  ✅ Automatic slug generation for SEO-friendly URLs');
-
-      // Log groups routes if available
-      if (groupsRoutesLoaded) {
-        console.log('📍 Groups & Directory routes:');
-        console.log('- GET    /api/groups                                # List all business groups');
-        console.log('- GET    /api/groups/:groupId                       # Get specific group');
-        console.log('- POST   /api/groups/verify-access                  # Verify group password');
-        console.log('- POST   /api/memberships                           # Create membership (join group)');
-        console.log('- GET    /api/memberships/:membershipId             # Get membership details');
-        console.log('- PUT    /api/memberships/:membershipId             # Update membership profile');
-        console.log('- GET    /api/memberships/group/:groupId            # Get group memberships (admin)');
-        console.log('- DELETE /api/memberships/:membershipId             # Delete membership');
-        console.log('- POST   /api/profiles/enhance                      # AI enhance profile');
-        console.log('- POST   /api/profiles/scrape-website               # Scrape website for profile');
-        console.log('- POST   /api/profiles/generate-clusters            # Generate semantic clusters');
-        console.log('- POST   /api/profiles/save                         # Save profile with embedding');
-        console.log('- POST   /api/search                                # Search group directory');
-        console.log('- GET    /api/admin/stats/:groupId                  # Admin dashboard stats');
-        console.log('- PUT    /api/admin/memberships/:membershipId/status # Update membership status');
-        console.log('- GET    /api/admin/activity-logs/:groupId          # Activity logs');
-        console.log('📋 Groups & Directory features:');
-        console.log('  ✅ Business group management (BBB chapters, associations)');
-        console.log('  ✅ Multi-tenant membership system with profiles');
-        console.log('  ✅ Password-protected group access verification');
-        console.log('  ✅ AI-powered profile enhancement with OpenAI');
-        console.log('  ✅ Website scraping for automated profile generation');
-        console.log('  ✅ Semantic clustering for profile organization');
-        console.log('  ✅ Vector-based semantic search with pgvector');
-        console.log('  ✅ Profile embedding generation and storage');
-        console.log('  ✅ Admin dashboard with comprehensive statistics');
-        console.log('  ✅ Activity logging and audit trail');
-        console.log('  ✅ Membership status management (active/suspended/pending)');
-        console.log('  ✅ Flexible profile data structure with JSON storage');
-        console.log('  ✅ Multi-tenant isolation and security');
-        console.log('  ✅ Rate limiting and comprehensive validation');
-      } else {
-        console.log('⚠️  Groups routes not available');
-      }
-
-      // Log sequence routes if available
-      if (sequenceRoutes) {
-        console.log('📍 Sequence Numbers routes:');
-        console.log('- GET    /api/sequences/health                       # Service health check');
-        console.log('- GET    /api/sequences/configs                      # List sequence configurations');
-        console.log('- POST   /api/sequences/configs                      # Create sequence config');
-        console.log('- PATCH  /api/sequences/configs/:id                  # Update sequence config');
-        console.log('- DELETE /api/sequences/configs/:id                  # Delete sequence config');
-        console.log('- GET    /api/sequences/status                       # Get current sequence values');
-        console.log('- GET    /api/sequences/next/:code                   # Get next sequence number');
-        console.log('- POST   /api/sequences/reset/:code                  # Reset sequence to start');
-        console.log('- POST   /api/sequences/seed                         # Seed default sequences');
-        console.log('- POST   /api/sequences/backfill/:code               # Backfill existing records');
-        console.log('📋 Sequence Numbers features:');
-        console.log('  ✅ Auto-generated numbers for contacts, invoices, contracts');
-        console.log('  ✅ Configurable prefix, suffix, padding');
-        console.log('  ✅ Reset frequency (never, yearly, monthly, quarterly)');
-        console.log('  ✅ Atomic increment with collision handling');
-        console.log('  ✅ Duplicate failover with A-Z suffix');
-        console.log('  ✅ Environment segregation (live/test)');
-      } else {
-        console.log('⚠️  Sequence routes not available');
-      }
-
-      // Log seed routes if available
-      if (seedRoutes) {
-        console.log('📍 Tenant Seed routes:');
-        console.log('- GET    /api/seeds/defaults                         # Get all seed previews');
-        console.log('- GET    /api/seeds/defaults/:category               # Get category preview');
-        console.log('- GET    /api/seeds/data/:category                   # Get raw seed data');
-        console.log('- POST   /api/seeds/tenant                           # Seed all defaults');
-        console.log('- POST   /api/seeds/tenant/:category                 # Seed specific category');
-        console.log('- GET    /api/seeds/status                           # Check seed status');
-        console.log('📋 Tenant Seed features:');
-        console.log('  ✅ Centralized seed data (single source of truth)');
-        console.log('  ✅ Preview data for onboarding UI');
-        console.log('  ✅ Dependency-aware seeding order');
-        console.log('  ✅ Idempotent seeding (skip existing)');
-        console.log('  ✅ Support for live/test environments');
-      } else {
-        console.log('⚠️  Seed routes not available');
-      }
-
-      // Log catalog studio routes if available
-      if (catalogStudioRoutes) {
-        console.log('📍 Catalog Studio routes:');
-        console.log('- GET    /api/catalog-studio/health                           # Service health check');
-        console.log('- GET    /api/catalog-studio/blocks                           # List blocks (filtered by admin)');
-        console.log('- GET    /api/catalog-studio/blocks/:id                       # Get block by ID');
-        console.log('- POST   /api/catalog-studio/blocks                           # Create block (admin only)');
-        console.log('- PATCH  /api/catalog-studio/blocks/:id                       # Update block (admin only)');
-        console.log('- DELETE /api/catalog-studio/blocks/:id                       # Delete block (admin only)');
-        console.log('- GET    /api/catalog-studio/templates                        # List tenant templates');
-        console.log('- GET    /api/catalog-studio/templates/system                 # List system templates');
-        console.log('- GET    /api/catalog-studio/templates/public                 # List public templates');
-        console.log('- GET    /api/catalog-studio/templates/:id                    # Get template by ID');
-        console.log('- POST   /api/catalog-studio/templates                        # Create template');
-        console.log('- POST   /api/catalog-studio/templates/:id/copy               # Copy system template');
-        console.log('- PATCH  /api/catalog-studio/templates/:id                    # Update template');
-        console.log('- DELETE /api/catalog-studio/templates/:id                    # Delete template');
-        console.log('📋 Catalog Studio features:');
-        console.log('  ✅ Global blocks library (service, spare, billing, text, video, image, checklist, document)');
-        console.log('  ✅ Admin-only block creation and management');
-        console.log('  ✅ Template builder with block composition');
-        console.log('  ✅ System templates for quick start');
-        console.log('  ✅ Template copying from system to tenant');
-        console.log('  ✅ Multi-tenant template isolation');
-        console.log('  ✅ Environment segregation (live/test)');
-        console.log('  ✅ HMAC-secured edge function communication');
-        console.log('  ✅ Flexible pricing modes (independent, resource_based, variant_based, multi_resource)');
-      } else {
-        console.log('⚠️  Catalog Studio routes not available');
-      }
-
-      // Log billing routes if available
-      if (billingRoutes) {
-        console.log('📍 Billing routes:');
-        console.log('- GET    /api/billing/status/:tenantId              # Billing status (bot-friendly)');
-        console.log('- GET    /api/billing/subscription/:tenantId        # Subscription details');
-        console.log('- GET    /api/billing/credits/:tenantId             # Credit balances');
-        console.log('- GET    /api/billing/usage/:tenantId               # Usage summary');
-        console.log('- GET    /api/billing/invoice-estimate/:tenantId    # Invoice estimate');
-        console.log('- GET    /api/billing/alerts/:tenantId              # Billing alerts');
-        console.log('- GET    /api/billing/topup-packs                   # Available topup packs');
-        console.log('- POST   /api/billing/usage                         # Record usage event');
-        console.log('- POST   /api/billing/credits/deduct                # Deduct credits');
-        console.log('- POST   /api/billing/credits/add                   # Add credits');
-        console.log('- POST   /api/billing/credits/topup                 # Purchase topup');
-        console.log('- POST   /api/billing/credits/check                 # Check availability');
-        console.log('📋 Billing API features:');
-        console.log('  ✅ Comprehensive billing status for bot/AI integration');
-        console.log('  ✅ Credit balance management with atomic operations');
-        console.log('  ✅ Usage tracking and aggregation');
-        console.log('  ✅ Invoice estimation with line items');
-        console.log('  ✅ Topup pack purchase flow');
-        console.log('  ✅ Credit availability checking');
-        console.log('  ✅ Multi-tenant with RLS policies');
-        console.log('  ✅ Edge function integration (single RPC calls)');
-      } else {
-        console.log('⚠️  Billing routes not available');
-      }
-
-      // Log card proxy routes
-      console.log('📍 Card Proxy routes:');
-      console.log('- GET    /card/:membershipId                          # View business card (HTML)');
-      console.log('- GET    /vcard/:membershipId                         # Download vCard');
-      console.log('📋 Card Proxy features:');
-      console.log('  ✅ Public access (no auth required)');
-      console.log('  ✅ Proxies to N8N webhooks for card generation');
-      console.log('  ✅ HTML business card view');
-      console.log('  ✅ vCard download support');
-
-      console.log('\n🚨 CRITICAL: Storage routes mounted BEFORE body parsers');
-      console.log('📁 Storage upload: POST /api/storage/files');
 
       // Initialize JTD after server starts
       initializeJTD();
