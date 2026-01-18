@@ -15,7 +15,7 @@ const VALIDATION_RULES = {
   TAG_MAX_COUNT: 10
 };
 
-const CHANNEL_TYPES = ['mobile', 'email', 'whatsapp', 'linkedin', 'website', 'telegram', 'skype'];
+const CHANNEL_TYPES = ['mobile', 'phone', 'email', 'whatsapp', 'linkedin', 'website', 'telegram', 'skype'];
 const ADDRESS_TYPES = ['home', 'office', 'billing', 'shipping', 'factory', 'warehouse', 'other'];
 
 /**
@@ -128,7 +128,7 @@ const contactChannelsValidation = (): ValidationChain =>
           }
         }
 
-        if (channel.channel_type === 'mobile') {
+        if (channel.channel_type === 'mobile' || channel.channel_type === 'phone') {
           if (!phoneRegex.test(channel.value)) {
             throw new Error(`Channel ${i + 1}: Invalid phone number format`);
           }
