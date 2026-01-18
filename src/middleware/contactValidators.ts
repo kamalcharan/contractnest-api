@@ -2,12 +2,19 @@
 import { body, validationResult, ValidationChain } from 'express-validator';
 import { Request, Response, NextFunction } from 'express';
 import { CONTACT_FORM_TYPES, CONTACT_STATUS, CONTACT_CLASSIFICATIONS } from '../utils/constants/contacts';
+import {
+  validatePhoneLengthForCountry,
+  validateIndividualName,
+  validateCompanyName,
+  NAME_PATTERN,
+  COMPANY_NAME_PATTERN
+} from '../utils/constants/countries';
 
 // Validation constants (copied from constants file)
 const VALIDATION_RULES = {
   NAME_MIN_LENGTH: 2,
   NAME_MAX_LENGTH: 100,
-  PHONE_MIN_LENGTH: 10,
+  PHONE_MIN_LENGTH: 7,
   PHONE_MAX_LENGTH: 15,
   EMAIL_MAX_LENGTH: 200,
   NOTES_MAX_LENGTH: 1000,
@@ -71,19 +78,44 @@ const classificationsValidation = (): ValidationChain =>
       return true;
     });
 
-const nameValidation = (field: string, isRequired: boolean = true): ValidationChain => {
+const nameValidation = (field: string, isRequired: boolean = true, isCompany: boolean = false): ValidationChain => {
   let validation = body(field);
-  
+
   if (isRequired) {
     validation = validation.notEmpty().withMessage(`${field} is required`);
   } else {
     validation = validation.optional();
   }
-  
+
   return validation
     .isLength({ min: VALIDATION_RULES.NAME_MIN_LENGTH, max: VALIDATION_RULES.NAME_MAX_LENGTH })
     .withMessage(`${field} must be between ${VALIDATION_RULES.NAME_MIN_LENGTH} and ${VALIDATION_RULES.NAME_MAX_LENGTH} characters`)
-    .trim();
+    .trim()
+    .custom((value) => {
+      if (!value) return true;
+
+      // Use appropriate pattern based on field type
+      const pattern = isCompany ? COMPANY_NAME_PATTERN : NAME_PATTERN;
+      if (!pattern.test(value)) {
+        throw new Error(
+          isCompany
+            ? `${field} contains invalid characters`
+            : `${field} can only contain letters, spaces, hyphens, apostrophes, and periods`
+        );
+      }
+
+      // Check for consecutive special characters
+      if (/[\-'.]{2,}/.test(value)) {
+        throw new Error(`${field} cannot have consecutive special characters`);
+      }
+
+      // Name shouldn't start or end with special characters (except period for titles)
+      if (!isCompany && /^[\-',]|[\-',]$/.test(value)) {
+        throw new Error(`${field} cannot start or end with special characters`);
+      }
+
+      return true;
+    });
 };
 
 const notesValidation = (): ValidationChain => 
@@ -96,14 +128,13 @@ const notesValidation = (): ValidationChain =>
 /**
  * Contact channels validation
  */
-const contactChannelsValidation = (): ValidationChain => 
+const contactChannelsValidation = (): ValidationChain =>
   body('contact_channels')
     .isArray({ min: 1 })
     .withMessage('At least one contact channel is required')
     .custom((channels) => {
       let hasPrimary = false;
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const phoneRegex = /^[0-9+\-\s()]{10,20}$/;
+      const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
       for (let i = 0; i < channels.length; i++) {
         const channel = channels[i];
@@ -126,11 +157,80 @@ const contactChannelsValidation = (): ValidationChain =>
           if (channel.value.length > VALIDATION_RULES.EMAIL_MAX_LENGTH) {
             throw new Error(`Channel ${i + 1}: Email too long (max ${VALIDATION_RULES.EMAIL_MAX_LENGTH} characters)`);
           }
+          // Check for consecutive dots
+          if (channel.value.includes('..')) {
+            throw new Error(`Channel ${i + 1}: Email cannot contain consecutive dots`);
+          }
+          // Ensure domain has at least one dot
+          const [, domain] = channel.value.split('@');
+          if (!domain || !domain.includes('.')) {
+            throw new Error(`Channel ${i + 1}: Please enter a valid email domain`);
+          }
         }
 
-        if (channel.channel_type === 'mobile' || channel.channel_type === 'phone') {
-          if (!phoneRegex.test(channel.value)) {
-            throw new Error(`Channel ${i + 1}: Invalid phone number format`);
+        // Phone-based channels (mobile, phone, whatsapp)
+        if (['mobile', 'phone', 'whatsapp'].includes(channel.channel_type)) {
+          // Extract digits only for validation
+          const digitsOnly = channel.value.replace(/\D/g, '');
+
+          // Default to IN if country_code not provided (defensive fallback for backwards compatibility)
+          const countryCode = channel.country_code || 'IN';
+
+          // Auto-populate country_code if missing to ensure data consistency
+          if (!channel.country_code) {
+            channel.country_code = countryCode;
+          }
+
+          // Validate phone length based on country
+          const phoneValidation = validatePhoneLengthForCountry(digitsOnly, countryCode);
+          if (!phoneValidation.isValid) {
+            throw new Error(`Channel ${i + 1}: ${phoneValidation.error}`);
+          }
+        }
+
+        // LinkedIn validation
+        if (channel.channel_type === 'linkedin') {
+          const value = channel.value.trim();
+          if (value.includes('linkedin.com')) {
+            // URL format - basic check
+            if (!value.match(/^https?:\/\//i) && !value.startsWith('linkedin.com')) {
+              throw new Error(`Channel ${i + 1}: Invalid LinkedIn URL format`);
+            }
+          } else {
+            // Username format
+            if (!/^[a-zA-Z0-9\-]{3,100}$/.test(value)) {
+              throw new Error(`Channel ${i + 1}: LinkedIn username must be 3-100 characters (letters, numbers, hyphens)`);
+            }
+          }
+        }
+
+        // Telegram/Skype validation
+        if (['telegram', 'skype'].includes(channel.channel_type)) {
+          const value = channel.value.trim();
+          if (value.length < 3) {
+            throw new Error(`Channel ${i + 1}: ${channel.channel_type} username must be at least 3 characters`);
+          }
+          if (value.length > 50) {
+            throw new Error(`Channel ${i + 1}: ${channel.channel_type} username is too long`);
+          }
+          if (!/^@?[a-zA-Z0-9_]+$/.test(value)) {
+            throw new Error(`Channel ${i + 1}: ${channel.channel_type} username can only contain letters, numbers, and underscores`);
+          }
+        }
+
+        // Website validation
+        if (channel.channel_type === 'website') {
+          let urlToValidate = channel.value.trim();
+          if (!urlToValidate.match(/^https?:\/\//i)) {
+            urlToValidate = 'https://' + urlToValidate;
+          }
+          try {
+            const parsedUrl = new URL(urlToValidate);
+            if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+              throw new Error(`Channel ${i + 1}: Please enter a valid website URL`);
+            }
+          } catch {
+            throw new Error(`Channel ${i + 1}: Please enter a valid website URL`);
           }
         }
 
@@ -262,19 +362,25 @@ const complianceNumbersValidation = (): ValidationChain =>
 /**
  * Individual contact validation
  */
-const individualContactValidation = (): ValidationChain => 
+const individualContactValidation = (): ValidationChain =>
   body()
     .custom((body) => {
       if (body.type === CONTACT_FORM_TYPES.INDIVIDUAL) {
         if (!body.name || body.name.trim().length < VALIDATION_RULES.NAME_MIN_LENGTH) {
           throw new Error('Name is required for individual contacts');
         }
-        
+
+        // Validate name using the utility function
+        const nameValidation = validateIndividualName(body.name);
+        if (!nameValidation.isValid) {
+          throw new Error(nameValidation.error || 'Invalid name');
+        }
+
         // Individual contacts shouldn't have corporate-specific fields
         if (body.company_name) {
           throw new Error('Individual contacts cannot have company_name');
         }
-        
+
         if (body.compliance_numbers && body.compliance_numbers.length > 0) {
           throw new Error('Individual contacts cannot have compliance numbers');
         }
@@ -285,14 +391,20 @@ const individualContactValidation = (): ValidationChain =>
 /**
  * Corporate contact validation
  */
-const corporateContactValidation = (): ValidationChain => 
+const corporateContactValidation = (): ValidationChain =>
   body()
     .custom((body) => {
       if (body.type === CONTACT_FORM_TYPES.CORPORATE) {
         if (!body.company_name || body.company_name.trim().length < VALIDATION_RULES.NAME_MIN_LENGTH) {
           throw new Error('Company name is required for corporate contacts');
         }
-        
+
+        // Validate company name using the utility function
+        const companyValidation = validateCompanyName(body.company_name);
+        if (!companyValidation.isValid) {
+          throw new Error(companyValidation.error || 'Invalid company name');
+        }
+
         // Corporate contacts shouldn't have individual-specific fields
         if (body.name) {
           throw new Error('Corporate contacts should not have individual name');
@@ -349,8 +461,8 @@ export const validateContactUpdate = [
     }),
   
   // Name validations (optional for updates)
-  nameValidation('name', false),
-  nameValidation('company_name', false),
+  nameValidation('name', false, false),
+  nameValidation('company_name', false, true),
   
   // Optional field validations
   addressesValidation(),

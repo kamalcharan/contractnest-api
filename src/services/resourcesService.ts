@@ -17,31 +17,21 @@ import {
 } from '../types/resourcesTypes';
 
 /**
- * 🔧 FIX: Extract data from edge function response format
+ * Extract data from edge function response format
  */
 function parseEdgeFunctionResponse(response: AxiosResponse): any {
-  console.log('🔍 Parsing edge function response:', {
-    status: response.status,
-    hasData: !!response.data,
-    dataType: typeof response.data,
-    dataStructure: response.data ? Object.keys(response.data) : 'no data'
-  });
-
   const responseData = response.data;
 
   // Handle edge function format: { success: true, data: [...], timestamp: "..." }
   if (responseData?.success === true && responseData?.data !== undefined) {
-    console.log('✅ Edge function format detected, extracting data:', responseData.data);
     return responseData.data;
   }
 
   // Handle direct data (fallback)
   if (responseData) {
-    console.log('✅ Using direct response data:', responseData);
     return responseData;
   }
 
-  console.log('❌ Unknown response format, returning null');
   return null;
 }
 
@@ -60,18 +50,9 @@ class InternalSigningService {
     try {
       const data = payload + timestamp + this.SIGNING_SECRET;
       const hash = crypto.createHash('sha256').update(data).digest('base64');
-      const signature = hash.substring(0, 32);
-      
-      console.log('🔐 Generated signature:', {
-        payloadLength: payload.length,
-        timestamp,
-        signaturePreview: signature.substring(0, 8) + '...',
-        hasSecret: !!this.SIGNING_SECRET
-      });
-      
-      return signature;
+      return hash.substring(0, 32);
     } catch (error) {
-      console.error('🔐 Error generating signature:', error);
+      console.error('Error generating signature:', error);
       return 'fallback-signature';
     }
   }
@@ -103,59 +84,45 @@ export class ResourcesService {
 
   /**
    * Get all resource types (for left sidebar)
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async getResourceTypes(authHeader: string, tenantId: string): Promise<ResourceType[]> {
     try {
-      console.log('📋 Getting resource types...');
-      
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      console.log('🔍 SENDING HEADERS:', internalHeaders); // DEBUG
-      
-      const allHeaders = {
-        'Authorization': authHeader,
-        'x-tenant-id': tenantId,
-        'Content-Type': 'application/json',
-        ...internalHeaders
-      };
-      console.log('🔍 ALL HEADERS BEING SENT:', Object.keys(allHeaders)); // DEBUG
-      
+
       const response = await axios.get(`${ResourcesService.BASE_URL}/resource-types`, {
-        headers: allHeaders,
+        headers: {
+          'Authorization': authHeader,
+          'x-tenant-id': tenantId,
+          'Content-Type': 'application/json',
+          ...internalHeaders
+        },
         timeout: ResourcesService.TIMEOUT
       });
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       if (!Array.isArray(data)) {
-        console.error('❌ Resource types response is not an array:', data);
         return [];
       }
 
-      console.log(`✅ Got ${data.length} resource types`);
       return data;
 
     } catch (error: any) {
-      console.error('❌ Error getting resource types:', error.message);
       throw this.transformError(error, 'Failed to get resource types');
     }
   }
 
   /**
    * Get resources by type (for right panel display)
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async getResourcesByType(
-    authHeader: string, 
-    tenantId: string, 
+    authHeader: string,
+    tenantId: string,
     resourceTypeId: string
   ): Promise<Resource[]> {
     try {
-      console.log(`📋 Getting resources for type: ${resourceTypeId}`);
-      
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      
+
       const response = await axios.get(`${ResourcesService.BASE_URL}?resourceTypeId=${resourceTypeId}`, {
         headers: {
           'Authorization': authHeader,
@@ -166,33 +133,26 @@ export class ResourcesService {
         timeout: ResourcesService.TIMEOUT
       });
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       if (!Array.isArray(data)) {
-        console.error(`❌ Resources response for type ${resourceTypeId} is not an array:`, data);
         return [];
       }
 
-      console.log(`✅ Got ${data.length} resources for type ${resourceTypeId}`);
       return data;
 
     } catch (error: any) {
-      console.error(`❌ Error getting resources for type ${resourceTypeId}:`, error.message);
       throw this.transformError(error, `Failed to get resources for type ${resourceTypeId}`);
     }
   }
 
   /**
    * Get all resources (for initial load or "All" view)
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async getAllResources(authHeader: string, tenantId: string): Promise<Resource[]> {
     try {
-      console.log('📋 Getting all resources...');
-      
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      
+
       const response = await axios.get(ResourcesService.BASE_URL, {
         headers: {
           'Authorization': authHeader,
@@ -203,37 +163,30 @@ export class ResourcesService {
         timeout: ResourcesService.TIMEOUT
       });
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       if (!Array.isArray(data)) {
-        console.error('❌ All resources response is not an array:', data);
         return [];
       }
 
-      console.log(`✅ Got ${data.length} total resources`);
       return data;
 
     } catch (error: any) {
-      console.error('❌ Error getting all resources:', error.message);
       throw this.transformError(error, 'Failed to get resources');
     }
   }
 
   /**
    * Get next sequence number for new resource
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async getNextSequenceNumber(
-    authHeader: string, 
-    tenantId: string, 
+    authHeader: string,
+    tenantId: string,
     resourceTypeId: string
   ): Promise<number> {
     try {
-      console.log(`🔢 Getting next sequence for type: ${resourceTypeId}`);
-      
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      
+
       const response = await axios.get(
         `${ResourcesService.BASE_URL}?resourceTypeId=${resourceTypeId}&nextSequence=true`,
         {
@@ -247,9 +200,8 @@ export class ResourcesService {
         }
       );
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       let nextSequence = 1;
       if (data && typeof data === 'object' && data.nextSequence) {
         nextSequence = data.nextSequence;
@@ -257,18 +209,15 @@ export class ResourcesService {
         nextSequence = data;
       }
 
-      console.log(`✅ Next sequence: ${nextSequence}`);
       return nextSequence;
 
     } catch (error: any) {
-      console.error(`❌ Error getting next sequence for ${resourceTypeId}:`, error.message);
       throw this.transformError(error, 'Failed to get next sequence number');
     }
   }
 
   /**
    * Create new resource
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async createResource(
     authHeader: string,
@@ -277,14 +226,9 @@ export class ResourcesService {
     idempotencyKey?: string
   ): Promise<Resource> {
     try {
-      console.log('➕ Creating resource:', { 
-        name: resourceData.name, 
-        type: resourceData.resource_type_id 
-      });
-      
       const requestBody = JSON.stringify(resourceData);
       const internalHeaders = InternalSigningService.createSignedHeaders(requestBody);
-      
+
       const headers: Record<string, string> = {
         'Authorization': authHeader,
         'x-tenant-id': tenantId,
@@ -301,25 +245,21 @@ export class ResourcesService {
         timeout: ResourcesService.TIMEOUT
       });
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       if (!data) {
         throw new Error('No data returned from create operation');
       }
 
-      console.log(`✅ Created resource: ${data?.name}`);
       return data;
 
     } catch (error: any) {
-      console.error('❌ Error creating resource:', error.message);
       throw this.transformError(error, 'Failed to create resource');
     }
   }
 
   /**
    * Update existing resource
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async updateResource(
     authHeader: string,
@@ -329,11 +269,9 @@ export class ResourcesService {
     idempotencyKey?: string
   ): Promise<Resource> {
     try {
-      console.log(`✏️ Updating resource: ${resourceId}`);
-      
       const requestBody = JSON.stringify(updateData);
       const internalHeaders = InternalSigningService.createSignedHeaders(requestBody);
-      
+
       const headers: Record<string, string> = {
         'Authorization': authHeader,
         'x-tenant-id': tenantId,
@@ -354,25 +292,21 @@ export class ResourcesService {
         }
       );
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       if (!data) {
         throw new Error('No data returned from update operation');
       }
 
-      console.log(`✅ Updated resource: ${data?.name}`);
       return data;
 
     } catch (error: any) {
-      console.error(`❌ Error updating resource ${resourceId}:`, error.message);
       throw this.transformError(error, 'Failed to update resource');
     }
   }
 
   /**
    * Delete resource (soft delete)
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async deleteResource(
     authHeader: string,
@@ -381,10 +315,8 @@ export class ResourcesService {
     idempotencyKey?: string
   ): Promise<{ success: boolean; message: string }> {
     try {
-      console.log(`🗑️ Deleting resource: ${resourceId}`);
-      
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      
+
       const headers: Record<string, string> = {
         'Authorization': authHeader,
         'x-tenant-id': tenantId,
@@ -404,14 +336,11 @@ export class ResourcesService {
         }
       );
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
 
-      console.log(`✅ Deleted resource: ${resourceId}`);
       return data || { success: true, message: 'Resource deleted successfully' };
 
     } catch (error: any) {
-      console.error(`❌ Error deleting resource ${resourceId}:`, error.message);
       throw this.transformError(error, 'Failed to delete resource');
     }
   }
@@ -422,7 +351,6 @@ export class ResourcesService {
 
   /**
    * Get single resource by ID (for validator)
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async getResourceById(
     authHeader: string,
@@ -431,7 +359,7 @@ export class ResourcesService {
   ): Promise<Resource | null> {
     try {
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      
+
       const response = await axios.get(
         `${ResourcesService.BASE_URL}?resourceId=${resourceId}`,
         {
@@ -445,28 +373,25 @@ export class ResourcesService {
         }
       );
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
-      
+
       // Edge function returns array, take first item
       if (Array.isArray(data) && data.length > 0) {
         return data[0];
       }
-      
+
       return null;
 
     } catch (error: any) {
       if (error.response?.status === 404) {
         return null;
       }
-      console.error(`Error getting resource ${resourceId}:`, error.message);
       throw this.transformError(error, 'Failed to get resource');
     }
   }
 
   /**
    * Check if resource name exists (for validator duplicate checking)
-   * 🔧 FIXED: Now properly handles edge function responses
    */
   async checkResourceNameExists(
     authHeader: string,
@@ -477,19 +402,17 @@ export class ResourcesService {
   ): Promise<boolean> {
     try {
       // Get all resources for the type and check locally
-      // This is more efficient than adding a separate edge function endpoint
       const resources = await this.getResourcesByType(authHeader, tenantId, resourceTypeId);
-      
+
       const nameLower = name.toLowerCase().trim();
-      const exists = resources.some(resource => 
-        resource.name.toLowerCase().trim() === nameLower && 
+      const exists = resources.some(resource =>
+        resource.name.toLowerCase().trim() === nameLower &&
         resource.id !== excludeResourceId
       );
 
       return exists;
 
     } catch (error: any) {
-      console.error('Error checking resource name existence:', error.message);
       // Return false on error to allow creation (edge function will catch duplicates)
       return false;
     }
@@ -497,7 +420,6 @@ export class ResourcesService {
 
   /**
    * Get resource types (for validator) - caches result during request
-   * 🔧 FIXED: Now properly handles edge function responses
    */
   private resourceTypesCache: { data: ResourceType[]; timestamp: number } | null = null;
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -520,12 +442,11 @@ export class ResourcesService {
 
   /**
    * Health check
-   * 🔧 FIXED: Now uses correct signature pattern
    */
   async healthCheck(authHeader: string, tenantId: string = 'system'): Promise<any> {
     try {
       const internalHeaders = InternalSigningService.createSignedHeaders();
-      
+
       const response = await axios.get(`${ResourcesService.BASE_URL}/health`, {
         headers: {
           'Authorization': authHeader,
@@ -536,7 +457,6 @@ export class ResourcesService {
         timeout: 10000 // Shorter timeout for health check
       });
 
-      // 🔧 FIX: Parse edge function response properly
       const data = parseEdgeFunctionResponse(response);
 
       return {
@@ -547,7 +467,6 @@ export class ResourcesService {
       };
 
     } catch (error: any) {
-      console.error('❌ Health check failed:', error.message);
       throw this.transformError(error, 'Health check failed');
     }
   }
