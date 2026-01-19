@@ -35,6 +35,7 @@ import onboardingRoutes from './routes/onboardingRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
 import fkauthProxyRoutes from './routes/fkauthProxy';
 import fkonboardingProxyRoutes from './routes/fkonboardingProxy';
+import productConfigRoutes from './routes/productConfigRoutes';
 
 // NOTE: groupsRoutes is loaded dynamically below via require() for error handling
 import cardProxyRoutes from './routes/cardProxyRoutes';
@@ -668,6 +669,17 @@ console.log('✅ Products routes registered at /api/products');
 app.use('/api/business-model', businessModelRoutes);
 console.log('✅ Business model routes registered at /api/business-model');
 
+// Product Config routes (Business Model v2)
+try {
+  app.use('/api/v1/product-config', productConfigRoutes);
+  console.log('✅ Product config routes registered at /api/v1/product-config');
+} catch (error) {
+  console.error('❌ Failed to register product config routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'product_config' }
+  });
+}
+
 // JTD Routes
 app.use('/api/jtd', jtdRoutes);
 console.log('✅ JTD routes registered at /api/jtd');
@@ -701,7 +713,8 @@ app.get('/health', async (req, res) => {
       seeds: seedRoutes ? 'loaded' : 'not_loaded',
       catalogStudio: catalogStudioRoutes ? 'loaded' : 'not_loaded',
       billing: billingRoutes ? 'loaded' : 'not_loaded',
-      tenantContext: tenantContextRoutes ? 'loaded' : 'not_loaded'
+      tenantContext: tenantContextRoutes ? 'loaded' : 'not_loaded',
+      productConfig: 'loaded'
     },
     features: {
       resources_api: true,
@@ -716,7 +729,8 @@ app.get('/health', async (req, res) => {
       tenant_seeds: seedRoutes !== null,
       catalog_studio: catalogStudioRoutes !== null,
       billing_api: billingRoutes !== null,
-      tenant_context: tenantContextRoutes !== null
+      tenant_context: tenantContextRoutes !== null,
+      product_config: true
     }
   };
 
@@ -866,7 +880,8 @@ app.get('/', (req, res) => {
       seeds: seedRoutes ? 'available' : 'not_available',
       catalogStudio: catalogStudioRoutes ? 'available' : 'not_available',
       billing: billingRoutes ? 'available' : 'not_available',
-      tenantContext: tenantContextRoutes ? 'available' : 'not_available'
+      tenantContext: tenantContextRoutes ? 'available' : 'not_available',
+      productConfig: 'available'
     },
     endpoints: {
       rest_api: '/api/*',
@@ -878,7 +893,8 @@ app.get('/', (req, res) => {
       seeds: '/api/seeds',
       catalogStudio: '/api/catalog-studio',
       billing: '/api/billing',
-      tenantContext: '/api/tenant-context'
+      tenantContext: '/api/tenant-context',
+      productConfig: '/api/v1/product-config'
     }
   });
 });
@@ -918,7 +934,8 @@ app.use((req, res) => {
       seeds: '/api/seeds',
       catalogStudio: '/api/catalog-studio',
       billing: '/api/billing',
-      tenantContext: '/api/tenant-context'
+      tenantContext: '/api/tenant-context',
+      productConfig: '/api/v1/product-config'
     }
   });
 });
