@@ -1,11 +1,25 @@
 // backend/src/routes/catalogStudioRoutes.ts
 /**
- * Catalog Studio Routes
- * Express router for blocks and templates endpoints
+ * Catalog Studio Routes v2.0
+ * - Express-validator based validation
+ * - Idempotency key requirement for POST/PATCH
+ * - Standardized error responses
  */
 
 import express, { Request, Response, NextFunction } from 'express';
 import catalogStudioController from '../controllers/catalogStudioController';
+import { requestContextMiddleware, requireIdempotencyKey } from '../middleware/requestContext';
+import {
+  createBlockValidation,
+  updateBlockValidation,
+  queryBlocksValidation,
+  createTemplateValidation,
+  updateTemplateValidation,
+  copyTemplateValidation,
+  queryTemplatesValidation,
+  validateIdParam,
+  handleValidationErrors
+} from '../validators/catalogStudio.validators';
 
 const router = express.Router();
 
@@ -14,7 +28,8 @@ const router = express.Router();
 // ============================================
 
 /**
- * Validate required headers
+ * Validate required headers (Authorization + x-tenant-id)
+ * LEGACY: Kept for backward compatibility, but requestContextMiddleware is preferred
  */
 const validateHeaders = (req: Request, res: Response, next: NextFunction): void => {
   const authHeader = req.headers.authorization;
@@ -40,26 +55,6 @@ const validateHeaders = (req: Request, res: Response, next: NextFunction): void 
 };
 
 /**
- * Validate UUID parameter
- */
-const validateUUID = (paramName: string) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const id = req.params[paramName];
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-    if (!uuidRegex.test(id)) {
-      res.status(400).json({
-        success: false,
-        error: { code: 'INVALID_FORMAT', message: `Invalid ${paramName} format. Expected UUID.` },
-      });
-      return;
-    }
-
-    next();
-  };
-};
-
-/**
  * Require admin access
  */
 const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
@@ -80,10 +75,12 @@ const requireAdmin = (req: Request, res: Response, next: NextFunction): void => 
 // Block Routes
 // ============================================
 
-// GET /blocks - List all blocks
+// GET /blocks - List all blocks (with pagination support)
 router.get(
   '/blocks',
   validateHeaders,
+  queryBlocksValidation,
+  handleValidationErrors,
   catalogStudioController.getBlocks
 );
 
@@ -91,34 +88,40 @@ router.get(
 router.get(
   '/blocks/:id',
   validateHeaders,
-  validateUUID('id'),
+  validateIdParam,
+  handleValidationErrors,
   catalogStudioController.getBlockById
 );
 
 // POST /blocks - Create block
-// Permission: Anyone can create blocks for their tenant
-// Admin-only for global/seed blocks (enforced by Edge Function)
+// Requires idempotency key for safe retries
 router.post(
   '/blocks',
-  validateHeaders,
+  requestContextMiddleware,
+  requireIdempotencyKey,
+  createBlockValidation,
+  handleValidationErrors,
   catalogStudioController.createBlock
 );
 
 // PATCH /blocks/:id - Update block
-// Permission: Can update own tenant's blocks (enforced by Edge Function)
+// Requires idempotency key for safe retries
+// Supports optimistic locking via expected_version
 router.patch(
   '/blocks/:id',
-  validateHeaders,
-  validateUUID('id'),
+  requestContextMiddleware,
+  requireIdempotencyKey,
+  updateBlockValidation,
+  handleValidationErrors,
   catalogStudioController.updateBlock
 );
 
-// DELETE /blocks/:id - Delete block
-// Permission: Can delete own tenant's blocks (enforced by Edge Function)
+// DELETE /blocks/:id - Delete block (soft delete)
 router.delete(
   '/blocks/:id',
   validateHeaders,
-  validateUUID('id'),
+  validateIdParam,
+  handleValidationErrors,
   catalogStudioController.deleteBlock
 );
 
@@ -126,10 +129,12 @@ router.delete(
 // Template Routes
 // ============================================
 
-// GET /templates - List tenant templates
+// GET /templates - List tenant templates (with pagination support)
 router.get(
   '/templates',
   validateHeaders,
+  queryTemplatesValidation,
+  handleValidationErrors,
   catalogStudioController.getTemplates
 );
 
@@ -137,6 +142,8 @@ router.get(
 router.get(
   '/templates/system',
   validateHeaders,
+  queryTemplatesValidation,
+  handleValidationErrors,
   catalogStudioController.getSystemTemplates
 );
 
@@ -144,6 +151,8 @@ router.get(
 router.get(
   '/templates/public',
   validateHeaders,
+  queryTemplatesValidation,
+  handleValidationErrors,
   catalogStudioController.getPublicTemplates
 );
 
@@ -151,38 +160,51 @@ router.get(
 router.get(
   '/templates/:id',
   validateHeaders,
-  validateUUID('id'),
+  validateIdParam,
+  handleValidationErrors,
   catalogStudioController.getTemplateById
 );
 
 // POST /templates - Create template
+// Requires idempotency key for safe retries
 router.post(
   '/templates',
-  validateHeaders,
+  requestContextMiddleware,
+  requireIdempotencyKey,
+  createTemplateValidation,
+  handleValidationErrors,
   catalogStudioController.createTemplate
 );
 
-// POST /templates/:id/copy - Copy system template to tenant
+// POST /templates/:id/copy - Copy template to tenant
+// Requires idempotency key for safe retries
 router.post(
   '/templates/:id/copy',
-  validateHeaders,
-  validateUUID('id'),
+  requestContextMiddleware,
+  requireIdempotencyKey,
+  copyTemplateValidation,
+  handleValidationErrors,
   catalogStudioController.copyTemplate
 );
 
 // PATCH /templates/:id - Update template
+// Requires idempotency key for safe retries
+// Supports optimistic locking via expected_version
 router.patch(
   '/templates/:id',
-  validateHeaders,
-  validateUUID('id'),
+  requestContextMiddleware,
+  requireIdempotencyKey,
+  updateTemplateValidation,
+  handleValidationErrors,
   catalogStudioController.updateTemplate
 );
 
-// DELETE /templates/:id - Delete template
+// DELETE /templates/:id - Delete template (soft delete)
 router.delete(
   '/templates/:id',
   validateHeaders,
-  validateUUID('id'),
+  validateIdParam,
+  handleValidationErrors,
   catalogStudioController.deleteTemplate
 );
 
@@ -195,7 +217,14 @@ router.get('/health', (_req: Request, res: Response) => {
     success: true,
     data: {
       service: 'catalog-studio',
+      version: '2.0',
       status: 'healthy',
+      features: [
+        'express-validator validation',
+        'idempotency key support',
+        'optimistic locking support',
+        'pagination support'
+      ],
       timestamp: new Date().toISOString(),
     },
   });
