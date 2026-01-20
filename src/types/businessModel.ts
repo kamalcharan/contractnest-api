@@ -1,4 +1,5 @@
 // src/types/businessModel.ts
+// UPDATED: Added product_code to PricingPlan and CreatePlanRequest
 
 export type PlanType = 'Per User' | 'Per Contract';
 
@@ -13,6 +14,8 @@ export interface PricingPlan {
   is_archived: boolean;
   default_currency_code: string;
   supported_currencies: string[];
+  product_code?: string;  // NEW: Multi-product support
+  product_name?: string;  // NEW: Product display name
   created_at: string;
   updated_at: string;
   activeVersion?: PlanVersion;
@@ -73,6 +76,7 @@ export interface CreatePlanRequest {
   is_visible?: boolean;
   default_currency_code: string;
   supported_currencies: string[];
+  product_code?: string;  // NEW: Multi-product support
   initial_version?: {
     version_number?: string;
     effective_date?: string;

@@ -1,4 +1,4 @@
-// src/services/businessModelService.ts
+// src/services/businessModelService.ts - UPDATED WITH PRODUCT FILTER
 
 import axios from 'axios';
 import { captureException } from '../utils/sentry';
@@ -19,12 +19,15 @@ import {
 export const businessModelService = {
   /**
    * Get all pricing plans with optional filtering
+   * @param productCode - Optional product filter. If provided, only returns plans for that product.
+   *                      If undefined/null, returns all plans (no product filtering).
    */
   async getPlans(
     authToken: string,
     tenantId: string,
     showArchived: boolean = false,
-    planType?: string
+    planType?: string,
+    productCode?: string // NEW: Optional product filter
   ): Promise<PricingPlan[]> {
     try {
       if (!SUPABASE_URL) {
@@ -39,17 +42,25 @@ export const businessModelService = {
       if (planType) {
         params.append('planType', planType);
       }
+      // IMPORTANT: Always pass product_code param to Edge Function
+      // Empty string = all products (no filter), specific value = filter by that product
+      params.append('product_code', productCode || '');
 
-      const response = await axios.get(
-        `${SUPABASE_URL}/functions/v1/plans?${params.toString()}`,
-        {
-          headers: {
-            Authorization: authToken,
-            'x-tenant-id': tenantId,
-            'Content-Type': 'application/json'
-          }
+      const queryString = params.toString();
+      const url = `${SUPABASE_URL}/functions/v1/plans${queryString ? '?' + queryString : ''}`;
+
+      console.log(`[businessModelService] Fetching plans from: ${url}`);
+      console.log(`[businessModelService] Product filter: ${productCode || 'ALL (no filter)'}`);
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: authToken,
+          'x-tenant-id': tenantId,
+          'Content-Type': 'application/json'
         }
-      );
+      });
+
+      console.log(`[businessModelService] Fetched ${response.data?.length || 0} plans`);
 
       return response.data;
     } catch (error) {
@@ -179,10 +190,9 @@ export const businessModelService = {
         throw new Error('Missing SUPABASE_URL configuration');
       }
 
-      // Send edit data with plan_id to trigger edit workflow
       const response = await axios.post(
         `${SUPABASE_URL}/functions/v1/plans`,
-        editData, // This should include plan_id to trigger edit mode
+        editData,
         {
           headers: {
             Authorization: authToken,
@@ -395,7 +405,7 @@ export const businessModelService = {
     versionData: CreateVersionRequest
   ): Promise<PlanVersion> {
     console.warn('createPlanVersion is deprecated. Use updatePlanAsNewVersion instead.');
-    
+
     try {
       if (!SUPABASE_URL) {
         throw new Error('Missing SUPABASE_URL configuration');
@@ -473,7 +483,6 @@ export const businessModelService = {
     version2Id: string
   ): Promise<VersionComparisonResult> {
     console.warn('compareVersions is deprecated. This feature has been removed.');
-    
     throw new Error('Version comparison feature has been removed');
   }
 };
