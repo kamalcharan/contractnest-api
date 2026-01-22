@@ -254,8 +254,8 @@ class ProductMasterdataController {
         userJWT
       );
 
-      // Transform response for frontend
-      const transformedResult = this.productMasterdataService.transformForFrontend(result);
+      // Transform response for frontend (skip data transform for category list - it's not detail data)
+      const transformedResult = this.productMasterdataService.transformForFrontend(result, true);
 
       console.log('✅ Product Master Data - All global categories retrieved');
       res.status(result.success ? 200 : 400).json(transformedResult);
@@ -304,8 +304,8 @@ class ProductMasterdataController {
         tenantId
       );
 
-      // Transform response for frontend
-      const transformedResult = this.productMasterdataService.transformForFrontend(result);
+      // Transform response for frontend (skip data transform for category list - it's not detail data)
+      const transformedResult = this.productMasterdataService.transformForFrontend(result, true);
 
       console.log(`✅ Product Master Data - All tenant categories retrieved for tenant: ${tenantId}`);
       res.status(result.success ? 200 : 400).json(transformedResult);

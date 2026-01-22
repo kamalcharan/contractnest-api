@@ -554,8 +554,10 @@ class ProductMasterdataService {
 
   /**
    * Transform Edge Function response for frontend consumption
+   * @param edgeResponse - Response from Edge Function
+   * @param skipDataTransform - If true, don't transform data (for category list responses)
    */
-  transformForFrontend(edgeResponse: EdgeFunctionResponse): any {
+  transformForFrontend(edgeResponse: EdgeFunctionResponse, skipDataTransform: boolean = false): any {
     if (!edgeResponse.success) {
       return {
         success: false,
@@ -565,10 +567,10 @@ class ProductMasterdataService {
       };
     }
 
-    // Transform master data response
+    // Transform master data response (skip for category list endpoints)
     const transformed: any = {
       success: true,
-      data: this.transformMasterData(edgeResponse.data || []),
+      data: skipDataTransform ? (edgeResponse.data || []) : this.transformMasterData(edgeResponse.data || []),
       timestamp: new Date().toISOString()
     };
 
