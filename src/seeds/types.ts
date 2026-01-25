@@ -32,6 +32,9 @@ export interface SeedDefinition {
 
   // Description for documentation
   description: string;
+
+  // Product code - optional, if set only seeds for this product (e.g., 'familyknows', 'contractnest')
+  productCode?: string;
 }
 
 export interface SeedResult {
@@ -65,6 +68,7 @@ export interface SeedPreview {
     name: string;
     preview?: string;
   }>;
+  productCode?: string;
 }
 
 export interface SeedStatus {

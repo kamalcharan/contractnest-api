@@ -13,6 +13,13 @@ import {
   SEQUENCE_SEED_DATA,
   generateSequencePreview
 } from './sequences.seed';
+import {
+  relationshipsSeedDefinition,
+  RELATIONSHIP_SEED_DATA,
+  RELATIONSHIP_DISPLAY_NAMES,
+  RELATIONSHIP_ICONS,
+  RELATIONSHIP_COLORS
+} from './relationships.seed';
 
 // =================================================================
 // SEED REGISTRY
@@ -21,6 +28,7 @@ import {
 
 export const SeedRegistry: Record<string, SeedDefinition> = {
   sequences: sequencesSeedDefinition,
+  relationships: relationshipsSeedDefinition,
   // Future seeds:
   // roles: rolesSeedDefinition,
   // tags: tagsSeedDefinition,
@@ -85,11 +93,43 @@ export const getAllSeedCategories = (): string[] => {
 };
 
 /**
+ * Get seed categories filtered by product code
+ * @param productCode - Optional product code to filter by (e.g., 'familyknows', 'contractnest')
+ */
+export const getSeedCategoriesForProduct = (productCode?: string): string[] => {
+  return Object.entries(SeedRegistry)
+    .filter(([_, def]) => {
+      // If no productCode specified, return all
+      if (!productCode) return true;
+      // If seed has no productCode, it's universal (return it)
+      if (!def.productCode) return true;
+      // Otherwise, match product codes
+      return def.productCode === productCode;
+    })
+    .map(([key]) => key);
+};
+
+/**
  * Get required seed categories (for onboarding)
  */
 export const getRequiredSeedCategories = (): string[] => {
   return Object.entries(SeedRegistry)
     .filter(([_, def]) => def.isRequired)
+    .map(([key]) => key);
+};
+
+/**
+ * Get required seed categories for a specific product
+ */
+export const getRequiredSeedCategoriesForProduct = (productCode: string): string[] => {
+  return Object.entries(SeedRegistry)
+    .filter(([_, def]) => {
+      if (!def.isRequired) return false;
+      // Universal seeds (no productCode) are included
+      if (!def.productCode) return true;
+      // Product-specific seeds only if matching
+      return def.productCode === productCode;
+    })
     .map(([key]) => key);
 };
 
@@ -115,6 +155,12 @@ export const getSeedPreview = (category: string): SeedPreview | null => {
       name: item.name,
       preview: generateSequencePreview(item)
     }));
+  } else if (category === 'relationships') {
+    items = RELATIONSHIP_SEED_DATA.map(item => ({
+      code: item.code,
+      name: item.name,
+      preview: `${item.icon_name} - ${item.description}`
+    }));
   } else {
     // Generic mapping for other seed types
     items = definition.data.map(item => ({
@@ -128,7 +174,8 @@ export const getSeedPreview = (category: string): SeedPreview | null => {
     displayName: definition.displayName,
     description: definition.description,
     itemCount: definition.data.length,
-    items
+    items,
+    productCode: definition.productCode
   };
 };
 
@@ -137,6 +184,15 @@ export const getSeedPreview = (category: string): SeedPreview | null => {
  */
 export const getAllSeedPreviews = (): SeedPreview[] => {
   return getAllSeedCategories()
+    .map(category => getSeedPreview(category))
+    .filter((preview): preview is SeedPreview => preview !== null);
+};
+
+/**
+ * Get seed previews for a specific product
+ */
+export const getSeedPreviewsForProduct = (productCode: string): SeedPreview[] => {
+  return getSeedCategoriesForProduct(productCode)
     .map(category => getSeedPreview(category))
     .filter((preview): preview is SeedPreview => preview !== null);
 };
@@ -158,5 +214,13 @@ export {
   generateSequencePreview,
   sequencesSeedDefinition
 } from './sequences.seed';
+
+export {
+  RELATIONSHIP_SEED_DATA,
+  RELATIONSHIP_DISPLAY_NAMES,
+  RELATIONSHIP_ICONS,
+  RELATIONSHIP_COLORS,
+  relationshipsSeedDefinition
+} from './relationships.seed';
 
 export * from './types';

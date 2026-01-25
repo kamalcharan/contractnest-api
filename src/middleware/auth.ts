@@ -11,6 +11,20 @@ import {
 } from '../utils/supabaseConfig';
 
 /**
+ * Get the Edge Function prefix for a product
+ * ContractNest uses 'auth', FamilyKnows uses 'FKauth'
+ */
+const getEdgeFunctionPrefix = (productCode: string): string => {
+  switch (productCode.toLowerCase()) {
+    case 'familyknows':
+      return 'FKauth';
+    case 'contractnest':
+    default:
+      return 'auth';
+  }
+};
+
+/**
  * Get Supabase client for the product in the request
  * Falls back to contractnest if no product specified
  */
@@ -73,9 +87,10 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
         // Get product-specific Supabase config for Edge Function calls
         try {
           const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+          const edgeFunctionPrefix = getEdgeFunctionPrefix(productCode);
 
           const response = await axios.get(
-            `${SUPABASE_URL}/functions/v1/auth/user`,
+            `${SUPABASE_URL}/functions/v1/${edgeFunctionPrefix}/user`,
             {
               headers: {
                 Authorization: authHeader,
@@ -112,9 +127,10 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       // If Supabase client initialization fails, try Edge Function directly
       try {
         const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+        const edgeFunctionPrefix = getEdgeFunctionPrefix(productCode);
 
         const response = await axios.get(
-          `${SUPABASE_URL}/functions/v1/auth/user`,
+          `${SUPABASE_URL}/functions/v1/${edgeFunctionPrefix}/user`,
           {
             headers: {
               Authorization: authHeader,
@@ -258,9 +274,11 @@ export const optionalAuthenticate = async (req: AuthRequest, res: Response, next
         // Try to get profile using product-specific config
         try {
           const { url: SUPABASE_URL, key: SUPABASE_KEY } = getSupabaseConfigForRequest(req);
+          const productCode = (req as any).productCode || 'contractnest';
+          const edgeFunctionPrefix = getEdgeFunctionPrefix(productCode);
 
           const response = await axios.get(
-            `${SUPABASE_URL}/functions/v1/auth/user`,
+            `${SUPABASE_URL}/functions/v1/${edgeFunctionPrefix}/user`,
             {
               headers: {
                 Authorization: authHeader,
