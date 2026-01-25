@@ -38,7 +38,7 @@ export const RELATIONSHIP_SEED_DATA: SeedItem[] = [
     name: 'Son',
     description: 'Male child',
     hexcolor: '#10B981',  // Green
-    icon_name: 'human-male-child',
+    icon_name: 'human-male-boy',
     is_deletable: false,
     sequence_order: 4
   },
@@ -175,7 +175,7 @@ export const RELATIONSHIP_ICONS: Record<string, string> = {
   FATHER: 'human-male',
   MOTHER: 'human-female',
   SPOUSE: 'heart',
-  SON: 'human-male-child',
+  SON: 'human-male-boy',
   DAUGHTER: 'human-female-girl',
   BROTHER: 'account-multiple',
   SISTER: 'account-multiple',
