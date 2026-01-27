@@ -70,8 +70,13 @@ export const getSupabaseClientForProduct = (productCode: string): SupabaseClient
     return null;
   }
 
-  // Create new client
-  const client = createClient(config.url, config.key);
+  // Create new client with proper auth options for server environment
+  const client = createClient(config.url, config.key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  });
 
   // Cache it
   supabaseClients.set(productCode, client);
