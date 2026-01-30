@@ -37,52 +37,44 @@ export const CONTACT_STATUS_LABELS = {
   [CONTACT_STATUS.ARCHIVED]: 'Archived'
 } as const;
 
-// UPDATED: Contact Classifications - Now 5 Types (added team_member)
+// UPDATED: Contact Classifications - Now 4 Types (buyer→client, seller removed)
 export const CONTACT_CLASSIFICATIONS = {
-  BUYER: 'buyer',
-  SELLER: 'seller',
+  CLIENT: 'client',
   VENDOR: 'vendor',
   PARTNER: 'partner',
-  TEAM_MEMBER: 'team_member' // ADDED: New classification
+  TEAM_MEMBER: 'team_member'
 } as const;
 
-// UPDATED: Classification Configuration with team_member
+// UPDATED: Classification Configuration - 4 Types (buyer→client, seller removed)
 export const CONTACT_CLASSIFICATION_CONFIG = [
-  { 
-    id: 'buyer', 
-    label: 'Buyer', 
-    description: 'Purchases services/products from us', 
+  {
+    id: 'client',
+    label: 'Client',
+    description: 'Purchases services/products from us',
     color: 'blue',
     icon: '🛒'
   },
-  { 
-    id: 'seller', 
-    label: 'Seller', 
-    description: 'Sells services/products to us', 
-    color: 'green',
-    icon: '💰'
-  },
-  { 
-    id: 'vendor', 
-    label: 'Vendor', 
-    description: 'Supplies products/services to us', 
+  {
+    id: 'vendor',
+    label: 'Vendor',
+    description: 'Supplies products/services to us',
     color: 'purple',
     icon: '📦'
   },
-  { 
-    id: 'partner', 
-    label: 'Partner', 
-    description: 'Business collaboration partner', 
+  {
+    id: 'partner',
+    label: 'Partner',
+    description: 'Business collaboration partner',
     color: 'orange',
     icon: '🤝'
   },
-  { 
-    id: 'team_member', 
-    label: 'Team Member', 
-    description: 'Internal team member or employee', 
+  {
+    id: 'team_member',
+    label: 'Team Member',
+    description: 'Internal team member or employee',
     color: 'indigo',
     icon: '👥'
-  } // ADDED: New classification config
+  }
 ] as const;
 
 // Contact Channel Types
@@ -321,11 +313,10 @@ export const FILTER_OPTIONS = {
     { value: 'corporate', label: 'Corporate', count: 0 }
   ],
   classification: [
-    { value: 'buyer', label: 'Buyer', count: 0 },
-    { value: 'seller', label: 'Seller', count: 0 },
+    { value: 'client', label: 'Client', count: 0 },
     { value: 'vendor', label: 'Vendor', count: 0 },
     { value: 'partner', label: 'Partner', count: 0 },
-    { value: 'team_member', label: 'Team Member', count: 0 } // ADDED: New filter option
+    { value: 'team_member', label: 'Team Member', count: 0 }
   ],
   duplicates: [
     { value: 'has_duplicates', label: 'Has Potential Duplicates', count: 0 },
