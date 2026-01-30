@@ -316,6 +316,21 @@ try {
   }
 }
 
+// Load Contract routes with error handling
+let contractCrudRoutes;
+try {
+  contractCrudRoutes = require('./routes/contractRoutes').default;
+  console.log('✅ Contract routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load contract routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without contract routes...');
+    contractCrudRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -660,6 +675,21 @@ try {
   });
 }
 
+// Register Contract CRUD routes with error handling
+try {
+  if (contractCrudRoutes) {
+    app.use('/api/contracts', contractCrudRoutes);
+    console.log('✅ Contract routes registered at /api/contracts');
+  } else {
+    console.log('⚠️  Contract routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register contract routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'contracts' }
+  });
+}
+
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -714,6 +744,7 @@ app.get('/health', async (req, res) => {
       catalogStudio: catalogStudioRoutes ? 'loaded' : 'not_loaded',
       billing: billingRoutes ? 'loaded' : 'not_loaded',
       tenantContext: tenantContextRoutes ? 'loaded' : 'not_loaded',
+      contracts: contractCrudRoutes ? 'loaded' : 'not_loaded',
       productConfig: 'loaded'
     },
     features: {
@@ -730,6 +761,7 @@ app.get('/health', async (req, res) => {
       catalog_studio: catalogStudioRoutes !== null,
       billing_api: billingRoutes !== null,
       tenant_context: tenantContextRoutes !== null,
+      contract_crud: contractCrudRoutes !== null,
       product_config: true
     }
   };
@@ -845,6 +877,15 @@ app.get('/health', async (req, res) => {
       }
     }
 
+    // Check contracts service health if available
+    if (contractCrudRoutes) {
+      try {
+        (healthData.services as any).contracts = 'healthy';
+      } catch (error) {
+        (healthData.services as any).contracts = 'error';
+      }
+    }
+
     res.status(200).json(healthData);
   } catch (error) {
     healthData.status = 'ERROR';
@@ -881,6 +922,7 @@ app.get('/', (req, res) => {
       catalogStudio: catalogStudioRoutes ? 'available' : 'not_available',
       billing: billingRoutes ? 'available' : 'not_available',
       tenantContext: tenantContextRoutes ? 'available' : 'not_available',
+      contracts: contractCrudRoutes ? 'available' : 'not_available',
       productConfig: 'available'
     },
     endpoints: {
@@ -894,6 +936,7 @@ app.get('/', (req, res) => {
       catalogStudio: '/api/catalog-studio',
       billing: '/api/billing',
       tenantContext: '/api/tenant-context',
+      contracts: '/api/contracts',
       productConfig: '/api/v1/product-config'
     }
   });
@@ -935,6 +978,7 @@ app.use((req, res) => {
       catalogStudio: '/api/catalog-studio',
       billing: '/api/billing',
       tenantContext: '/api/tenant-context',
+      contracts: '/api/contracts',
       productConfig: '/api/v1/product-config'
     }
   });
