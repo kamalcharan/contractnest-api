@@ -99,6 +99,8 @@ class ContractService {
   ): Promise<EdgeFunctionResponse> {
     const requestPayload = {
       ...contractData,
+      // DB RPC expects 'name'; API public interface uses 'title'
+      name: contractData.title || contractData.name,
       tenant_id: tenantId,
       created_by: userId
     };
@@ -125,6 +127,8 @@ class ContractService {
   ): Promise<EdgeFunctionResponse> {
     const requestPayload = {
       ...updateData,
+      // DB RPC expects 'name'; API public interface uses 'title'
+      ...(updateData.title ? { name: updateData.title } : {}),
       tenant_id: tenantId,
       updated_by: userId
     };
