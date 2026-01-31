@@ -9,7 +9,7 @@ import { body, query, param, ValidationChain } from 'express-validator';
 
 // Valid enum values
 const RECORD_TYPES = ['contract', 'rfq'];
-const CONTRACT_TYPES = ['fixed_price', 'time_and_materials', 'retainer', 'milestone', 'subscription'];
+const CONTRACT_TYPES = ['client', 'vendor', 'partner', 'fixed_price', 'time_and_materials', 'retainer', 'milestone', 'subscription'];
 const CONTRACT_STATUSES = [
   'draft', 'pending_review', 'pending_acceptance', 'active', 'completed', 'cancelled', 'expired',
   'sent', 'quotes_received', 'awarded', 'converted_to_contract'

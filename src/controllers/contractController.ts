@@ -47,7 +47,7 @@ class ContractController {
         status: req.query.status as string,
         search: req.query.search as string,
         page: parseInt(req.query.page as string || '1', 10),
-        per_page: Math.min(parseInt(req.query.per_page as string || '20', 10), 100),
+        per_page: Math.min(parseInt(req.query.per_page as string || req.query.limit as string || '20', 10), 100),
         sort_by: req.query.sort_by as string || 'created_at',
         sort_order: req.query.sort_order as string || 'desc'
       };
@@ -59,7 +59,31 @@ class ContractController {
         return;
       }
 
-      res.status(200).json(result);
+      // Transform RPC response to match UI ContractListResponse shape
+      // DB stores 'name' but UI Contract type expects 'title'
+      const pagination = result.pagination || {} as any;
+      const items = Array.isArray(result.data)
+        ? result.data.map((item: any) => ({
+            ...item,
+            title: item.title || item.name || '',
+          }))
+        : [];
+      const transformedResult = {
+        success: true,
+        data: {
+          items,
+          total_count: pagination.total || 0,
+          page_info: {
+            has_next_page: (pagination.page || 1) < (pagination.total_pages || 1),
+            has_prev_page: (pagination.page || 1) > 1,
+            current_page: pagination.page || 1,
+            total_pages: pagination.total_pages || 0,
+          },
+          filters_applied: filters,
+        }
+      };
+
+      res.status(200).json(transformedResult);
     } catch (error) {
       console.error('[ContractController] Error in listContracts:', error);
       internalError(res, 'Failed to list contracts');
@@ -83,7 +107,21 @@ class ContractController {
         return;
       }
 
-      res.status(200).json(result);
+      // Transform RPC response to match UI ContractStatsResponse shape
+      const statsData = result.data || {} as any;
+      const transformedResult = {
+        success: true,
+        data: {
+          total: statsData.total_count || 0,
+          by_status: statsData.by_status || {},
+          by_record_type: statsData.by_record_type || {},
+          by_contract_type: statsData.by_contract_type || {},
+          total_value: statsData.financials?.total_value || 0,
+          currency_breakdown: [],
+        }
+      };
+
+      res.status(200).json(transformedResult);
     } catch (error) {
       console.error('[ContractController] Error in getContractStats:', error);
       internalError(res, 'Failed to get contract stats');

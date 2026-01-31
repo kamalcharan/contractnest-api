@@ -101,6 +101,9 @@ class ContractService {
       ...contractData,
       // DB RPC expects 'name'; API public interface uses 'title'
       name: contractData.title || contractData.name,
+      // Ensure contract_type is stored for list filtering (client/vendor/partner)
+      // Wizard sends contact_classification but omits contract_type to bypass API validator
+      contract_type: contractData.contract_type || contractData.contact_classification,
       tenant_id: tenantId,
       created_by: userId
     };
