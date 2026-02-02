@@ -185,4 +185,31 @@ router.delete(
   contractController.deleteContract
 );
 
+// =================================================================
+// INVOICE & PAYMENT ENDPOINTS
+// =================================================================
+
+/**
+ * @route GET /api/contracts/:id/invoices
+ * @description Get all invoices for a contract with collection summary
+ * @param {string} id - Contract UUID
+ * @returns {InvoicesResponse}
+ */
+router.get(
+  '/:id/invoices',
+  contractController.getContractInvoices
+);
+
+/**
+ * @route POST /api/contracts/:id/invoices/record-payment
+ * @description Record a payment receipt against a contract invoice
+ * @param {string} id - Contract UUID
+ * @body {RecordPaymentRequest}
+ * @returns {ReceiptResponse}
+ */
+router.post(
+  '/:id/invoices/record-payment',
+  contractController.recordPayment
+);
+
 export default router;

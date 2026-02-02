@@ -249,6 +249,37 @@ class ContractService {
     }
   }
 
+  // =================================================================
+  // INVOICE & PAYMENT METHODS
+  // =================================================================
+
+  async getContractInvoices(
+    contractId: string,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/invoices`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+  }
+
+  async recordPayment(
+    contractId: string,
+    paymentData: any,
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const requestPayload = {
+      ...paymentData,
+      recorded_by: userId
+    };
+
+    const url = `${this.edgeFunctionUrl}/${contractId}/invoices/record-payment`;
+    return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
   private generateHMACSignature(payload: string): string {
     if (!this.internalSigningSecret) {
       return '';

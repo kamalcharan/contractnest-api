@@ -340,6 +340,65 @@ class ContractController {
    * Edge returns { success: false, error: string, code: string }
    * We map the code to the appropriate HTTP status
    */
+  // =================================================================
+  // INVOICE & PAYMENT ENDPOINTS
+  // =================================================================
+
+  getContractInvoices = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const result = await this.contractService.getContractInvoices(
+        contractId,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in getContractInvoices:', error);
+      internalError(res, 'Failed to fetch invoices');
+    }
+  };
+
+  recordPayment = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      const result = await this.contractService.recordPayment(
+        contractId,
+        req.body,
+        userJWT,
+        tenantId,
+        userId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in recordPayment:', error);
+      internalError(res, 'Failed to record payment');
+    }
+  };
+
   private mapEdgeErrorToResponse(res: Response, result: any): void {
     const codeToStatus: Record<string, number> = {
       'NOT_FOUND': 404,
