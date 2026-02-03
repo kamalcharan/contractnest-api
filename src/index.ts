@@ -316,21 +316,6 @@ try {
   }
 }
 
-// Load Payment Gateway routes with error handling
-let paymentGatewayRoutes;
-try {
-  paymentGatewayRoutes = require('./routes/paymentGatewayRoutes').default;
-  console.log('✅ Payment gateway routes loaded');
-} catch (error) {
-  console.error('❌ Failed to load payment gateway routes:', error);
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  } else {
-    console.warn('⚠️  Continuing without payment gateway routes...');
-    paymentGatewayRoutes = null;
-  }
-}
-
 // Load Contract routes with error handling
 let contractCrudRoutes;
 try {
@@ -705,21 +690,6 @@ try {
   });
 }
 
-// Register Payment Gateway routes with error handling
-try {
-  if (paymentGatewayRoutes) {
-    app.use('/api/payments', paymentGatewayRoutes);
-    console.log('✅ Payment gateway routes registered at /api/payments');
-  } else {
-    console.log('⚠️  Payment gateway routes skipped (not loaded)');
-  }
-} catch (error) {
-  console.error('❌ Failed to register payment gateway routes:', error);
-  captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'payment_gateway' }
-  });
-}
-
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -747,6 +717,15 @@ console.log('✅ JTD routes registered at /api/jtd');
 // Onboarding Routes
 app.use('/api/onboarding', onboardingRoutes);
 console.log('✅ Onboarding routes registered at /api/onboarding');
+
+// Admin Tenant Management Routes
+try {
+  const adminTenantRoutes = require('./routes/adminTenantRoutes').default;
+  app.use('/api/admin/tenants', adminTenantRoutes);
+  console.log('✅ Admin tenant management routes registered at /api/admin/tenants');
+} catch (error) {
+  console.error('❌ Failed to register admin tenant management routes:', error);
+}
 
 console.log('✅ All routes registered successfully');
 
