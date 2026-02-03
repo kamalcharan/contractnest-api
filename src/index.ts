@@ -316,6 +316,21 @@ try {
   }
 }
 
+// Load Payment Gateway routes with error handling
+let paymentGatewayRoutes;
+try {
+  paymentGatewayRoutes = require('./routes/paymentGatewayRoutes').default;
+  console.log('✅ Payment gateway routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load payment gateway routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without payment gateway routes...');
+    paymentGatewayRoutes = null;
+  }
+}
+
 // Load Contract routes with error handling
 let contractCrudRoutes;
 try {
@@ -687,6 +702,21 @@ try {
   console.error('❌ Failed to register contract routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'contracts' }
+  });
+}
+
+// Register Payment Gateway routes with error handling
+try {
+  if (paymentGatewayRoutes) {
+    app.use('/api/payments', paymentGatewayRoutes);
+    console.log('✅ Payment gateway routes registered at /api/payments');
+  } else {
+    console.log('⚠️  Payment gateway routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register payment gateway routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'payment_gateway' }
   });
 }
 
