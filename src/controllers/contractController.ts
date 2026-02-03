@@ -341,6 +341,41 @@ class ContractController {
    * We map the code to the appropriate HTTP status
    */
   // =================================================================
+  // NOTIFICATION ENDPOINTS
+  // =================================================================
+
+  /**
+   * POST /api/contracts/:id/notify
+   * Send sign-off notification to buyer via email/WhatsApp
+   */
+  sendNotification = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const result = await this.contractService.sendNotification(
+        id,
+        req.body,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in sendNotification:', error);
+      internalError(res, 'Failed to send notification');
+    }
+  };
+
+  // =================================================================
   // INVOICE & PAYMENT ENDPOINTS
   // =================================================================
 
@@ -398,6 +433,70 @@ class ContractController {
       internalError(res, 'Failed to record payment');
     }
   };
+
+  // =================================================================
+  // PUBLIC ENDPOINTS (no auth required)
+  // =================================================================
+
+  /**
+   * POST /api/contracts/public/validate
+   * Validate contract access via CNAK + secret_code
+   */
+  validateContractAccess = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code } = req.body;
+
+      if (!cnak || !secret_code) {
+        res.status(400).json({ valid: false, error: 'CNAK and secret code are required' });
+        return;
+      }
+
+      const result = await this.contractService.validateContractAccess(cnak, secret_code);
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in validateContractAccess:', error);
+      internalError(res, 'Failed to validate contract access');
+    }
+  };
+
+  /**
+   * POST /api/contracts/public/respond
+   * Accept or reject a contract via CNAK + secret_code
+   */
+  respondToContract = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code, action, responded_by, responder_name, responder_email, rejection_reason } = req.body;
+
+      if (!cnak || !secret_code || !action) {
+        res.status(400).json({ success: false, error: 'CNAK, secret code, and action are required' });
+        return;
+      }
+
+      if (!['accept', 'reject'].includes(action)) {
+        res.status(400).json({ success: false, error: 'Action must be accept or reject' });
+        return;
+      }
+
+      const result = await this.contractService.respondToContract({
+        cnak,
+        secret_code,
+        action,
+        responded_by,
+        responder_name,
+        responder_email,
+        rejection_reason
+      });
+
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in respondToContract:', error);
+      internalError(res, 'Failed to respond to contract');
+    }
+  };
+
+  // ==========================================================
+  // PRIVATE HELPERS
+  // ==========================================================
 
   private mapEdgeErrorToResponse(res: Response, result: any): void {
     const codeToStatus: Record<string, number> = {

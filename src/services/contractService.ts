@@ -250,6 +250,21 @@ class ContractService {
   }
 
   // =================================================================
+  // NOTIFICATION METHODS
+  // =================================================================
+
+  async sendNotification(
+    contractId: string,
+    notifyData: any,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/notify`;
+    return await this.makeRequest('POST', url, notifyData || {}, userJWT, tenantId, environment);
+  }
+
+  // =================================================================
   // INVOICE & PAYMENT METHODS
   // =================================================================
 
@@ -278,6 +293,79 @@ class ContractService {
 
     const url = `${this.edgeFunctionUrl}/${contractId}/invoices/record-payment`;
     return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
+  // =================================================================
+  // PUBLIC METHODS (no auth / HMAC — uses service role key)
+  // =================================================================
+
+  async validateContractAccess(
+    cnak: string,
+    secretCode: string
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/public/validate`;
+    return await this.makePublicRequest(url, { cnak, secret_code: secretCode });
+  }
+
+  async respondToContract(data: {
+    cnak: string;
+    secret_code: string;
+    action: string;
+    responded_by?: string;
+    responder_name?: string;
+    responder_email?: string;
+    rejection_reason?: string;
+  }): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/public/respond`;
+    return await this.makePublicRequest(url, data);
+  }
+
+  /**
+   * Make a request to a public edge function endpoint
+   * No HMAC signing, no tenant/auth headers — just service role key
+   */
+  private async makePublicRequest(
+    url: string,
+    body: any
+  ): Promise<EdgeFunctionResponse> {
+    try {
+      const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '';
+      const requestBody = JSON.stringify(body);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+        'apikey': supabaseKey
+      };
+
+      console.log(`[ContractService] PUBLIC POST ${url}`);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: requestBody
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        console.error('[ContractService] Public edge function error:', responseData);
+        return {
+          success: false,
+          error: responseData.error || 'Edge function request failed',
+          code: responseData.code || 'EDGE_FUNCTION_ERROR'
+        };
+      }
+
+      return responseData;
+    } catch (error) {
+      console.error('[ContractService] Public request network error:', error);
+      return {
+        success: false,
+        error: 'Network error occurred',
+        code: 'NETWORK_ERROR'
+      };
+    }
   }
 
   private generateHMACSignature(payload: string): string {

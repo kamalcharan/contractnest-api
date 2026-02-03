@@ -22,10 +22,34 @@ const router = express.Router();
 const contractController = new ContractController();
 
 // =================================================================
-// MIDDLEWARE
+// PUBLIC ENDPOINTS (no auth required — before authenticate middleware)
 // =================================================================
 
-// Authentication (required for all contract routes)
+/**
+ * @route POST /api/contracts/public/validate
+ * @description Validate contract access via CNAK + secret_code (public)
+ * @body { cnak: string, secret_code: string }
+ */
+router.post(
+  '/public/validate',
+  contractController.validateContractAccess
+);
+
+/**
+ * @route POST /api/contracts/public/respond
+ * @description Accept or reject a contract via CNAK + secret_code (public)
+ * @body { cnak: string, secret_code: string, action: 'accept'|'reject', ... }
+ */
+router.post(
+  '/public/respond',
+  contractController.respondToContract
+);
+
+// =================================================================
+// MIDDLEWARE (all routes below require authentication)
+// =================================================================
+
+// Authentication (required for all contract routes below)
 router.use(authenticate);
 
 // Tenant ID validation
@@ -183,6 +207,22 @@ router.delete(
   '/:id',
   deleteContractValidation,
   contractController.deleteContract
+);
+
+// =================================================================
+// NOTIFICATION ENDPOINTS
+// =================================================================
+
+/**
+ * @route POST /api/contracts/:id/notify
+ * @description Send sign-off notification to buyer via email/WhatsApp
+ * @param {string} id - Contract UUID
+ * @body { recipient_name?, recipient_email?, recipient_mobile?, recipient_country_code? }
+ * @returns { success, notification: { channels, review_link, cnak } }
+ */
+router.post(
+  '/:id/notify',
+  contractController.sendNotification
 );
 
 // =================================================================
