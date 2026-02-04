@@ -179,8 +179,10 @@ export class CatBlocksService {
     }
 
     // Pass tenant_id from context if not explicitly set
+    // Ensure block_type_id is present - fall back to 'type' or 'category' field
     const blockData = {
       ...data,
+      block_type_id: data.block_type_id || (data as any).type || (data as any).category || null,
       tenant_id: data.tenant_id !== undefined ? data.tenant_id : context.tenantId,
       created_by: context.userId,
     };
@@ -216,11 +218,25 @@ export class CatBlocksService {
       };
     }
 
-    // Add updated_by from context
-    const updateData = {
-      ...data,
-      updated_by: context.userId,
-    };
+    const updateData: Record<string, any> = { ...data };
+
+    // Only set updated_by if context has a valid UUID userId
+    // (empty string '' in a UUID column causes DB type error)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (context.userId && uuidRegex.test(context.userId)) {
+      updateData.updated_by = context.userId;
+    } else {
+      delete updateData.updated_by;  // Remove any empty/invalid value from UI
+    }
+
+    // Strip non-UUID block_type_id and pricing_mode_id to prevent DB constraint violations
+    // (UI sends string names like 'service'/'independent', DB expects UUIDs)
+    if (updateData.block_type_id && !uuidRegex.test(updateData.block_type_id as string)) {
+      delete updateData.block_type_id;
+    }
+    if (updateData.pricing_mode_id && !uuidRegex.test(updateData.pricing_mode_id as string)) {
+      delete updateData.pricing_mode_id;
+    }
 
     return this.makeRequest<CatBlock>('PATCH', `?id=${blockId}`, context, updateData);
   }

@@ -149,10 +149,10 @@ class CatalogStudioController {
 
     const data: CreateBlockRequest = req.body;
 
-    if (!data.name || !data.block_type_id || !data.pricing_mode_id) {
+    if (!data.name) {
       res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'name, block_type_id, and pricing_mode_id are required' },
+        error: { code: 'VALIDATION_ERROR', message: 'name is required' },
       });
       return;
     }

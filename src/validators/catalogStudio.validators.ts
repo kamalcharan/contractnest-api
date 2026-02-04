@@ -13,7 +13,7 @@ import { validationResult } from 'express-validator';
 const VALIDATION_CONSTRAINTS = {
   NAME: { MIN: 1, MAX: 255 },
   DESCRIPTION: { MAX: 5000 },
-  ICON: { MAX: 10 },
+  ICON: { MAX: 50 },
   CATEGORY: { MAX: 100 },
   TAG: { MAX: 50 },
   MAX_TAGS: 20,
@@ -102,13 +102,28 @@ export const createBlockValidation: ValidationChain[] = [
     .withMessage(`Block name must be between ${VALIDATION_CONSTRAINTS.NAME.MIN} and ${VALIDATION_CONSTRAINTS.NAME.MAX} characters`),
 
   body('block_type_id')
-    .notEmpty()
-    .withMessage('Block type ID is required')
-    .custom((value) => validateUUIDField(value, 'block_type_id')),
+    .optional()
+    .custom((value) => {
+      if (value === null || value === undefined) return true;
+      if (typeof value !== 'string') throw new Error('block_type_id must be a string');
+      // Accept both UUID format and string names (e.g., 'service', 'spare')
+      // Edge function resolves string names to UUIDs
+      return true;
+    }),
 
   body('pricing_mode_id')
     .optional()
-    .custom((value) => validateUUIDField(value, 'pricing_mode_id')),
+    .custom((value) => {
+      if (value === null || value === undefined) return true;
+      if (typeof value !== 'string') throw new Error('pricing_mode_id must be a string');
+      return true;
+    }),
+
+  // Accept string-based type field as alternative to block_type_id
+  body('type')
+    .optional()
+    .isString()
+    .withMessage('type must be a string'),
 
   body('display_name')
     .optional()
