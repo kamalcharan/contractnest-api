@@ -1,7 +1,9 @@
 // ============================================================================
-// Admin JTD Management Routes — Release 1 (Observability)
+// Admin JTD Management Routes — Release 1 + Release 2
 // ============================================================================
 // Purpose: Define API routes for Admin JTD dashboard endpoints
+// R1: Observability (queue metrics, tenant stats, events, event detail, worker health)
+// R2: Actions (retry, cancel, force-complete, DLQ list/requeue/purge)
 // Pattern: matches contractValidators.ts + apiErrors.ts patterns
 // ============================================================================
 
@@ -12,6 +14,11 @@ import {
   listTenantStatsValidation,
   listEventsValidation,
   getEventDetailValidation,
+  retryEventValidation,
+  cancelEventValidation,
+  forceCompleteValidation,
+  listDlqValidation,
+  requeueDlqValidation,
 } from '../validators/adminJtdValidators';
 import {
   handleEdgeError,
@@ -21,6 +28,11 @@ import {
 import type {
   ListTenantStatsRequest,
   ListEventsRequest,
+  RetryEventRequest,
+  CancelEventRequest,
+  ForceCompleteRequest,
+  RequeueDlqRequest,
+  ListDlqRequest,
 } from '../types/adminJtd.dto';
 
 const router = Router();
@@ -203,6 +215,201 @@ router.get('/worker/health', async (req: Request, res: Response) => {
     res.json(result);
   } catch (error: any) {
     console.error(`[AdminJtdRoutes] GET /worker/health error [${requestId}]:`, error.message);
+    return handleEdgeError(res, error, requestId);
+  }
+});
+
+// ============================================================================
+// R2 — ADMIN ACTION ROUTES
+// ============================================================================
+
+/**
+ * @route   POST /api/admin/jtd/actions/retry
+ * @desc    Retry a failed JTD event — resets to queued and re-enqueues
+ * @access  Admin only
+ * @body    {string} jtd_id - UUID of the failed event
+ * @body    {string} [reason] - Optional reason for retry
+ * @returns {ActionResponse}
+ */
+router.post(
+  '/actions/retry',
+  retryEventValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+      const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+      const body: RetryEventRequest = {
+        jtd_id: req.body.jtd_id,
+        reason: req.body.reason,
+      };
+
+      const result = await adminJtdService.retryEvent(authHeader, tenantId, adminName, body);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] POST /actions/retry error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   POST /api/admin/jtd/actions/cancel
+ * @desc    Cancel a pending/queued/scheduled JTD event
+ * @access  Admin only
+ * @body    {string} jtd_id - UUID of the event to cancel
+ * @body    {string} [reason] - Optional reason for cancellation
+ * @returns {ActionResponse}
+ */
+router.post(
+  '/actions/cancel',
+  cancelEventValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+      const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+      const body: CancelEventRequest = {
+        jtd_id: req.body.jtd_id,
+        reason: req.body.reason,
+      };
+
+      const result = await adminJtdService.cancelEvent(authHeader, tenantId, adminName, body);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] POST /actions/cancel error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   POST /api/admin/jtd/actions/force-complete
+ * @desc    Force-complete a stuck processing event as sent or failed
+ * @access  Admin only
+ * @body    {string} jtd_id - UUID of the stuck event
+ * @body    {string} target_status - "sent" or "failed"
+ * @body    {string} [reason] - Optional reason
+ * @returns {ActionResponse}
+ */
+router.post(
+  '/actions/force-complete',
+  forceCompleteValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+      const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+      const body: ForceCompleteRequest = {
+        jtd_id: req.body.jtd_id,
+        target_status: req.body.target_status,
+        reason: req.body.reason,
+      };
+
+      const result = await adminJtdService.forceComplete(authHeader, tenantId, adminName, body);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] POST /actions/force-complete error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   GET /api/admin/jtd/dlq/messages
+ * @desc    Paginated list of dead-letter queue messages with JTD context
+ * @access  Admin only
+ * @query   {number} page  - Page number (default: 1)
+ * @query   {number} limit - Items per page (1-100, default: 20)
+ * @returns {DlqListResponse}
+ */
+router.get(
+  '/dlq/messages',
+  listDlqValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+      const filters: ListDlqRequest = {
+        page: req.query.page ? parseInt(req.query.page as string) : undefined,
+        limit: req.query.limit ? parseInt(req.query.limit as string) : undefined,
+      };
+
+      const result = await adminJtdService.listDlqMessages(authHeader, tenantId, filters);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] GET /dlq/messages error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   POST /api/admin/jtd/actions/requeue-dlq
+ * @desc    Move a single DLQ message back to the main processing queue
+ * @access  Admin only
+ * @body    {number} msg_id - DLQ message ID
+ * @returns {ActionResponse}
+ */
+router.post(
+  '/actions/requeue-dlq',
+  requeueDlqValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+      const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+      const body: RequeueDlqRequest = {
+        msg_id: req.body.msg_id,
+      };
+
+      const result = await adminJtdService.requeueDlqMessage(authHeader, tenantId, adminName, body);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] POST /actions/requeue-dlq error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   POST /api/admin/jtd/actions/purge-dlq
+ * @desc    Delete all messages from the dead-letter queue
+ * @access  Admin only
+ * @returns {ActionResponse}
+ */
+router.post('/actions/purge-dlq', async (req: Request, res: Response) => {
+  const requestId = generateRequestId();
+  try {
+    const authHeader = req.headers.authorization || '';
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+    const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+    const result = await adminJtdService.purgeDlq(authHeader, tenantId, adminName);
+
+    res.json(result);
+  } catch (error: any) {
+    console.error(`[AdminJtdRoutes] POST /actions/purge-dlq error [${requestId}]:`, error.message);
     return handleEdgeError(res, error, requestId);
   }
 });

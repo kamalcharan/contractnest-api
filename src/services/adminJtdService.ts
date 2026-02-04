@@ -16,6 +16,13 @@ import type {
   EventsListResponse,
   EventDetailResponse,
   WorkerHealthResponse,
+  RetryEventRequest,
+  CancelEventRequest,
+  ForceCompleteRequest,
+  RequeueDlqRequest,
+  ListDlqRequest,
+  ActionResponse,
+  DlqListResponse,
 } from '../types/adminJtd.dto';
 
 const BASE_URL = `${SUPABASE_URL}/functions/v1/admin-jtd-management`;
@@ -153,6 +160,165 @@ export class AdminJtdService {
       return response.data;
     } catch (error: any) {
       console.error('[adminJtdService] getWorkerHealth error:', error.message);
+      throw error;
+    }
+  }
+
+  // ===========================================================================
+  // R2 — Admin Action Methods
+  // ===========================================================================
+
+  private getHeadersWithAdmin(authHeader: string, tenantId: string, adminName: string) {
+    return {
+      ...this.getHeaders(authHeader, tenantId),
+      'x-admin-name': adminName,
+    };
+  }
+
+  /**
+   * POST /retry-event
+   * Retry a failed JTD event — resets to queued and re-enqueues
+   */
+  async retryEvent(
+    authHeader: string,
+    tenantId: string,
+    adminName: string,
+    body: RetryEventRequest
+  ): Promise<ActionResponse> {
+    try {
+      const url = `${BASE_URL}/retry-event`;
+      console.log(`[adminJtdService] Retrying event: ${body.jtd_id}`);
+
+      const response = await axios.post<ActionResponse>(url, body, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] retryEvent error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * POST /cancel-event
+   * Cancel a pending/queued/scheduled JTD event
+   */
+  async cancelEvent(
+    authHeader: string,
+    tenantId: string,
+    adminName: string,
+    body: CancelEventRequest
+  ): Promise<ActionResponse> {
+    try {
+      const url = `${BASE_URL}/cancel-event`;
+      console.log(`[adminJtdService] Cancelling event: ${body.jtd_id}`);
+
+      const response = await axios.post<ActionResponse>(url, body, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] cancelEvent error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * POST /force-complete
+   * Force-complete a stuck processing event as sent or failed
+   */
+  async forceComplete(
+    authHeader: string,
+    tenantId: string,
+    adminName: string,
+    body: ForceCompleteRequest
+  ): Promise<ActionResponse> {
+    try {
+      const url = `${BASE_URL}/force-complete`;
+      console.log(`[adminJtdService] Force-completing event: ${body.jtd_id} as ${body.target_status}`);
+
+      const response = await axios.post<ActionResponse>(url, body, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] forceComplete error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * GET /dlq-messages
+   * Paginated list of dead-letter queue messages with JTD context
+   */
+  async listDlqMessages(
+    authHeader: string,
+    tenantId: string,
+    filters: ListDlqRequest
+  ): Promise<DlqListResponse> {
+    try {
+      const url = `${BASE_URL}/dlq-messages${this.buildParams(filters as Record<string, string | number | undefined>)}`;
+      console.log(`[adminJtdService] Fetching DLQ messages from: ${url}`);
+
+      const response = await axios.get<DlqListResponse>(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] listDlqMessages error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * POST /requeue-dlq
+   * Move a single DLQ message back to the main processing queue
+   */
+  async requeueDlqMessage(
+    authHeader: string,
+    tenantId: string,
+    adminName: string,
+    body: RequeueDlqRequest
+  ): Promise<ActionResponse> {
+    try {
+      const url = `${BASE_URL}/requeue-dlq`;
+      console.log(`[adminJtdService] Requeuing DLQ message: ${body.msg_id}`);
+
+      const response = await axios.post<ActionResponse>(url, body, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] requeueDlqMessage error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * POST /purge-dlq
+   * Delete all messages from the dead-letter queue
+   */
+  async purgeDlq(
+    authHeader: string,
+    tenantId: string,
+    adminName: string
+  ): Promise<ActionResponse> {
+    try {
+      const url = `${BASE_URL}/purge-dlq`;
+      console.log(`[adminJtdService] Purging DLQ`);
+
+      const response = await axios.post<ActionResponse>(url, {}, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] purgeDlq error:', error.message);
       throw error;
     }
   }

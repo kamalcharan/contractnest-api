@@ -233,6 +233,79 @@ export interface WorkerHealthResponse {
 }
 
 // ============================================================================
+// R2 — ACTION REQUEST DTOs
+// ============================================================================
+
+/** POST /api/admin/jtd/actions/retry */
+export interface RetryEventRequest {
+  jtd_id: string;
+  reason?: string;
+}
+
+/** POST /api/admin/jtd/actions/cancel */
+export interface CancelEventRequest {
+  jtd_id: string;
+  reason?: string;
+}
+
+/** POST /api/admin/jtd/actions/force-complete */
+export interface ForceCompleteRequest {
+  jtd_id: string;
+  target_status: 'sent' | 'failed';
+  reason?: string;
+}
+
+/** POST /api/admin/jtd/actions/requeue-dlq */
+export interface RequeueDlqRequest {
+  msg_id: number;
+}
+
+/** GET /api/admin/jtd/dlq/messages */
+export interface ListDlqRequest {
+  page?: number;
+  limit?: number;
+}
+
+// ============================================================================
+// R2 — ACTION RESPONSE DTOs
+// ============================================================================
+
+export interface ActionResponse {
+  success: boolean;
+  event_id?: string;
+  msg_id?: number;
+  jtd_id?: string;
+  from_status?: string;
+  to_status?: string;
+  message?: string;
+  error?: string;
+  purged_count?: number;
+}
+
+export interface DlqMessageItem {
+  msg_id: number;
+  read_ct: number;
+  enqueued_at: string;
+  vt: string;
+  jtd_id: string | null;
+  tenant_id: string | null;
+  tenant_name: string;
+  event_type: string | null;
+  channel: string | null;
+  priority: string | null;
+  error_message: string;
+  status_code: string;
+  recipient: string;
+  age_seconds: number;
+}
+
+export interface DlqListResponse {
+  success: true;
+  data: DlqMessageItem[];
+  pagination: PaginationResponse;
+}
+
+// ============================================================================
 // SHARED
 // ============================================================================
 

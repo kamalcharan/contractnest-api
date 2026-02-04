@@ -1,11 +1,11 @@
 // ============================================================================
 // Admin JTD Validators
 // ============================================================================
-// Purpose: Input validation for Admin JTD Management endpoints (Release 1)
+// Purpose: Input validation for Admin JTD Management endpoints (R1 + R2)
 // Pattern: Validate at API layer before calling Edge — matches contractValidators.ts
 // ============================================================================
 
-import { query, param, ValidationChain } from 'express-validator';
+import { query, param, body, ValidationChain } from 'express-validator';
 
 // Valid enum values
 const JTD_STATUSES = [
@@ -149,3 +149,58 @@ export const getEventDetailValidation: ValidationChain[] = [
 // GET /api/admin/jtd/worker/health
 // No query params — no validation needed
 // ============================================================================
+
+// ============================================================================
+// R2 — ACTION VALIDATORS
+// ============================================================================
+
+/** POST /api/admin/jtd/actions/retry */
+export const retryEventValidation: ValidationChain[] = [
+  body('jtd_id')
+    .isUUID().withMessage('jtd_id must be a valid UUID'),
+  body('reason')
+    .optional()
+    .isString().withMessage('reason must be a string')
+    .isLength({ max: 500 }).withMessage('reason cannot exceed 500 characters')
+    .trim()
+];
+
+/** POST /api/admin/jtd/actions/cancel */
+export const cancelEventValidation: ValidationChain[] = [
+  body('jtd_id')
+    .isUUID().withMessage('jtd_id must be a valid UUID'),
+  body('reason')
+    .optional()
+    .isString().withMessage('reason must be a string')
+    .isLength({ max: 500 }).withMessage('reason cannot exceed 500 characters')
+    .trim()
+];
+
+/** POST /api/admin/jtd/actions/force-complete */
+export const forceCompleteValidation: ValidationChain[] = [
+  body('jtd_id')
+    .isUUID().withMessage('jtd_id must be a valid UUID'),
+  body('target_status')
+    .isIn(['sent', 'failed']).withMessage('target_status must be "sent" or "failed"'),
+  body('reason')
+    .optional()
+    .isString().withMessage('reason must be a string')
+    .isLength({ max: 500 }).withMessage('reason cannot exceed 500 characters')
+    .trim()
+];
+
+/** GET /api/admin/jtd/dlq/messages */
+export const listDlqValidation: ValidationChain[] = [
+  query('page')
+    .optional()
+    .isInt({ min: 1 }).withMessage('page must be a positive integer'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 }).withMessage('limit must be between 1 and 100')
+];
+
+/** POST /api/admin/jtd/actions/requeue-dlq */
+export const requeueDlqValidation: ValidationChain[] = [
+  body('msg_id')
+    .isInt({ min: 1 }).withMessage('msg_id must be a positive integer')
+];
