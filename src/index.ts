@@ -727,6 +727,15 @@ try {
   console.error('❌ Failed to register admin tenant management routes:', error);
 }
 
+// Admin JTD Management Routes
+try {
+  const adminJtdRoutes = require('./routes/adminJtdRoutes').default;
+  app.use('/api/admin/jtd', adminJtdRoutes);
+  console.log('✅ Admin JTD management routes registered at /api/admin/jtd');
+} catch (error) {
+  console.error('❌ Failed to register admin JTD management routes:', error);
+}
+
 // Tenant Account Routes (Owner-side: data summary + close account)
 try {
   const tenantAccountRoutes = require('./routes/tenantAccountRoutes').default;
