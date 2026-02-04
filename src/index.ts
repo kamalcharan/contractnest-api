@@ -727,6 +727,15 @@ try {
   console.error('❌ Failed to register admin tenant management routes:', error);
 }
 
+// Tenant Account Routes (Owner-side: data summary + close account)
+try {
+  const tenantAccountRoutes = require('./routes/tenantAccountRoutes').default;
+  app.use('/api/tenant', tenantAccountRoutes);
+  console.log('✅ Tenant account routes registered at /api/tenant');
+} catch (error) {
+  console.error('❌ Failed to register tenant account routes:', error);
+}
+
 console.log('✅ All routes registered successfully');
 
 // Health check endpoint
