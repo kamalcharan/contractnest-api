@@ -331,6 +331,21 @@ try {
   }
 }
 
+// Load Contract Event routes with error handling
+let contractEventRoutes;
+try {
+  contractEventRoutes = require('./routes/contractEventRoutes').default;
+  console.log('✅ Contract event routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load contract event routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without contract event routes...');
+    contractEventRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -690,6 +705,21 @@ try {
   });
 }
 
+// Register Contract Event routes with error handling
+try {
+  if (contractEventRoutes) {
+    app.use('/api/contract-events', contractEventRoutes);
+    console.log('✅ Contract event routes registered at /api/contract-events');
+  } else {
+    console.log('⚠️  Contract event routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register contract event routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'contract_events' }
+  });
+}
+
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -772,6 +802,7 @@ app.get('/health', async (req, res) => {
       billing: billingRoutes ? 'loaded' : 'not_loaded',
       tenantContext: tenantContextRoutes ? 'loaded' : 'not_loaded',
       contracts: contractCrudRoutes ? 'loaded' : 'not_loaded',
+      contractEvents: contractEventRoutes ? 'loaded' : 'not_loaded',
       productConfig: 'loaded'
     },
     features: {
@@ -789,6 +820,7 @@ app.get('/health', async (req, res) => {
       billing_api: billingRoutes !== null,
       tenant_context: tenantContextRoutes !== null,
       contract_crud: contractCrudRoutes !== null,
+      contract_events: contractEventRoutes !== null,
       product_config: true
     }
   };
@@ -950,6 +982,7 @@ app.get('/', (req, res) => {
       billing: billingRoutes ? 'available' : 'not_available',
       tenantContext: tenantContextRoutes ? 'available' : 'not_available',
       contracts: contractCrudRoutes ? 'available' : 'not_available',
+      contractEvents: contractEventRoutes ? 'available' : 'not_available',
       productConfig: 'available'
     },
     endpoints: {
@@ -964,6 +997,7 @@ app.get('/', (req, res) => {
       billing: '/api/billing',
       tenantContext: '/api/tenant-context',
       contracts: '/api/contracts',
+      contractEvents: '/api/contract-events',
       productConfig: '/api/v1/product-config'
     }
   });
@@ -1006,6 +1040,7 @@ app.use((req, res) => {
       billing: '/api/billing',
       tenantContext: '/api/tenant-context',
       contracts: '/api/contracts',
+      contractEvents: '/api/contract-events',
       productConfig: '/api/v1/product-config'
     }
   });

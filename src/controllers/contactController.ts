@@ -1,8 +1,22 @@
 // src/controllers/contactController.ts
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import { AuthRequest } from '../middleware/auth';
 import ContactService from '../services/contactService';
 import { CONTACT_STATUS, CONTACT_FORM_TYPES, CONTACT_CLASSIFICATIONS } from '../utils/constants/contacts';
+
+// HMAC signing for Edge Function calls
+const INTERNAL_SIGNING_SECRET = process.env.INTERNAL_SIGNING_SECRET || '';
+
+function generateHMACSignature(body: string): string {
+  if (!INTERNAL_SIGNING_SECRET) {
+    console.warn('⚠️ INTERNAL_SIGNING_SECRET not configured');
+    return '';
+  }
+  const hmac = crypto.createHmac('sha256', INTERNAL_SIGNING_SECRET);
+  hmac.update(body);
+  return hmac.digest('hex');
+}
 
 class ContactController {
   private contactService: ContactService;
@@ -488,6 +502,87 @@ class ContactController {
       res.status(500).json({
         success: false,
         error: 'Failed to send invitation',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  };
+
+  /**
+   * GET /api/contacts/:id/cockpit
+   * Get contact cockpit summary (contracts, events, LTV, health score)
+   */
+  getContactCockpit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const daysAhead = parseInt(req.query.days_ahead as string) || 7;
+      const isLive = environment !== 'test';
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: 'Tenant ID is required',
+          code: 'MISSING_TENANT_ID'
+        });
+        return;
+      }
+
+      // Call the contracts Edge Function with cockpit_summary action
+      const supabaseUrl = process.env.SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('SUPABASE_URL not configured');
+      }
+
+      // Prepare request body
+      const requestBody = JSON.stringify({
+        action: 'cockpit_summary',
+        contact_id: id,
+        tenant_id: tenantId,
+        is_live: isLive,
+        days_ahead: daysAhead
+      });
+
+      // Generate HMAC signature for Edge Function
+      const signature = generateHMACSignature(requestBody);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${userJWT}`,
+        'x-tenant-id': tenantId,
+        'x-environment': environment
+      };
+
+      // Add signature if available
+      if (signature) {
+        headers['x-internal-signature'] = signature;
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/contracts`, {
+        method: 'POST',
+        headers,
+        body: requestBody
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Cockpit Edge Function error:', result);
+        res.status(response.status).json({
+          success: false,
+          error: result.error || 'Failed to get cockpit summary',
+          code: result.code || 'EDGE_FUNCTION_ERROR'
+        });
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('Error in getContactCockpit:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get contact cockpit summary',
         code: 'INTERNAL_ERROR'
       });
     }

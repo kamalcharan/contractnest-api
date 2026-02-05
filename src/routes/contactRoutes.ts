@@ -490,6 +490,48 @@ router.post('/duplicates', contactController.checkDuplicates);
 
 /**
  * @swagger
+ * /api/contacts/{id}/cockpit:
+ *   get:
+ *     summary: Get contact cockpit summary
+ *     description: Get dashboard data including contracts, events, LTV, health score
+ *     tags: [Contacts]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: x-tenant-id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Tenant identifier
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Contact ID
+ *       - in: query
+ *         name: days_ahead
+ *         schema:
+ *           type: integer
+ *           default: 7
+ *         description: Number of days to look ahead for events
+ *     responses:
+ *       200:
+ *         description: Cockpit summary retrieved successfully
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       500:
+ *         $ref: '#/components/responses/InternalError'
+ */
+router.get('/:id/cockpit', contactController.getContactCockpit);
+
+/**
+ * @swagger
  * /api/contacts/{id}:
  *   get:
  *     summary: Get a contact by ID
