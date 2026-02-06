@@ -95,6 +95,21 @@ const createContractRateLimit = rateLimit({
 router.use(contractRateLimit);
 
 // =================================================================
+// CNAK CLAIM ENDPOINT
+// =================================================================
+
+/**
+ * @route POST /api/contracts/claim
+ * @description Claim a contract using CNAK code (authenticated)
+ * @body { cnak: string }
+ * @returns { success, contract, seller, claimed_at }
+ */
+router.post(
+  '/claim',
+  contractController.claimContract
+);
+
+// =================================================================
 // READ ENDPOINTS
 // =================================================================
 

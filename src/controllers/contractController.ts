@@ -494,6 +494,41 @@ class ContractController {
     }
   };
 
+  /**
+   * POST /api/contracts/claim
+   * Claim a contract using CNAK code (authenticated)
+   */
+  claimContract = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { cnak } = req.body;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      if (!cnak) {
+        res.status(400).json({ success: false, error: 'CNAK is required' });
+        return;
+      }
+
+      if (!tenantId) {
+        res.status(400).json({ success: false, error: 'x-tenant-id header is required' });
+        return;
+      }
+
+      const result = await this.contractService.claimContract(
+        cnak,
+        userJWT,
+        tenantId,
+        userId
+      );
+
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in claimContract:', error);
+      internalError(res, 'Failed to claim contract');
+    }
+  };
+
   // ==========================================================
   // PRIVATE HELPERS
   // ==========================================================

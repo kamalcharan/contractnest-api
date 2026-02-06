@@ -321,6 +321,21 @@ class ContractService {
   }
 
   /**
+   * Claim a contract using CNAK (authenticated)
+   * Called when a buyer wants to add a contract to their ContractHub
+   */
+  async claimContract(
+    cnak: string,
+    userJWT: string,
+    tenantId: string,
+    userId: string
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/claim`;
+    const payload = { cnak, user_id: userId };
+    return await this.makeRequest('POST', url, payload, userJWT, tenantId, 'live');
+  }
+
+  /**
    * Make a request to a public edge function endpoint
    * No HMAC signing, no tenant/auth headers — just service role key
    */
