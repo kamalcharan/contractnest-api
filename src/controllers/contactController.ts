@@ -166,7 +166,9 @@ class ContactController {
       const transformedResult = this.contactService.transformForFrontend(result);
 
       if (!result.success) {
-        const statusCode = result.code === 'NOT_FOUND' ? 404 : 400;
+        // Handle both edge function code formats: 'NOT_FOUND' and 'CONTACT_NOT_FOUND'
+        const isNotFound = result.code === 'NOT_FOUND' || result.code === 'CONTACT_NOT_FOUND';
+        const statusCode = isNotFound ? 404 : 400;
         res.status(statusCode).json(transformedResult);
         return;
       }
@@ -321,7 +323,7 @@ class ContactController {
       const transformedResult = this.contactService.transformForFrontend(result);
 
       if (!result.success) {
-        const statusCode = result.code === 'NOT_FOUND' ? 404 : 400;
+        const statusCode = (result.code === 'NOT_FOUND' || result.code === 'CONTACT_NOT_FOUND') ? 404 : 400;
         res.status(statusCode).json(transformedResult);
         return;
       }
@@ -369,7 +371,7 @@ class ContactController {
       const transformedResult = this.contactService.transformForFrontend(result);
 
       if (!result.success) {
-        const statusCode = result.code === 'NOT_FOUND' ? 404 : 400;
+        const statusCode = (result.code === 'NOT_FOUND' || result.code === 'CONTACT_NOT_FOUND') ? 404 : 400;
         res.status(statusCode).json(transformedResult);
         return;
       }
@@ -491,7 +493,7 @@ class ContactController {
       );
       
       if (!result.success) {
-        const statusCode = result.code === 'NOT_FOUND' ? 404 : 400;
+        const statusCode = (result.code === 'NOT_FOUND' || result.code === 'CONTACT_NOT_FOUND') ? 404 : 400;
         res.status(statusCode).json(result);
         return;
       }

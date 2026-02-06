@@ -47,6 +47,7 @@ export class AdminTenantService {
       search?: string;
       sort_by?: string;
       sort_direction?: string;
+      is_test?: string;
     }
   ): Promise<any> {
     try {
@@ -58,6 +59,7 @@ export class AdminTenantService {
       if (filters.search) params.append('search', filters.search);
       if (filters.sort_by) params.append('sort_by', filters.sort_by);
       if (filters.sort_direction) params.append('sort_direction', filters.sort_direction);
+      if (filters.is_test) params.append('is_test', filters.is_test);
 
       const queryString = params.toString();
       const url = `${BASE_URL}/tenants${queryString ? '?' + queryString : ''}`;

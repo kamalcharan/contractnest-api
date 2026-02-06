@@ -43,7 +43,8 @@ router.get('/list', async (req: Request, res: Response) => {
       subscription_status: req.query.subscription_status as string || undefined,
       search: req.query.search as string || undefined,
       sort_by: req.query.sort_by as string || undefined,
-      sort_direction: req.query.sort_direction as string || undefined
+      sort_direction: req.query.sort_direction as string || undefined,
+      is_test: req.query.is_test as string || undefined
     };
 
     const result = await adminTenantService.getTenants(authHeader, tenantId, filters);
