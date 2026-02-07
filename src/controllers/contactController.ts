@@ -531,18 +531,15 @@ class ContactController {
         return;
       }
 
-      // Call the contracts Edge Function with cockpit_summary action
+      // Call the contracts Edge Function via path-based route
       const supabaseUrl = process.env.SUPABASE_URL;
       if (!supabaseUrl) {
         throw new Error('SUPABASE_URL not configured');
       }
 
-      // Prepare request body
+      // Prepare request body (no action field - routed by URL path)
       const requestBody = JSON.stringify({
-        action: 'cockpit_summary',
         contact_id: id,
-        tenant_id: tenantId,
-        is_live: isLive,
         days_ahead: daysAhead
       });
 
@@ -561,7 +558,7 @@ class ContactController {
         headers['x-internal-signature'] = signature;
       }
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/contracts`, {
+      const response = await fetch(`${supabaseUrl}/functions/v1/contracts/cockpit-summary`, {
         method: 'POST',
         headers,
         body: requestBody
