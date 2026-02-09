@@ -826,6 +826,15 @@ try {
   console.error('❌ Failed to register admin JTD management routes:', error);
 }
 
+// Admin Forms Management Routes (Smart Forms)
+try {
+  const adminFormsRoutes = require('./routes/adminFormsRoutes').default;
+  app.use('/api/admin/forms', adminFormsRoutes);
+  console.log('✅ Admin Forms management routes registered at /api/admin/forms');
+} catch (error) {
+  console.error('❌ Failed to register admin Forms management routes:', error);
+}
+
 // Tenant Account Routes (Owner-side: data summary + close account)
 try {
   const tenantAccountRoutes = require('./routes/tenantAccountRoutes').default;
