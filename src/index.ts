@@ -346,6 +346,36 @@ try {
   }
 }
 
+// Load Service Execution routes with error handling
+let serviceExecutionRoutes;
+try {
+  serviceExecutionRoutes = require('./routes/serviceExecutionRoutes').default;
+  console.log('✅ Service execution routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load service execution routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without service execution routes...');
+    serviceExecutionRoutes = null;
+  }
+}
+
+// Load Event Status Config routes with error handling
+let eventStatusConfigRoutes;
+try {
+  eventStatusConfigRoutes = require('./routes/eventStatusConfigRoutes').default;
+  console.log('✅ Event status config routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load event status config routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without event status config routes...');
+    eventStatusConfigRoutes = null;
+  }
+}
+
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -720,6 +750,36 @@ try {
   });
 }
 
+// Register Event Status Config routes with error handling
+try {
+  if (eventStatusConfigRoutes) {
+    app.use('/api/event-status-config', eventStatusConfigRoutes);
+    console.log('✅ Event status config routes registered at /api/event-status-config');
+  } else {
+    console.log('⚠️  Event status config routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register event status config routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'event_status_config' }
+  });
+}
+
+// Register Service Execution routes with error handling
+try {
+  if (serviceExecutionRoutes) {
+    app.use('/api/service-execution', serviceExecutionRoutes);
+    console.log('✅ Service execution routes registered at /api/service-execution');
+  } else {
+    console.log('⚠️  Service execution routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register service execution routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'service_execution' }
+  });
+}
+
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
 console.log('✅ Products routes registered at /api/products');
@@ -803,6 +863,7 @@ app.get('/health', async (req, res) => {
       tenantContext: tenantContextRoutes ? 'loaded' : 'not_loaded',
       contracts: contractCrudRoutes ? 'loaded' : 'not_loaded',
       contractEvents: contractEventRoutes ? 'loaded' : 'not_loaded',
+      eventStatusConfig: eventStatusConfigRoutes ? 'loaded' : 'not_loaded',
       productConfig: 'loaded'
     },
     features: {
@@ -821,6 +882,7 @@ app.get('/health', async (req, res) => {
       tenant_context: tenantContextRoutes !== null,
       contract_crud: contractCrudRoutes !== null,
       contract_events: contractEventRoutes !== null,
+      event_status_config: eventStatusConfigRoutes !== null,
       product_config: true
     }
   };
@@ -983,6 +1045,7 @@ app.get('/', (req, res) => {
       tenantContext: tenantContextRoutes ? 'available' : 'not_available',
       contracts: contractCrudRoutes ? 'available' : 'not_available',
       contractEvents: contractEventRoutes ? 'available' : 'not_available',
+      eventStatusConfig: eventStatusConfigRoutes ? 'available' : 'not_available',
       productConfig: 'available'
     },
     endpoints: {
@@ -998,6 +1061,7 @@ app.get('/', (req, res) => {
       tenantContext: '/api/tenant-context',
       contracts: '/api/contracts',
       contractEvents: '/api/contract-events',
+      eventStatusConfig: '/api/event-status-config',
       productConfig: '/api/v1/product-config'
     }
   });
@@ -1041,6 +1105,7 @@ app.use((req, res) => {
       tenantContext: '/api/tenant-context',
       contracts: '/api/contracts',
       contractEvents: '/api/contract-events',
+      eventStatusConfig: '/api/event-status-config',
       productConfig: '/api/v1/product-config'
     }
   });

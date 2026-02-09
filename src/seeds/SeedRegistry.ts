@@ -20,6 +20,12 @@ import {
   RELATIONSHIP_ICONS,
   RELATIONSHIP_COLORS
 } from './relationships.seed';
+import {
+  eventStatusesSeedDefinition,
+  EVENT_STATUS_SEED_DATA,
+  EVENT_TYPE_DISPLAY_NAMES,
+  getStatusPreviewByEventType
+} from './eventStatuses.seed';
 
 // =================================================================
 // SEED REGISTRY
@@ -29,10 +35,10 @@ import {
 export const SeedRegistry: Record<string, SeedDefinition> = {
   sequences: sequencesSeedDefinition,
   relationships: relationshipsSeedDefinition,
+  eventStatuses: eventStatusesSeedDefinition,
   // Future seeds:
   // roles: rolesSeedDefinition,
   // tags: tagsSeedDefinition,
-  // statuses: statusesSeedDefinition,
   // notifications: notificationsSeedDefinition,
 };
 
@@ -161,6 +167,13 @@ export const getSeedPreview = (category: string): SeedPreview | null => {
       name: item.name,
       preview: `${item.icon_name} - ${item.description}`
     }));
+  } else if (category === 'eventStatuses') {
+    const grouped = getStatusPreviewByEventType();
+    items = Object.entries(grouped).map(([eventType, statuses]) => ({
+      code: eventType,
+      name: EVENT_TYPE_DISPLAY_NAMES[eventType] || eventType,
+      preview: `${statuses.length} statuses`
+    }));
   } else {
     // Generic mapping for other seed types
     items = definition.data.map(item => ({
@@ -222,5 +235,12 @@ export {
   RELATIONSHIP_COLORS,
   relationshipsSeedDefinition
 } from './relationships.seed';
+
+export {
+  EVENT_STATUS_SEED_DATA,
+  EVENT_TYPE_DISPLAY_NAMES,
+  getStatusPreviewByEventType,
+  eventStatusesSeedDefinition
+} from './eventStatuses.seed';
 
 export * from './types';
