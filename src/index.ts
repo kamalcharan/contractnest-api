@@ -835,6 +835,15 @@ try {
   console.error('❌ Failed to register admin Forms management routes:', error);
 }
 
+// Tenant Forms Routes (Smart Forms — Selections + Submissions)
+try {
+  const tenantFormsRoutes = require('./routes/tenantFormsRoutes').default;
+  app.use('/api/forms', tenantFormsRoutes);
+  console.log('✅ Tenant Forms routes registered at /api/forms');
+} catch (error) {
+  console.error('❌ Failed to register tenant Forms routes:', error);
+}
+
 // Tenant Account Routes (Owner-side: data summary + close account)
 try {
   const tenantAccountRoutes = require('./routes/tenantAccountRoutes').default;
