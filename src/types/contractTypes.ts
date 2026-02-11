@@ -71,6 +71,7 @@ export interface CreateContractRequest {
   renewal_terms?: string;
   termination_clause?: string;
   notes?: string;
+  nomenclature_id?: string;
   metadata?: Record<string, any>;
   blocks?: ContractBlockInput[];
   vendors?: ContractVendorInput[];
@@ -193,6 +194,9 @@ export interface ContractListItem {
   end_date: string | null;
   vendor_count: number;
   block_count: number;
+  nomenclature_id: string | null;
+  nomenclature_code: string | null;
+  nomenclature_name: string | null;
   version: number;
   created_at: string;
   updated_at: string;

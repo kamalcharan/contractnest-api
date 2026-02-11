@@ -138,6 +138,10 @@ export const createContractValidation: ValidationChain[] = [
     .isString().withMessage('notes must be a string')
     .isLength({ max: 5000 }).withMessage('notes cannot exceed 5000 characters'),
 
+  body('nomenclature_id')
+    .optional()
+    .isUUID().withMessage('nomenclature_id must be a valid UUID'),
+
   body('metadata')
     .optional()
     .isObject().withMessage('metadata must be an object'),
@@ -237,6 +241,10 @@ export const updateContractValidation: ValidationChain[] = [
   body('notes')
     .optional()
     .isString().withMessage('notes must be a string'),
+
+  body('nomenclature_id')
+    .optional()
+    .isUUID().withMessage('nomenclature_id must be a valid UUID'),
 
   body('metadata')
     .optional()
