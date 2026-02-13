@@ -153,12 +153,8 @@ export class ProductMasterdataValidators {
       };
     }
 
-    if (limitNum > 100) {
-      return { 
-        valid: false, 
-        error: 'Limit cannot exceed 100 records per page' 
-      };
-    }
+    // Allow limit > 100 through validation — parsePaginationParams will clamp to 100
+    // This prevents 400 errors from stale frontend caches that send limit=200
 
     return { valid: true };
   }

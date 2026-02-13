@@ -346,17 +346,19 @@ class ProductMasterdataController {
       }
 
       // Extract and parse parameters
-      const { page, limit, search, is_active = 'true' } = req.query;
+      const { page, limit, search, is_active = 'true', level, parent_id } = req.query;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
-      
+
       const { page: parsedPage, limit: parsedLimit } = ProductMasterdataValidators.parsePaginationParams(
-        page as string, 
+        page as string,
         limit as string
       );
       const sanitizedSearch = ProductMasterdataValidators.sanitizeSearchInput(search as string);
       const isActive = ProductMasterdataValidators.parseBooleanParam(is_active as string, true);
+      const parsedLevel = level !== undefined ? parseInt(level as string) : undefined;
+      const parsedParentId = parent_id as string | undefined;
 
-      console.log(`📊 Industries request params - Page: ${parsedPage}, Limit: ${parsedLimit}, Search: "${sanitizedSearch}", Active: ${isActive}`);
+      console.log(`📊 Industries request params - Page: ${parsedPage}, Limit: ${parsedLimit}, Search: "${sanitizedSearch}", Active: ${isActive}, Level: ${parsedLevel}, ParentId: ${parsedParentId}`);
 
       // Call service
       const result = await this.productMasterdataService.getIndustries(
@@ -364,7 +366,9 @@ class ProductMasterdataController {
         parsedLimit,
         sanitizedSearch,
         isActive,
-        userJWT
+        userJWT,
+        parsedLevel,
+        parsedParentId
       );
 
       console.log(`✅ Product Master Data - Industries retrieved (${result.data?.length || 0} records)`);
