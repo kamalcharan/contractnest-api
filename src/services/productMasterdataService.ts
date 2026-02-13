@@ -72,6 +72,9 @@ interface Industry {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  parent_id?: string | null;
+  level?: number;
+  segment_type?: string;
 }
 
 interface CategoryIndustryMap {
@@ -266,7 +269,9 @@ class ProductMasterdataService {
     limit: number = 50,
     search: string = '',
     isActive: boolean = true,
-    userJWT: string
+    userJWT: string,
+    level?: number,
+    parentId?: string
   ): Promise<IndustryResponse> {
     try {
       const queryParams = new URLSearchParams({
@@ -275,6 +280,9 @@ class ProductMasterdataService {
         search: search,
         is_active: isActive.toString()
       });
+
+      if (level !== undefined) queryParams.append('level', level.toString());
+      if (parentId) queryParams.append('parent_id', parentId);
 
       const url = `${this.edgeFunctionUrl}/industries?${queryParams.toString()}`;
       
