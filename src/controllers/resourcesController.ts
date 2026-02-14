@@ -235,6 +235,51 @@ export class ResourcesController {
   }
 
   /**
+   * Get resource templates filtered by tenant's served industries
+   * Supports search, pagination, resource_type_id filter
+   */
+  async getResourceTemplates(req: Request, res: Response): Promise<Response> {
+    try {
+      const authHeader = req.headers.authorization;
+      const tenantIdHeader = req.headers['x-tenant-id'] as string;
+      const { search, limit, offset, resource_type_id } = req.query;
+
+      console.log('📋 API getResourceTemplates called:', {
+        tenantIdHeader,
+        search,
+        limit,
+        offset,
+        resource_type_id,
+        hasAuth: !!authHeader,
+      });
+
+      // 🔐 SECURITY: Enhanced header validation
+      const securityValidation = this.validateSecurityHeaders(authHeader, tenantIdHeader);
+      if (!securityValidation.valid) {
+        return this.sendErrorResponse(res, securityValidation.error!, securityValidation.status!);
+      }
+
+      const { tenantId } = securityValidation;
+
+      const edgeResponse = await resourcesService.getResourceTemplates(authHeader!, tenantId!, {
+        search: search as string,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        offset: offset ? parseInt(offset as string, 10) : undefined,
+        resource_type_id: resource_type_id as string,
+      });
+
+      console.log(`✅ Successfully retrieved resource templates for tenant ${tenantId}`);
+
+      // Return the full edge response (includes pagination)
+      return res.status(ResourcesHttpStatus.OK).json(edgeResponse);
+
+    } catch (error: any) {
+      console.error('❌ Error in getResourceTemplates controller:', error);
+      return this.handleServiceError(res, error);
+    }
+  }
+
+  /**
    * Create new resource
    * 🔐 SECURITY: Added user tracking and tenant validation
    */
@@ -725,6 +770,7 @@ const controller = new ResourcesController();
 
 export const getResources = controller.getResources.bind(controller);
 export const getResourceTypes = controller.getResourceTypes.bind(controller);
+export const getResourceTemplates = controller.getResourceTemplates.bind(controller);
 export const createResource = controller.createResource.bind(controller);
 export const updateResource = controller.updateResource.bind(controller);
 export const deleteResource = controller.deleteResource.bind(controller);

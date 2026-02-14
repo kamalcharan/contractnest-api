@@ -853,32 +853,32 @@ try {
   console.error('❌ Failed to register tenant account routes:', error);
 }
 
-// Asset Registry Routes (P1 — unified equipment + entity CRUD)
-let assetRegistryRoutes;
+// Client Asset Registry Routes (P1 — client-owned equipment + entity CRUD)
+let clientAssetRegistryRoutes;
 try {
-  assetRegistryRoutes = require('./routes/assetRegistryRoutes').default;
-  console.log('✅ Asset registry routes loaded');
+  clientAssetRegistryRoutes = require('./routes/clientAssetRegistryRoutes').default;
+  console.log('✅ Client asset registry routes loaded');
 } catch (error) {
-  console.error('❌ Failed to load asset registry routes:', error);
+  console.error('❌ Failed to load client asset registry routes:', error);
   if (process.env.NODE_ENV === 'production') {
     process.exit(1);
   } else {
-    console.warn('⚠️  Continuing without asset registry routes...');
-    assetRegistryRoutes = null;
+    console.warn('⚠️  Continuing without client asset registry routes...');
+    clientAssetRegistryRoutes = null;
   }
 }
 
 try {
-  if (assetRegistryRoutes) {
-    app.use('/api/asset-registry', assetRegistryRoutes);
-    console.log('✅ Asset registry routes registered at /api/asset-registry');
+  if (clientAssetRegistryRoutes) {
+    app.use('/api/client-asset-registry', clientAssetRegistryRoutes);
+    console.log('✅ Client asset registry routes registered at /api/client-asset-registry');
   } else {
-    console.log('⚠️  Asset registry routes skipped (not loaded)');
+    console.log('⚠️  Client asset registry routes skipped (not loaded)');
   }
 } catch (error) {
-  console.error('❌ Failed to register asset registry routes:', error);
+  console.error('❌ Failed to register client asset registry routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'asset_registry' }
+    tags: { source: 'route_registration', route_type: 'client_asset_registry' }
   });
 }
 
@@ -912,7 +912,7 @@ app.get('/health', async (req, res) => {
       contractEvents: contractEventRoutes ? 'loaded' : 'not_loaded',
       eventStatusConfig: eventStatusConfigRoutes ? 'loaded' : 'not_loaded',
       productConfig: 'loaded',
-      assetRegistry: assetRegistryRoutes ? 'loaded' : 'not_loaded'
+      clientAssetRegistry: clientAssetRegistryRoutes ? 'loaded' : 'not_loaded'
     },
     features: {
       resources_api: true,
@@ -932,7 +932,7 @@ app.get('/health', async (req, res) => {
       contract_events: contractEventRoutes !== null,
       event_status_config: eventStatusConfigRoutes !== null,
       product_config: true,
-      asset_registry: assetRegistryRoutes !== null
+      client_asset_registry: clientAssetRegistryRoutes !== null
     }
   };
 
@@ -1096,7 +1096,7 @@ app.get('/', (req, res) => {
       contractEvents: contractEventRoutes ? 'available' : 'not_available',
       eventStatusConfig: eventStatusConfigRoutes ? 'available' : 'not_available',
       productConfig: 'available',
-      assetRegistry: assetRegistryRoutes ? 'available' : 'not_available'
+      clientAssetRegistry: clientAssetRegistryRoutes ? 'available' : 'not_available'
     },
     endpoints: {
       rest_api: '/api/*',

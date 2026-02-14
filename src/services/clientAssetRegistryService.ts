@@ -1,12 +1,11 @@
-// src/services/assetRegistryService.ts
-// Calls the asset-registry edge function via axios.
-// No business logic here — just forward to edge.
+// src/services/clientAssetRegistryService.ts
+// Calls the client-asset-registry edge function via axios.
 
 import axios from 'axios';
 import { captureException } from '../utils/sentry';
 import { SUPABASE_URL } from '../utils/supabaseConfig';
 
-const EDGE_BASE = `${SUPABASE_URL}/functions/v1/asset-registry`;
+const EDGE_BASE = `${SUPABASE_URL}/functions/v1/client-asset-registry`;
 
 function buildHeaders(authToken: string, tenantId: string) {
   return {
@@ -16,17 +15,15 @@ function buildHeaders(authToken: string, tenantId: string) {
   };
 }
 
-export const assetRegistryService = {
+export const clientAssetRegistryService = {
 
   // ── Assets CRUD ──────────────────────────────────────────────
 
-  /**
-   * List assets with optional filters
-   */
   async listAssets(
     authToken: string,
     tenantId: string,
     params: {
+      contact_id?: string;
       resource_type_id?: string;
       status?: string;
       is_live?: boolean;
@@ -42,18 +39,15 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.listAssets:', error);
+      console.error('Error in clientAssetRegistryService.listAssets:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'listAssets' },
+        tags: { source: 'service_client_asset_registry', action: 'listAssets' },
         tenantId
       });
       throw error;
     }
   },
 
-  /**
-   * Create a new asset
-   */
   async createAsset(authToken: string, tenantId: string, data: any) {
     try {
       const response = await axios.post(EDGE_BASE, data, {
@@ -61,18 +55,15 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.createAsset:', error);
+      console.error('Error in clientAssetRegistryService.createAsset:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'createAsset' },
+        tags: { source: 'service_client_asset_registry', action: 'createAsset' },
         tenantId
       });
       throw error;
     }
   },
 
-  /**
-   * Update an existing asset
-   */
   async updateAsset(authToken: string, tenantId: string, assetId: string, data: any) {
     try {
       const response = await axios.patch(`${EDGE_BASE}?id=${assetId}`, data, {
@@ -80,18 +71,15 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.updateAsset:', error);
+      console.error('Error in clientAssetRegistryService.updateAsset:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'updateAsset' },
+        tags: { source: 'service_client_asset_registry', action: 'updateAsset' },
         tenantId
       });
       throw error;
     }
   },
 
-  /**
-   * Soft-delete an asset
-   */
   async deleteAsset(authToken: string, tenantId: string, assetId: string) {
     try {
       const response = await axios.delete(`${EDGE_BASE}?id=${assetId}`, {
@@ -99,9 +87,9 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.deleteAsset:', error);
+      console.error('Error in clientAssetRegistryService.deleteAsset:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'deleteAsset' },
+        tags: { source: 'service_client_asset_registry', action: 'deleteAsset' },
         tenantId
       });
       throw error;
@@ -110,9 +98,6 @@ export const assetRegistryService = {
 
   // ── Hierarchy ────────────────────────────────────────────────
 
-  /**
-   * Get children of a parent asset
-   */
   async getChildren(authToken: string, tenantId: string, parentAssetId: string) {
     try {
       const response = await axios.get(`${EDGE_BASE}/children`, {
@@ -121,9 +106,9 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.getChildren:', error);
+      console.error('Error in clientAssetRegistryService.getChildren:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'getChildren' },
+        tags: { source: 'service_client_asset_registry', action: 'getChildren' },
         tenantId
       });
       throw error;
@@ -132,9 +117,6 @@ export const assetRegistryService = {
 
   // ── Contract ↔ Asset linking ─────────────────────────────────
 
-  /**
-   * Get all assets linked to a contract
-   */
   async getContractAssets(authToken: string, tenantId: string, contractId: string) {
     try {
       const response = await axios.get(`${EDGE_BASE}/contract-assets`, {
@@ -143,18 +125,15 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.getContractAssets:', error);
+      console.error('Error in clientAssetRegistryService.getContractAssets:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'getContractAssets' },
+        tags: { source: 'service_client_asset_registry', action: 'getContractAssets' },
         tenantId
       });
       throw error;
     }
   },
 
-  /**
-   * Link multiple assets to a contract
-   */
   async linkContractAssets(authToken: string, tenantId: string, data: any) {
     try {
       const response = await axios.post(`${EDGE_BASE}/contract-assets`, data, {
@@ -162,18 +141,15 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.linkContractAssets:', error);
+      console.error('Error in clientAssetRegistryService.linkContractAssets:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'linkContractAssets' },
+        tags: { source: 'service_client_asset_registry', action: 'linkContractAssets' },
         tenantId
       });
       throw error;
     }
   },
 
-  /**
-   * Unlink an asset from a contract
-   */
   async unlinkContractAsset(authToken: string, tenantId: string, contractId: string, assetId: string) {
     try {
       const response = await axios.delete(`${EDGE_BASE}/contract-assets`, {
@@ -182,9 +158,9 @@ export const assetRegistryService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Error in assetRegistryService.unlinkContractAsset:', error);
+      console.error('Error in clientAssetRegistryService.unlinkContractAsset:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_asset_registry', action: 'unlinkContractAsset' },
+        tags: { source: 'service_client_asset_registry', action: 'unlinkContractAsset' },
         tenantId
       });
       throw error;

@@ -1,13 +1,10 @@
-// src/controllers/assetRegistryController.ts
-// Handles HTTP requests for asset registry CRUD.
-// Validates headers, delegates to service, returns response.
+// src/controllers/clientAssetRegistryController.ts
+// Handles HTTP requests for client asset registry CRUD.
 
 import { Request, Response } from 'express';
 import { validationResult } from 'express-validator';
 import { captureException } from '../utils/sentry';
-import { assetRegistryService } from '../services/assetRegistryService';
-
-// ── Helper ────────────────────────────────────────────────────────
+import { clientAssetRegistryService } from '../services/clientAssetRegistryService';
 
 function extractContext(req: Request): { authHeader: string; tenantId: string } | null {
   const authHeader = req.headers.authorization;
@@ -33,14 +30,14 @@ function handleValidationErrors(req: Request, res: Response): boolean {
 }
 
 function handleError(res: Response, error: any, action: string, tenantId?: string) {
-  console.error(`Error in assetRegistryController.${action}:`, error);
+  console.error(`Error in clientAssetRegistryController.${action}:`, error);
 
   if (error.response) {
     return res.status(error.response.status).json(error.response.data);
   }
 
   captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'controller_asset_registry', action },
+    tags: { source: 'controller_client_asset_registry', action },
     tenantId
   });
 
@@ -49,17 +46,14 @@ function handleError(res: Response, error: any, action: string, tenantId?: strin
 
 // ── Endpoints ─────────────────────────────────────────────────────
 
-/**
- * @route GET /api/asset-registry
- * @query id, resource_type_id, status, is_live, limit, offset
- */
 export const listAssets = async (req: Request, res: Response) => {
   try {
     const ctx = extractContext(req);
     if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
-    const result = await assetRegistryService.listAssets(ctx.authHeader, ctx.tenantId, {
+    const result = await clientAssetRegistryService.listAssets(ctx.authHeader, ctx.tenantId, {
       id: req.query.id as string,
+      contact_id: req.query.contact_id as string,
       resource_type_id: req.query.resource_type_id as string,
       status: req.query.status as string,
       is_live: req.query.is_live === 'false' ? false : true,
@@ -73,10 +67,6 @@ export const listAssets = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * @route POST /api/asset-registry
- * @body CreateAssetRequest
- */
 export const createAsset = async (req: Request, res: Response) => {
   try {
     if (handleValidationErrors(req, res)) return;
@@ -84,17 +74,13 @@ export const createAsset = async (req: Request, res: Response) => {
     const ctx = extractContext(req);
     if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
-    const result = await assetRegistryService.createAsset(ctx.authHeader, ctx.tenantId, req.body);
+    const result = await clientAssetRegistryService.createAsset(ctx.authHeader, ctx.tenantId, req.body);
     return res.status(201).json(result);
   } catch (error: any) {
     return handleError(res, error, 'createAsset');
   }
 };
 
-/**
- * @route PATCH /api/asset-registry?id=...
- * @body UpdateAssetRequest
- */
 export const updateAsset = async (req: Request, res: Response) => {
   try {
     if (handleValidationErrors(req, res)) return;
@@ -103,16 +89,13 @@ export const updateAsset = async (req: Request, res: Response) => {
     if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
     const assetId = req.query.id as string;
-    const result = await assetRegistryService.updateAsset(ctx.authHeader, ctx.tenantId, assetId, req.body);
+    const result = await clientAssetRegistryService.updateAsset(ctx.authHeader, ctx.tenantId, assetId, req.body);
     return res.status(200).json(result);
   } catch (error: any) {
     return handleError(res, error, 'updateAsset');
   }
 };
 
-/**
- * @route DELETE /api/asset-registry?id=...
- */
 export const deleteAsset = async (req: Request, res: Response) => {
   try {
     if (handleValidationErrors(req, res)) return;
@@ -121,16 +104,13 @@ export const deleteAsset = async (req: Request, res: Response) => {
     if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
     const assetId = req.query.id as string;
-    const result = await assetRegistryService.deleteAsset(ctx.authHeader, ctx.tenantId, assetId);
+    const result = await clientAssetRegistryService.deleteAsset(ctx.authHeader, ctx.tenantId, assetId);
     return res.status(200).json(result);
   } catch (error: any) {
     return handleError(res, error, 'deleteAsset');
   }
 };
 
-/**
- * @route GET /api/asset-registry/children?parent_asset_id=...
- */
 export const getChildren = async (req: Request, res: Response) => {
   try {
     const ctx = extractContext(req);
@@ -141,16 +121,13 @@ export const getChildren = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'parent_asset_id query parameter is required' });
     }
 
-    const result = await assetRegistryService.getChildren(ctx.authHeader, ctx.tenantId, parentAssetId);
+    const result = await clientAssetRegistryService.getChildren(ctx.authHeader, ctx.tenantId, parentAssetId);
     return res.status(200).json(result);
   } catch (error: any) {
     return handleError(res, error, 'getChildren');
   }
 };
 
-/**
- * @route GET /api/asset-registry/contract-assets?contract_id=...
- */
 export const getContractAssets = async (req: Request, res: Response) => {
   try {
     if (handleValidationErrors(req, res)) return;
@@ -159,17 +136,13 @@ export const getContractAssets = async (req: Request, res: Response) => {
     if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
     const contractId = req.query.contract_id as string;
-    const result = await assetRegistryService.getContractAssets(ctx.authHeader, ctx.tenantId, contractId);
+    const result = await clientAssetRegistryService.getContractAssets(ctx.authHeader, ctx.tenantId, contractId);
     return res.status(200).json(result);
   } catch (error: any) {
     return handleError(res, error, 'getContractAssets');
   }
 };
 
-/**
- * @route POST /api/asset-registry/contract-assets
- * @body LinkContractAssetsRequest
- */
 export const linkContractAssets = async (req: Request, res: Response) => {
   try {
     if (handleValidationErrors(req, res)) return;
@@ -177,16 +150,13 @@ export const linkContractAssets = async (req: Request, res: Response) => {
     const ctx = extractContext(req);
     if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
-    const result = await assetRegistryService.linkContractAssets(ctx.authHeader, ctx.tenantId, req.body);
+    const result = await clientAssetRegistryService.linkContractAssets(ctx.authHeader, ctx.tenantId, req.body);
     return res.status(201).json(result);
   } catch (error: any) {
     return handleError(res, error, 'linkContractAssets');
   }
 };
 
-/**
- * @route DELETE /api/asset-registry/contract-assets?contract_id=...&asset_id=...
- */
 export const unlinkContractAsset = async (req: Request, res: Response) => {
   try {
     const ctx = extractContext(req);
@@ -199,7 +169,7 @@ export const unlinkContractAsset = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'contract_id and asset_id query parameters are required' });
     }
 
-    const result = await assetRegistryService.unlinkContractAsset(
+    const result = await clientAssetRegistryService.unlinkContractAsset(
       ctx.authHeader, ctx.tenantId, contractId, assetId
     );
     return res.status(200).json(result);

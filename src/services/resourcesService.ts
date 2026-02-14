@@ -346,6 +346,48 @@ export class ResourcesService {
   }
 
   // ============================================================================
+  // RESOURCE TEMPLATES — Browse catalog by served industries
+  // ============================================================================
+
+  /**
+   * Get resource templates filtered by tenant's served industries
+   * Supports search, pagination, and resource_type_id filter
+   */
+  async getResourceTemplates(
+    authHeader: string,
+    tenantId: string,
+    params: { search?: string; limit?: number; offset?: number; resource_type_id?: string }
+  ): Promise<any> {
+    try {
+      const internalHeaders = InternalSigningService.createSignedHeaders();
+
+      const queryParts: string[] = [];
+      if (params.search) queryParts.push(`search=${encodeURIComponent(params.search)}`);
+      if (params.limit) queryParts.push(`limit=${params.limit}`);
+      if (params.offset !== undefined) queryParts.push(`offset=${params.offset}`);
+      if (params.resource_type_id) queryParts.push(`resource_type_id=${encodeURIComponent(params.resource_type_id)}`);
+
+      const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+
+      const response = await axios.get(`${ResourcesService.BASE_URL}/resource-templates${qs}`, {
+        headers: {
+          'Authorization': authHeader,
+          'x-tenant-id': tenantId,
+          'Content-Type': 'application/json',
+          ...internalHeaders
+        },
+        timeout: ResourcesService.TIMEOUT
+      });
+
+      // Return full response (includes data + pagination)
+      return response.data;
+
+    } catch (error: any) {
+      throw this.transformError(error, 'Failed to get resource templates');
+    }
+  }
+
+  // ============================================================================
   // VALIDATOR SUPPORT METHODS
   // ============================================================================
 

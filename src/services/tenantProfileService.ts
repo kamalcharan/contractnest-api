@@ -117,6 +117,23 @@ export interface TenantProfile {
 
 export interface TenantProfileCreate extends Omit<TenantProfile, 'id' | 'created_at' | 'updated_at'> {}
 
+// Served Industries response types (matching edge function responses)
+export interface ServedIndustriesEdgeResponse {
+  success: boolean;
+  data: any[];
+  added_count?: number;
+  removed_industry_id?: string;
+}
+
+export interface UnlockPreviewEdgeResponse {
+  success: boolean;
+  data: {
+    total_templates: number;
+    by_industry: any[];
+    by_resource_type: any[];
+  };
+}
+
 // Firebase configuration from environment variables
 const firebaseConfig = {
   apiKey: process.env.VITE_FIREBASE_API_KEY,
@@ -433,6 +450,143 @@ export const tenantProfileService = {
       console.error('Error in uploadLogo service:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {
         tags: { source: 'service_tenant_profile', action: 'uploadLogo' },
+        tenantId
+      });
+      throw error;
+    }
+  },
+
+  // =========================================================================
+  // SERVED INDUSTRIES METHODS
+  // =========================================================================
+
+  /**
+   * Get all industries this tenant serves
+   */
+  async getServedIndustries(authToken: string, tenantId: string): Promise<ServedIndustriesEdgeResponse> {
+    try {
+      if (!SUPABASE_URL) {
+        throw new Error('Missing SUPABASE_URL configuration');
+      }
+
+      const response = await axios.get(
+        `${SUPABASE_URL}/functions/v1/tenant-profile/served-industries`,
+        {
+          headers: {
+            Authorization: authToken,
+            'x-tenant-id': tenantId,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in getServedIndustries service:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'service_tenant_profile', action: 'getServedIndustries' },
+        tenantId
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Add one or more served industries for this tenant
+   */
+  async addServedIndustries(
+    authToken: string,
+    tenantId: string,
+    industryIds: string[]
+  ): Promise<ServedIndustriesEdgeResponse> {
+    try {
+      if (!SUPABASE_URL) {
+        throw new Error('Missing SUPABASE_URL configuration');
+      }
+
+      const response = await axios.post(
+        `${SUPABASE_URL}/functions/v1/tenant-profile/served-industries`,
+        { industry_ids: industryIds },
+        {
+          headers: {
+            Authorization: authToken,
+            'x-tenant-id': tenantId,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in addServedIndustries service:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'service_tenant_profile', action: 'addServedIndustries' },
+        tenantId
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Remove a served industry for this tenant
+   */
+  async removeServedIndustry(
+    authToken: string,
+    tenantId: string,
+    industryId: string
+  ): Promise<ServedIndustriesEdgeResponse> {
+    try {
+      if (!SUPABASE_URL) {
+        throw new Error('Missing SUPABASE_URL configuration');
+      }
+
+      const response = await axios.delete(
+        `${SUPABASE_URL}/functions/v1/tenant-profile/served-industries?industry_id=${encodeURIComponent(industryId)}`,
+        {
+          headers: {
+            Authorization: authToken,
+            'x-tenant-id': tenantId,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in removeServedIndustry service:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'service_tenant_profile', action: 'removeServedIndustry' },
+        tenantId
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get unlock preview - template counts by served industries
+   */
+  async getUnlockPreview(authToken: string, tenantId: string): Promise<UnlockPreviewEdgeResponse> {
+    try {
+      if (!SUPABASE_URL) {
+        throw new Error('Missing SUPABASE_URL configuration');
+      }
+
+      const response = await axios.get(
+        `${SUPABASE_URL}/functions/v1/tenant-profile/served-industries/unlock-preview`,
+        {
+          headers: {
+            Authorization: authToken,
+            'x-tenant-id': tenantId,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error in getUnlockPreview service:', error);
+      captureException(error instanceof Error ? error : new Error(String(error)), {
+        tags: { source: 'service_tenant_profile', action: 'getUnlockPreview' },
         tenantId
       });
       throw error;

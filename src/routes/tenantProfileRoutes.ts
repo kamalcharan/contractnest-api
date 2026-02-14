@@ -36,4 +36,20 @@ router.put('/tenant-profile', updateTenantProfileValidation, tenantProfileContro
 // Upload logo for tenant profile
 router.post('/tenant-profile/logo', upload.single('logo'), tenantProfileController.uploadLogo);
 
+// =========================================================================
+// Served Industries Routes
+// =========================================================================
+
+// Get all industries this tenant serves
+router.get('/tenant-profile/served-industries', tenantProfileController.getServedIndustries);
+
+// Add one or more served industries
+router.post('/tenant-profile/served-industries', tenantProfileController.addServedIndustries);
+
+// Remove a served industry
+router.delete('/tenant-profile/served-industries/:industryId', tenantProfileController.removeServedIndustry);
+
+// Get unlock preview - template counts by served industries
+router.get('/tenant-profile/served-industries/unlock-preview', tenantProfileController.getUnlockPreview);
+
 export default router;

@@ -1,11 +1,12 @@
-// src/types/assetRegistryTypes.ts
-// Domain + Request/Response DTOs for the Asset Registry module
+// src/types/clientAssetRegistryTypes.ts
+// Domain + Request/Response DTOs for the Client Asset Registry module
 
 // ── Domain Objects ────────────────────────────────────────────────────
 
-export interface TenantAsset {
+export interface ClientAsset {
   id: string;
   tenant_id: string;
+  owner_contact_id: string;
   resource_type_id: string;
   asset_type_id: string | null;
   parent_asset_id: string | null;
@@ -17,20 +18,16 @@ export interface TenantAsset {
   status: AssetStatus;
   condition: AssetCondition;
   criticality: AssetCriticality;
-  owner_contact_id: string | null;
   location: string | null;
-  // Equipment-specific
   make: string | null;
   model: string | null;
   serial_number: string | null;
   purchase_date: string | null;
   warranty_expiry: string | null;
   last_service_date: string | null;
-  // Entity-specific
   area_sqft: number | null;
   dimensions: AssetDimensions | null;
   capacity: number | null;
-  // Metadata
   specifications: Record<string, any>;
   tags: string[];
   image_url: string | null;
@@ -55,7 +52,7 @@ export interface ContractAsset {
   is_live: boolean;
   created_at: string;
   updated_at: string;
-  asset?: TenantAsset;
+  asset?: ClientAsset;
 }
 
 export interface AssetDimensions {
@@ -74,6 +71,7 @@ export type AssetCriticality = 'low' | 'medium' | 'high' | 'critical';
 // ── Request DTOs ──────────────────────────────────────────────────────
 
 export interface CreateAssetRequest {
+  owner_contact_id: string;
   resource_type_id: string;
   name: string;
   asset_type_id?: string;
@@ -85,7 +83,6 @@ export interface CreateAssetRequest {
   status?: AssetStatus;
   condition?: AssetCondition;
   criticality?: AssetCriticality;
-  owner_contact_id?: string;
   location?: string;
   make?: string;
   model?: string;
@@ -134,6 +131,7 @@ export interface UpdateAssetRequest {
 }
 
 export interface ListAssetsRequest {
+  contact_id?: string;
   resource_type_id?: string;
   status?: AssetStatus;
   is_live?: boolean;
@@ -157,13 +155,13 @@ export interface LinkContractAssetsRequest {
 
 export interface AssetResponse {
   success: boolean;
-  data: TenantAsset;
+  data: ClientAsset;
   message?: string;
 }
 
 export interface AssetListResponse {
   success: boolean;
-  data: TenantAsset[];
+  data: ClientAsset[];
   pagination: {
     total: number;
     limit: number;

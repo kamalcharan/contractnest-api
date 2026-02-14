@@ -5,6 +5,7 @@ import { Request, Response, NextFunction } from 'express';
 import {
   getResources,
   getResourceTypes,
+  getResourceTemplates,
   createResource,
   updateResource,
   deleteResource,
@@ -321,6 +322,62 @@ router.get(
   '/resource-types',
   resourcesMiddleware.validateHeaders,
   getResourceTypes
+);
+
+// ============================================================================
+// RESOURCE TEMPLATES — Browse catalog by served industries
+// ============================================================================
+
+/**
+ * @swagger
+ * /api/resources/resource-templates:
+ *   get:
+ *     tags: [Resource Templates]
+ *     summary: Browse resource templates by served industries
+ *     description: Get equipment/entity templates filtered by tenant served industries with search and pagination
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: x-tenant-id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search templates by name
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 25
+ *         description: Number of templates to return (max 100)
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *         description: Pagination offset
+ *       - in: query
+ *         name: resource_type_id
+ *         schema:
+ *           type: string
+ *           enum: [equipment, asset]
+ *         description: Filter by resource type (equipment or asset/entity)
+ *     responses:
+ *       200:
+ *         description: Templates retrieved successfully
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  '/resource-templates',
+  resourcesMiddleware.validateHeaders,
+  getResourceTemplates
 );
 
 // ============================================================================

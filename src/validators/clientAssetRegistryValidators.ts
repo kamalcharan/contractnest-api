@@ -1,16 +1,20 @@
-// src/validators/assetRegistryValidators.ts
-// express-validator rules for Asset Registry endpoints
+// src/validators/clientAssetRegistryValidators.ts
+// express-validator rules for Client Asset Registry endpoints
 
-import { body, query, param, ValidationChain } from 'express-validator';
+import { body, query, ValidationChain } from 'express-validator';
 
 const VALID_STATUSES = ['active', 'inactive', 'under_repair', 'decommissioned'];
 const VALID_CONDITIONS = ['good', 'fair', 'poor', 'critical'];
 const VALID_CRITICALITIES = ['low', 'medium', 'high', 'critical'];
 
 /**
- * POST /asset-registry — create asset
+ * POST /client-asset-registry — create asset
  */
 export const createAssetValidation: ValidationChain[] = [
+  body('owner_contact_id')
+    .notEmpty().withMessage('owner_contact_id is required — every asset must belong to a client')
+    .isUUID().withMessage('owner_contact_id must be a valid UUID'),
+
   body('resource_type_id')
     .notEmpty().withMessage('resource_type_id is required')
     .isString().withMessage('resource_type_id must be a string'),
@@ -53,10 +57,6 @@ export const createAssetValidation: ValidationChain[] = [
     .optional()
     .isIn(VALID_CRITICALITIES).withMessage(`criticality must be one of: ${VALID_CRITICALITIES.join(', ')}`),
 
-  body('owner_contact_id')
-    .optional()
-    .isUUID().withMessage('owner_contact_id must be a valid UUID'),
-
   body('serial_number')
     .optional()
     .isString().withMessage('serial_number must be a string'),
@@ -91,7 +91,7 @@ export const createAssetValidation: ValidationChain[] = [
 ];
 
 /**
- * PATCH /asset-registry?id=... — update asset
+ * PATCH /client-asset-registry?id=... — update asset
  */
 export const updateAssetValidation: ValidationChain[] = [
   query('id')
@@ -115,13 +115,17 @@ export const updateAssetValidation: ValidationChain[] = [
     .optional()
     .isIn(VALID_CRITICALITIES).withMessage(`criticality must be one of: ${VALID_CRITICALITIES.join(', ')}`),
 
+  body('owner_contact_id')
+    .optional()
+    .isUUID().withMessage('owner_contact_id must be a valid UUID'),
+
   body('is_active')
     .optional()
     .isBoolean().withMessage('is_active must be a boolean')
 ];
 
 /**
- * DELETE /asset-registry?id=... — soft-delete asset
+ * DELETE /client-asset-registry?id=... — soft-delete asset
  */
 export const deleteAssetValidation: ValidationChain[] = [
   query('id')
@@ -130,7 +134,7 @@ export const deleteAssetValidation: ValidationChain[] = [
 ];
 
 /**
- * POST /asset-registry/contract-assets — link assets to contract
+ * POST /client-asset-registry/contract-assets — link assets to contract
  */
 export const linkContractAssetsValidation: ValidationChain[] = [
   body('contract_id')
@@ -159,7 +163,7 @@ export const linkContractAssetsValidation: ValidationChain[] = [
 ];
 
 /**
- * GET /asset-registry/contract-assets?contract_id=...
+ * GET /client-asset-registry/contract-assets?contract_id=...
  */
 export const getContractAssetsValidation: ValidationChain[] = [
   query('contract_id')

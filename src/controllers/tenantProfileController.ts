@@ -179,6 +179,189 @@ export const updateTenantProfile = async (req: Request, res: Response) => {
   }
 };
 
+// =========================================================================
+// SERVED INDUSTRIES CONTROLLERS
+// =========================================================================
+
+/**
+* Get all industries this tenant serves
+*/
+export const getServedIndustries = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_tenant_profile', 'getServedIndustries')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+
+    const result = await tenantProfileService.getServedIndustries(authHeader, tenantId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in getServedIndustries controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_tenant_profile', action: 'getServedIndustries' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'An unknown error occurred';
+
+    return res.status(status).json({ error: message });
+  }
+};
+
+/**
+* Add one or more served industries
+*/
+export const addServedIndustries = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_tenant_profile', 'addServedIndustries')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+
+    const { industry_ids } = req.body;
+
+    if (!industry_ids || !Array.isArray(industry_ids) || industry_ids.length === 0) {
+      return res.status(400).json({ error: 'industry_ids must be a non-empty array of strings' });
+    }
+
+    if (industry_ids.length > 20) {
+      return res.status(400).json({ error: 'Cannot add more than 20 industries at once' });
+    }
+
+    // Validate each ID is a non-empty string
+    for (const id of industry_ids) {
+      if (typeof id !== 'string' || id.trim().length === 0) {
+        return res.status(400).json({ error: 'Each industry_id must be a non-empty string' });
+      }
+    }
+
+    const result = await tenantProfileService.addServedIndustries(authHeader, tenantId, industry_ids);
+    return res.status(201).json(result);
+  } catch (error: any) {
+    console.error('Error in addServedIndustries controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_tenant_profile', action: 'addServedIndustries' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'An unknown error occurred';
+
+    return res.status(status).json({ error: message });
+  }
+};
+
+/**
+* Remove a served industry
+*/
+export const removeServedIndustry = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_tenant_profile', 'removeServedIndustry')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+
+    const { industryId } = req.params;
+
+    if (!industryId || industryId.trim().length === 0) {
+      return res.status(400).json({ error: 'industryId path parameter is required' });
+    }
+
+    const result = await tenantProfileService.removeServedIndustry(authHeader, tenantId, industryId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in removeServedIndustry controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_tenant_profile', action: 'removeServedIndustry' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'An unknown error occurred';
+
+    return res.status(status).json({ error: message });
+  }
+};
+
+/**
+* Get unlock preview - template counts unlocked by served industries
+*/
+export const getUnlockPreview = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_tenant_profile', 'getUnlockPreview')) {
+      return res.status(500).json({
+        error: 'Server configuration error: Missing Supabase configuration'
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+
+    const result = await tenantProfileService.getUnlockPreview(authHeader, tenantId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in getUnlockPreview controller:', error.message);
+
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_tenant_profile', action: 'getUnlockPreview' },
+      status: error.response?.status
+    });
+
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message || 'An unknown error occurred';
+
+    return res.status(status).json({ error: message });
+  }
+};
+
 /**
 * Upload a logo for the tenant profile
 */
