@@ -98,12 +98,20 @@ const resourcesMiddleware = {
    * Validate query parameters
    */
   validateQueryParams: (req: Request, res: Response, next: NextFunction) => {
-    const { resourceTypeId, nextSequence, resourceId } = req.query;
+    const { resourceTypeId, nextSequence, resourceId, include_deleted } = req.query;
 
     // Validate nextSequence parameter
     if (nextSequence !== undefined && nextSequence !== 'true' && nextSequence !== 'false') {
       return res.status(400).json({
         error: 'nextSequence parameter must be true or false',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Validate include_deleted parameter
+    if (include_deleted !== undefined && include_deleted !== 'true' && include_deleted !== 'false') {
+      return res.status(400).json({
+        error: 'include_deleted parameter must be true or false',
         timestamp: new Date().toISOString()
       });
     }

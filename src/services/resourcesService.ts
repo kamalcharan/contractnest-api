@@ -118,12 +118,18 @@ export class ResourcesService {
   async getResourcesByType(
     authHeader: string,
     tenantId: string,
-    resourceTypeId: string
+    resourceTypeId: string,
+    includeDeleted: boolean = false
   ): Promise<Resource[]> {
     try {
       const internalHeaders = InternalSigningService.createSignedHeaders();
 
-      const response = await axios.get(`${ResourcesService.BASE_URL}?resourceTypeId=${resourceTypeId}`, {
+      let url = `${ResourcesService.BASE_URL}?resourceTypeId=${resourceTypeId}`;
+      if (includeDeleted) {
+        url += '&include_deleted=true';
+      }
+
+      const response = await axios.get(url, {
         headers: {
           'Authorization': authHeader,
           'x-tenant-id': tenantId,
@@ -149,11 +155,16 @@ export class ResourcesService {
   /**
    * Get all resources (for initial load or "All" view)
    */
-  async getAllResources(authHeader: string, tenantId: string): Promise<Resource[]> {
+  async getAllResources(authHeader: string, tenantId: string, includeDeleted: boolean = false): Promise<Resource[]> {
     try {
       const internalHeaders = InternalSigningService.createSignedHeaders();
 
-      const response = await axios.get(ResourcesService.BASE_URL, {
+      let url = ResourcesService.BASE_URL;
+      if (includeDeleted) {
+        url += '?include_deleted=true';
+      }
+
+      const response = await axios.get(url, {
         headers: {
           'Authorization': authHeader,
           'x-tenant-id': tenantId,

@@ -48,6 +48,7 @@ export interface Resource {
   is_deletable: boolean;
   tags: Record<string, any> | null;
   form_settings: Record<string, any> | null;
+  sub_category: string | null;
   // Populated from joins
   contact?: Contact | null;
   resource_type?: ResourceType | null;
@@ -88,6 +89,7 @@ export interface CreateResourceRequest {
   availability_config?: Record<string, any>;
   tags?: Record<string, any>;
   form_settings?: Record<string, any>;
+  sub_category?: string;
   is_active?: boolean;
   is_deletable?: boolean;
 }
@@ -107,6 +109,7 @@ export interface UpdateResourceRequest {
   availability_config?: Record<string, any>;
   tags?: Record<string, any>;
   form_settings?: Record<string, any>;
+  sub_category?: string;
   status?: 'active' | 'inactive' | 'maintenance' | 'retired';
   is_deletable?: boolean;
 }
@@ -118,6 +121,7 @@ export interface GetResourcesQuery {
   resourceTypeId?: string;
   resourceId?: string;
   nextSequence?: string | boolean;
+  include_deleted?: string;
 }
 
 /**

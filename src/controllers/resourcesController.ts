@@ -128,13 +128,15 @@ export class ResourcesController {
     try {
       const authHeader = req.headers.authorization;
       const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const { resourceTypeId, nextSequence, resourceId } = req.query as GetResourcesQuery;
+      const { resourceTypeId, nextSequence, resourceId, include_deleted } = req.query as GetResourcesQuery;
+      const includeDeleted = include_deleted === 'true';
 
       console.log('📋 API getResources called:', {
         tenantIdHeader,
         resourceTypeId,
         nextSequence,
         resourceId,
+        includeDeleted,
         hasAuth: !!authHeader,
       });
 
@@ -171,12 +173,12 @@ export class ResourcesController {
       }
       // Handle resources by type
       else if (resourceTypeId) {
-        edgeResponse = await resourcesService.getResourcesByType(authHeader!, tenantId!, resourceTypeId);
+        edgeResponse = await resourcesService.getResourcesByType(authHeader!, tenantId!, resourceTypeId, includeDeleted);
         message = `Resources retrieved successfully for type ${resourceTypeId}`;
       }
       // Handle all resources
       else {
-        edgeResponse = await resourcesService.getAllResources(authHeader!, tenantId!);
+        edgeResponse = await resourcesService.getAllResources(authHeader!, tenantId!, includeDeleted);
         message = 'All resources retrieved successfully';
       }
 
