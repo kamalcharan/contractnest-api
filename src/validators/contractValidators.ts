@@ -172,7 +172,44 @@ export const createContractValidation: ValidationChain[] = [
 
   body('vendors.*.is_primary')
     .optional()
-    .isBoolean().withMessage('vendors[].is_primary must be a boolean')
+    .isBoolean().withMessage('vendors[].is_primary must be a boolean'),
+
+  // Equipment details (denormalized JSONB array)
+  body('equipment_details')
+    .optional()
+    .isArray().withMessage('equipment_details must be an array'),
+
+  body('equipment_details.*.id')
+    .optional()
+    .isString().withMessage('equipment_details[].id must be a string'),
+
+  body('equipment_details.*.resource_type')
+    .optional()
+    .isIn(['equipment', 'entity']).withMessage('equipment_details[].resource_type must be equipment or entity'),
+
+  body('equipment_details.*.category_name')
+    .optional()
+    .isString().withMessage('equipment_details[].category_name must be a string'),
+
+  body('equipment_details.*.item_name')
+    .optional()
+    .isString().withMessage('equipment_details[].item_name must be a string'),
+
+  body('equipment_details.*.quantity')
+    .optional()
+    .isInt({ min: 1 }).withMessage('equipment_details[].quantity must be a positive integer'),
+
+  body('equipment_details.*.added_by_role')
+    .optional()
+    .isIn(['seller', 'buyer']).withMessage('equipment_details[].added_by_role must be seller or buyer'),
+
+  body('equipment_details.*.condition')
+    .optional()
+    .isIn(['good', 'fair', 'poor', 'critical']).withMessage('equipment_details[].condition must be good, fair, poor, or critical'),
+
+  body('equipment_details.*.criticality')
+    .optional()
+    .isIn(['low', 'medium', 'high', 'critical']).withMessage('equipment_details[].criticality must be low, medium, high, or critical')
 ];
 
 // ============================================================================
@@ -264,7 +301,44 @@ export const updateContractValidation: ValidationChain[] = [
 
   body('vendors.*.contact_id')
     .optional()
-    .isUUID().withMessage('vendors[].contact_id must be a valid UUID')
+    .isUUID().withMessage('vendors[].contact_id must be a valid UUID'),
+
+  // Equipment details (denormalized JSONB array)
+  body('equipment_details')
+    .optional()
+    .isArray().withMessage('equipment_details must be an array'),
+
+  body('equipment_details.*.id')
+    .optional()
+    .isString().withMessage('equipment_details[].id must be a string'),
+
+  body('equipment_details.*.resource_type')
+    .optional()
+    .isIn(['equipment', 'entity']).withMessage('equipment_details[].resource_type must be equipment or entity'),
+
+  body('equipment_details.*.category_name')
+    .optional()
+    .isString().withMessage('equipment_details[].category_name must be a string'),
+
+  body('equipment_details.*.item_name')
+    .optional()
+    .isString().withMessage('equipment_details[].item_name must be a string'),
+
+  body('equipment_details.*.quantity')
+    .optional()
+    .isInt({ min: 1 }).withMessage('equipment_details[].quantity must be a positive integer'),
+
+  body('equipment_details.*.added_by_role')
+    .optional()
+    .isIn(['seller', 'buyer']).withMessage('equipment_details[].added_by_role must be seller or buyer'),
+
+  body('equipment_details.*.condition')
+    .optional()
+    .isIn(['good', 'fair', 'poor', 'critical']).withMessage('equipment_details[].condition must be good, fair, poor, or critical'),
+
+  body('equipment_details.*.criticality')
+    .optional()
+    .isIn(['low', 'medium', 'high', 'critical']).withMessage('equipment_details[].criticality must be low, medium, high, or critical')
 ];
 
 // ============================================================================

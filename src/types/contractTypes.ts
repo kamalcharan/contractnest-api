@@ -50,6 +50,36 @@ export type ContractType = typeof CONTRACT_TYPES[keyof typeof CONTRACT_TYPES];
 export type AcceptanceMethod = typeof ACCEPTANCE_METHODS[keyof typeof ACCEPTANCE_METHODS];
 
 // ============================================================================
+// EQUIPMENT / ENTITY DETAIL (denormalized on t_contracts.equipment_details)
+// ============================================================================
+
+/** Single equipment or entity entry in t_contracts.equipment_details JSONB */
+export interface ContractEquipmentDetail {
+  id: string;
+  asset_registry_id?: string | null;
+  added_by_tenant_id?: string;
+  added_by_role?: 'seller' | 'buyer';
+  resource_type: 'equipment' | 'entity';
+  category_id?: string | null;
+  category_name: string;
+  item_name: string;
+  quantity: number;
+  make?: string | null;
+  model?: string | null;
+  serial_number?: string | null;
+  condition?: 'good' | 'fair' | 'poor' | 'critical' | null;
+  criticality?: 'low' | 'medium' | 'high' | 'critical' | null;
+  location?: string | null;
+  purchase_date?: string | null;
+  warranty_expiry?: string | null;
+  area_sqft?: number | null;
+  dimensions?: { length?: number; width?: number; height?: number; unit?: string } | null;
+  capacity?: number | null;
+  specifications?: Record<string, any>;
+  notes?: string | null;
+}
+
+// ============================================================================
 // REQUEST DTOs
 // ============================================================================
 
@@ -75,6 +105,7 @@ export interface CreateContractRequest {
   metadata?: Record<string, any>;
   blocks?: ContractBlockInput[];
   vendors?: ContractVendorInput[];
+  equipment_details?: ContractEquipmentDetail[];
 }
 
 /**
@@ -98,6 +129,7 @@ export interface UpdateContractRequest {
   metadata?: Record<string, any>;
   blocks?: ContractBlockInput[];
   vendors?: ContractVendorInput[];
+  equipment_details?: ContractEquipmentDetail[];
 }
 
 /**
@@ -218,6 +250,7 @@ export interface ContractDetail extends ContractListItem {
   vendors: ContractVendorDetail[];
   attachments: ContractAttachmentDetail[];
   history: ContractHistoryEntry[];
+  equipment_details: ContractEquipmentDetail[];
 }
 
 /**

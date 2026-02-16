@@ -632,7 +632,8 @@ class ProductMasterdataService {
       icon_name: item.icon_name,
       hexcolor: item.hexcolor,
       is_deletable: item.is_deletable,
-      is_selectable: item.is_active
+      is_selectable: item.is_active,
+      form_settings: item.form_settings
     }));
   }
 
