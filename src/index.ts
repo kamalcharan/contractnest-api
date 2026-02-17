@@ -39,6 +39,8 @@ import productConfigRoutes from './routes/productConfigRoutes';
 
 // NOTE: groupsRoutes is loaded dynamically below via require() for error handling
 import cardProxyRoutes from './routes/cardProxyRoutes';
+import paymentGatewayRoutes from './routes/paymentGatewayRoutes';
+
 
 // JTD services
 import { jtdRealtimeListener } from './services/jtdRealtimeListener';
@@ -779,6 +781,17 @@ try {
     tags: { source: 'route_registration', route_type: 'service_execution' }
   });
 }
+// Payment Gateway routes (online payments via Razorpay/Stripe)
+try {
+  app.use('/api/payments', paymentGatewayRoutes);
+  console.log('✅ Payment gateway routes registered at /api/payments');
+} catch (error) {
+  console.error('❌ Failed to register payment gateway routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'payment_gateway' }
+  });
+}
+
 
 // Products Routes (multi-product support)
 app.use('/api/products', productsRoutes);
