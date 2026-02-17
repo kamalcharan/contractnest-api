@@ -108,18 +108,21 @@ class ContractController {
       }
 
       // Transform RPC response to match UI ContractStatsResponse shape
-      const statsData = result.data || {} as any;
+          // Transform RPC response to match UI ContractStatsResponse shape
+      // Edge function returns RPC data at root level (not wrapped in .data)
+      const statsData = result.data || result || {} as any;
       const transformedResult = {
         success: true,
         data: {
-          total: statsData.total_count || 0,
+          total: statsData.total || statsData.total_count || 0,
           by_status: statsData.by_status || {},
           by_record_type: statsData.by_record_type || {},
           by_contract_type: statsData.by_contract_type || {},
-          total_value: statsData.financials?.total_value || 0,
+          total_value: statsData.total_value || statsData.financials?.total_value || 0,
           currency_breakdown: [],
         }
       };
+
 
       res.status(200).json(transformedResult);
     } catch (error) {
