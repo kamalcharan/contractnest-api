@@ -295,6 +295,23 @@ class ContractService {
     return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
   }
 
+  async cancelInvoice(
+    contractId: string,
+    data: { invoice_id: string; action: string; reason?: string },
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const requestPayload = {
+      ...data,
+      performed_by: userId
+    };
+
+    const url = `${this.edgeFunctionUrl}/${contractId}/invoices/cancel`;
+    return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
   // =================================================================
   // PUBLIC METHODS (no auth / HMAC — uses service role key)
   // =================================================================

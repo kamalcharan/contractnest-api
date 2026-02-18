@@ -437,6 +437,42 @@ class ContractController {
     }
   };
 
+  cancelInvoice = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      const { invoice_id, action, reason } = req.body;
+
+      if (!invoice_id || !action) {
+        res.status(400).json({ success: false, error: 'invoice_id and action are required' });
+        return;
+      }
+
+      const result = await this.contractService.cancelInvoice(
+        contractId,
+        { invoice_id, action, reason },
+        userJWT,
+        tenantId,
+        userId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in cancelInvoice:', error);
+      internalError(res, 'Failed to process invoice action');
+    }
+  };
+
   // =================================================================
   // PUBLIC ENDPOINTS (no auth required)
   // =================================================================

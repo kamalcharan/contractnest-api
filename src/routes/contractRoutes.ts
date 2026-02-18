@@ -267,4 +267,16 @@ router.post(
   contractController.recordPayment
 );
 
+/**
+ * @route POST /api/contracts/:id/invoices/cancel
+ * @description Cancel an invoice or mark as bad debt (seller-only)
+ * @param {string} id - Contract UUID
+ * @body {CancelInvoiceRequest} - { invoice_id, action: 'cancel'|'bad_debt', reason? }
+ * @returns {CancelInvoiceResponse}
+ */
+router.post(
+  '/:id/invoices/cancel',
+  contractController.cancelInvoice
+);
+
 export default router;
