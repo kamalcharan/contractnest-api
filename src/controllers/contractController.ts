@@ -49,7 +49,8 @@ class ContractController {
         page: parseInt(req.query.page as string || '1', 10),
         per_page: Math.min(parseInt(req.query.per_page as string || req.query.limit as string || '20', 10), 100),
         sort_by: req.query.sort_by as string || 'created_at',
-        sort_order: req.query.sort_order as string || 'desc'
+        sort_order: req.query.sort_order as string || req.query.sort_direction as string || 'desc',
+        group_by: req.query.group_by as string || undefined,
       };
 
       const result = await this.contractService.listContracts(filters, userJWT, tenantId, environment);
@@ -59,9 +60,38 @@ class ContractController {
         return;
       }
 
-      // Transform RPC response to match UI ContractListResponse shape
+      // Transform RPC response to match UI response shape
       // DB stores 'name' but UI Contract type expects 'title'
       const pagination = result.pagination || {} as any;
+      const pageInfo = {
+        has_next_page: (pagination.page || 1) < (pagination.total_pages || 1),
+        has_prev_page: (pagination.page || 1) > 1,
+        current_page: pagination.page || 1,
+        total_pages: pagination.total_pages || 0,
+      };
+
+      // Grouped mode: RPC returns { groups: [...] } instead of { data: [...] }
+      if (filters.group_by && Array.isArray(result.groups)) {
+        const groups = result.groups.map((group: any) => ({
+          ...group,
+          contracts: (group.contracts || []).map((item: any) => ({
+            ...item,
+            title: item.title || item.name || '',
+          })),
+        }));
+        res.status(200).json({
+          success: true,
+          data: {
+            groups,
+            total_count: pagination.total || 0,
+            page_info: pageInfo,
+            filters_applied: filters,
+          }
+        });
+        return;
+      }
+
+      // Flat mode (default)
       const items = Array.isArray(result.data)
         ? result.data.map((item: any) => ({
             ...item,
@@ -73,12 +103,7 @@ class ContractController {
         data: {
           items,
           total_count: pagination.total || 0,
-          page_info: {
-            has_next_page: (pagination.page || 1) < (pagination.total_pages || 1),
-            has_prev_page: (pagination.page || 1) > 1,
-            current_page: pagination.page || 1,
-            total_pages: pagination.total_pages || 0,
-          },
+          page_info: pageInfo,
           filters_applied: filters,
         }
       };
@@ -100,7 +125,9 @@ class ContractController {
       const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
-      const result = await this.contractService.getContractStats(userJWT, tenantId, environment);
+      const contractType = req.query.contract_type as string | undefined;
+
+      const result = await this.contractService.getContractStats(userJWT, tenantId, environment, contractType);
 
       if (!result.success) {
         this.mapEdgeErrorToResponse(res, result);
@@ -111,6 +138,7 @@ class ContractController {
           // Transform RPC response to match UI ContractStatsResponse shape
       // Edge function returns RPC data at root level (not wrapped in .data)
       const statsData = result.data || result || {} as any;
+      const portfolio = statsData.portfolio || {} as any;
       const transformedResult = {
         success: true,
         data: {
@@ -120,6 +148,15 @@ class ContractController {
           by_contract_type: statsData.by_contract_type || {},
           total_value: statsData.total_value || statsData.financials?.total_value || 0,
           currency_breakdown: [],
+          // Portfolio aggregates (from enriched get_contract_stats)
+          portfolio: {
+            total_overdue_events: portfolio.total_overdue_events || 0,
+            total_invoiced: portfolio.total_invoiced || 0,
+            total_collected: portfolio.total_collected || 0,
+            outstanding: portfolio.outstanding || 0,
+            avg_health_score: portfolio.avg_health_score || 0,
+            needs_attention_count: portfolio.needs_attention_count || 0,
+          },
         }
       };
 

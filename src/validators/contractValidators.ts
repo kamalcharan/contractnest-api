@@ -16,7 +16,7 @@ const CONTRACT_STATUSES = [
 ];
 const ACCEPTANCE_METHODS = ['manual', 'auto', 'digital_signature'];
 const SORT_ORDERS = ['asc', 'desc'];
-const SORT_FIELDS = ['created_at', 'updated_at', 'title', 'contract_number', 'total_value', 'start_date', 'end_date', 'status'];
+const SORT_FIELDS = ['created_at', 'updated_at', 'title', 'contract_number', 'total_value', 'start_date', 'end_date', 'status', 'health_score', 'completion'];
 
 // ============================================================================
 // LIST / GET

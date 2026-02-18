@@ -7,6 +7,7 @@ import crypto from 'crypto';
 interface EdgeFunctionResponse<T = any> {
   success: boolean;
   data?: T;
+  groups?: any[];
   error?: string;
   code?: string;
   pagination?: {
@@ -26,6 +27,7 @@ interface ContractListFilters {
   per_page?: number;
   sort_by?: string;
   sort_order?: string;
+  group_by?: string;
 }
 
 class ContractService {
@@ -83,9 +85,15 @@ class ContractService {
   async getContractStats(
     userJWT: string,
     tenantId: string,
-    environment: string = 'live'
+    environment: string = 'live',
+    contractType?: string
   ): Promise<EdgeFunctionResponse> {
-    const url = `${this.edgeFunctionUrl}/stats`;
+    const queryParams = new URLSearchParams();
+    if (contractType) {
+      queryParams.append('contract_type', contractType);
+    }
+    const qs = queryParams.toString();
+    const url = `${this.edgeFunctionUrl}/stats${qs ? `?${qs}` : ''}`;
     return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 
