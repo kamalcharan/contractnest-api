@@ -23,13 +23,19 @@ interface EdgeResponse {
 class EventStatusConfigService {
   private readonly edgeFunctionUrl: string;
   private readonly internalSigningSecret: string;
+  private readonly supabaseKey: string;
 
   constructor() {
     const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY;
     const internalSigningSecret = process.env.INTERNAL_SIGNING_SECRET;
 
     if (!supabaseUrl) {
       throw new Error('SUPABASE_URL environment variable is not set');
+    }
+
+    if (!supabaseKey) {
+      console.warn('[EventStatusConfigService] SUPABASE_KEY not set. Edge function calls will fail with 401.');
     }
 
     if (!internalSigningSecret) {
@@ -37,6 +43,7 @@ class EventStatusConfigService {
     }
 
     this.edgeFunctionUrl = supabaseUrl + '/functions/v1/event-status-config';
+    this.supabaseKey = supabaseKey || '';
     this.internalSigningSecret = internalSigningSecret || '';
   }
 
@@ -160,6 +167,7 @@ class EventStatusConfigService {
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.supabaseKey}`,
         'x-tenant-id': tenantId,
         'x-environment': environment
       };
