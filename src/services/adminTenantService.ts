@@ -106,6 +106,40 @@ export class AdminTenantService {
   }
 
   /**
+   * POST /create-tenant - Create a new tenant with owner account
+   */
+  async createTenant(authHeader: string, tenantId: string, data: {
+    workspace_name: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    mobile_number?: string;
+    country_code?: string;
+    phone_code?: string;
+    tenant_type?: string;
+    is_test?: boolean;
+  }): Promise<any> {
+    try {
+      const url = `${BASE_URL}/create-tenant`;
+      console.log(`[adminTenantService] Create tenant: ${url}`);
+
+      const response = await axios.post(url, data, {
+        headers: {
+          Authorization: authHeader,
+          'x-tenant-id': tenantId,
+          'x-is-admin': 'true',
+          'Content-Type': 'application/json'
+        }
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminTenantService] createTenant error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * POST /reset-test-data - Delete test data (is_live=false) for a tenant
    */
   async resetTestData(authHeader: string, tenantId: string, targetTenantId: string): Promise<any> {

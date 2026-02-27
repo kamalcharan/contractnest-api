@@ -82,6 +82,27 @@ router.get('/:id/data-summary', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/admin/tenants/create
+ * Creates a new tenant with owner account and sends password reset email
+ */
+router.post('/create', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+    const result = await adminTenantService.createTenant(authHeader, tenantId, req.body);
+
+    const statusCode = result.success ? 201 : (result.error_code === 'ACCOUNT_ALREADY_EXISTS' ? 409 : 400);
+    res.status(statusCode).json(result);
+  } catch (error: any) {
+    console.error('[AdminTenantRoutes] POST /create error:', error.message);
+    const status = error.response?.status || error.status || 500;
+    const data = error.response?.data || { success: false, error: error.message || 'Failed to create tenant' };
+    res.status(status).json(data);
+  }
+});
+
+/**
  * POST /api/admin/tenants/:id/reset-test-data
  * Deletes test data (is_live=false) for a specific tenant
  */
