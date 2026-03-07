@@ -184,31 +184,31 @@ export const createContractValidation: ValidationChain[] = [
     .isString().withMessage('equipment_details[].id must be a string'),
 
   body('equipment_details.*.resource_type')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['equipment', 'entity']).withMessage('equipment_details[].resource_type must be equipment or entity'),
 
   body('equipment_details.*.category_name')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('equipment_details[].category_name must be a string'),
 
   body('equipment_details.*.item_name')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('equipment_details[].item_name must be a string'),
 
   body('equipment_details.*.quantity')
-    .optional()
+    .optional({ values: 'null' })
     .isInt({ min: 1 }).withMessage('equipment_details[].quantity must be a positive integer'),
 
   body('equipment_details.*.added_by_role')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['seller', 'buyer']).withMessage('equipment_details[].added_by_role must be seller or buyer'),
 
   body('equipment_details.*.condition')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['good', 'fair', 'poor', 'critical']).withMessage('equipment_details[].condition must be good, fair, poor, or critical'),
 
   body('equipment_details.*.criticality')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['low', 'medium', 'high', 'critical']).withMessage('equipment_details[].criticality must be low, medium, high, or critical')
 ];
 
@@ -313,31 +313,31 @@ export const updateContractValidation: ValidationChain[] = [
     .isString().withMessage('equipment_details[].id must be a string'),
 
   body('equipment_details.*.resource_type')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['equipment', 'entity']).withMessage('equipment_details[].resource_type must be equipment or entity'),
 
   body('equipment_details.*.category_name')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('equipment_details[].category_name must be a string'),
 
   body('equipment_details.*.item_name')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('equipment_details[].item_name must be a string'),
 
   body('equipment_details.*.quantity')
-    .optional()
+    .optional({ values: 'null' })
     .isInt({ min: 1 }).withMessage('equipment_details[].quantity must be a positive integer'),
 
   body('equipment_details.*.added_by_role')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['seller', 'buyer']).withMessage('equipment_details[].added_by_role must be seller or buyer'),
 
   body('equipment_details.*.condition')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['good', 'fair', 'poor', 'critical']).withMessage('equipment_details[].condition must be good, fair, poor, or critical'),
 
   body('equipment_details.*.criticality')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(['low', 'medium', 'high', 'critical']).withMessage('equipment_details[].criticality must be low, medium, high, or critical')
 ];
 

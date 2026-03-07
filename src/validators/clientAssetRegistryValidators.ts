@@ -25,68 +25,68 @@ export const createAssetValidation: ValidationChain[] = [
     .isLength({ max: 255 }).withMessage('name must be 255 characters or less'),
 
   body('asset_type_id')
-    .optional()
+    .optional({ values: 'null' })
     .isUUID().withMessage('asset_type_id must be a valid UUID'),
 
   body('parent_asset_id')
-    .optional()
+    .optional({ values: 'null' })
     .isUUID().withMessage('parent_asset_id must be a valid UUID'),
 
   body('template_id')
-    .optional()
+    .optional({ values: 'null' })
     .isUUID().withMessage('template_id must be a valid UUID'),
 
   body('industry_id')
-    .optional()
+    .optional({ values: 'null' })
     .isUUID().withMessage('industry_id must be a valid UUID'),
 
   body('code')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('code must be a string')
     .isLength({ max: 100 }).withMessage('code must be 100 characters or less'),
 
   body('status')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(VALID_STATUSES).withMessage(`status must be one of: ${VALID_STATUSES.join(', ')}`),
 
   body('condition')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(VALID_CONDITIONS).withMessage(`condition must be one of: ${VALID_CONDITIONS.join(', ')}`),
 
   body('criticality')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(VALID_CRITICALITIES).withMessage(`criticality must be one of: ${VALID_CRITICALITIES.join(', ')}`),
 
   body('serial_number')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('serial_number must be a string'),
 
   body('purchase_date')
-    .optional()
+    .optional({ values: 'null' })
     .isISO8601().withMessage('purchase_date must be a valid date'),
 
   body('warranty_expiry')
-    .optional()
+    .optional({ values: 'null' })
     .isISO8601().withMessage('warranty_expiry must be a valid date'),
 
   body('area_sqft')
-    .optional()
+    .optional({ values: 'null' })
     .isFloat({ min: 0 }).withMessage('area_sqft must be a positive number'),
 
   body('capacity')
-    .optional()
+    .optional({ values: 'null' })
     .isInt({ min: 0 }).withMessage('capacity must be a non-negative integer'),
 
   body('specifications')
-    .optional()
+    .optional({ values: 'null' })
     .isObject().withMessage('specifications must be an object'),
 
   body('tags')
-    .optional()
+    .optional({ values: 'null' })
     .isArray().withMessage('tags must be an array'),
 
   body('is_live')
-    .optional()
+    .optional({ values: 'null' })
     .isBoolean().withMessage('is_live must be a boolean')
 ];
 
@@ -99,28 +99,28 @@ export const updateAssetValidation: ValidationChain[] = [
     .isUUID().withMessage('id must be a valid UUID'),
 
   body('name')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('name must be a string')
     .isLength({ min: 1, max: 255 }).withMessage('name must be 1-255 characters'),
 
   body('status')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(VALID_STATUSES).withMessage(`status must be one of: ${VALID_STATUSES.join(', ')}`),
 
   body('condition')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(VALID_CONDITIONS).withMessage(`condition must be one of: ${VALID_CONDITIONS.join(', ')}`),
 
   body('criticality')
-    .optional()
+    .optional({ values: 'null' })
     .isIn(VALID_CRITICALITIES).withMessage(`criticality must be one of: ${VALID_CRITICALITIES.join(', ')}`),
 
   body('owner_contact_id')
-    .optional()
+    .optional({ values: 'null' })
     .isUUID().withMessage('owner_contact_id must be a valid UUID'),
 
   body('is_active')
-    .optional()
+    .optional({ values: 'null' })
     .isBoolean().withMessage('is_active must be a boolean')
 ];
 
@@ -150,15 +150,15 @@ export const linkContractAssetsValidation: ValidationChain[] = [
     .isUUID().withMessage('asset_id must be a valid UUID'),
 
   body('assets.*.coverage_type')
-    .optional()
+    .optional({ values: 'null' })
     .isString().withMessage('coverage_type must be a string'),
 
   body('assets.*.service_terms')
-    .optional()
+    .optional({ values: 'null' })
     .isObject().withMessage('service_terms must be an object'),
 
   body('is_live')
-    .optional()
+    .optional({ values: 'null' })
     .isBoolean().withMessage('is_live must be a boolean')
 ];
 

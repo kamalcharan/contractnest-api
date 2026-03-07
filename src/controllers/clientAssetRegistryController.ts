@@ -16,13 +16,17 @@ function extractContext(req: Request): { authHeader: string; tenantId: string } 
 function handleValidationErrors(req: Request, res: Response): boolean {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    const fields = errors.array().reduce((acc: Record<string, string>, e: any) => {
+      acc[e.path || e.param] = e.msg;
+      return acc;
+    }, {});
+    console.error(`[ClientAssetRegistry] Validation failed for ${req.method} ${req.originalUrl}:`, JSON.stringify(fields));
+    console.error(`[ClientAssetRegistry] Request body keys:`, Object.keys(req.body || {}));
+    console.error(`[ClientAssetRegistry] Null-valued body fields:`, Object.entries(req.body || {}).filter(([, v]) => v === null).map(([k]) => k));
     res.status(400).json({
       error: 'Validation failed',
       code: 'VALIDATION_ERROR',
-      fields: errors.array().reduce((acc: Record<string, string>, e: any) => {
-        acc[e.path || e.param] = e.msg;
-        return acc;
-      }, {})
+      fields
     });
     return true;
   }
@@ -30,7 +34,13 @@ function handleValidationErrors(req: Request, res: Response): boolean {
 }
 
 function handleError(res: Response, error: any, action: string, tenantId?: string) {
-  console.error(`Error in clientAssetRegistryController.${action}:`, error);
+  // Log the full error details for diagnosis
+  console.error(`Error in clientAssetRegistryController.${action}:`, {
+    status: error.response?.status,
+    data: error.response?.data,
+    message: error.message,
+    url: error.config?.url,
+  });
 
   if (error.response) {
     return res.status(error.response.status).json(error.response.data);
@@ -47,23 +57,26 @@ function handleError(res: Response, error: any, action: string, tenantId?: strin
 // ── Endpoints ─────────────────────────────────────────────────────
 
 export const listAssets = async (req: Request, res: Response) => {
-  try {
-    const ctx = extractContext(req);
-    if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
+  const ctx = extractContext(req);
+  if (!ctx) return res.status(401).json({ error: 'Authorization and x-tenant-id headers required' });
 
-    const result = await clientAssetRegistryService.listAssets(ctx.authHeader, ctx.tenantId, {
-      id: req.query.id as string,
-      contact_id: req.query.contact_id as string,
-      resource_type_id: req.query.resource_type_id as string,
-      status: req.query.status as string,
-      is_live: req.query.is_live === 'false' ? false : true,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined
-    });
+  try {
+    // Build clean params — only include defined values to avoid sending undefined/NaN to edge function
+    const params: Record<string, any> = {};
+    if (req.query.id) params.id = req.query.id;
+    if (req.query.contact_id) params.contact_id = req.query.contact_id;
+    if (req.query.resource_type_id) params.resource_type_id = req.query.resource_type_id;
+    if (req.query.status) params.status = req.query.status;
+    if (req.query.is_live === 'false') params.is_live = false;
+    // Note: is_live defaults to true in the edge function, no need to send it explicitly
+    if (req.query.limit) params.limit = Number(req.query.limit);
+    if (req.query.offset && Number(req.query.offset) > 0) params.offset = Number(req.query.offset);
+
+    const result = await clientAssetRegistryService.listAssets(ctx.authHeader, ctx.tenantId, params);
 
     return res.status(200).json(result);
   } catch (error: any) {
-    return handleError(res, error, 'listAssets');
+    return handleError(res, error, 'listAssets', ctx.tenantId);
   }
 };
 
