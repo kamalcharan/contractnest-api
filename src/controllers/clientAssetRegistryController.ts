@@ -67,6 +67,7 @@ export const listAssets = async (req: Request, res: Response) => {
     if (req.query.contact_id) params.contact_id = req.query.contact_id;
     if (req.query.resource_type_id) params.resource_type_id = req.query.resource_type_id;
     if (req.query.status) params.status = req.query.status;
+    if (req.query.ownership_type) params.ownership_type = req.query.ownership_type;
     if (req.query.is_live === 'false') params.is_live = false;
     // Note: is_live defaults to true in the edge function, no need to send it explicitly
     if (req.query.limit) params.limit = Number(req.query.limit);

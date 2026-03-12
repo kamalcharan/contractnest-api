@@ -219,8 +219,8 @@ export const ResourceValidationRules = {
     required: true,
     minLength: 1,
     maxLength: 255,
-    // Relaxed pattern - allows letters, numbers, spaces, and common punctuation
-    pattern: /^[a-zA-Z0-9\s\-_.()&]+$/,
+    // Relaxed pattern - allows letters, numbers, spaces, and common punctuation including / , # + ' " : @
+    pattern: /^[a-zA-Z0-9\s\-_.()&\/,#+'":@]+$/,
   },
   display_name: {
     required: true,

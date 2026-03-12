@@ -300,7 +300,7 @@ export class ResourceValidator {
       if (data.name && !ResourceValidationRules.name.pattern.test(data.name)) {
         errors.push({
           field: 'name',
-          message: 'Name contains invalid characters. Only letters, numbers, spaces, and common punctuation are allowed.',
+          message: 'Name contains invalid characters. Letters, numbers, spaces, and common punctuation (- _ . () & / , # + \' " : @) are allowed.',
           code: 'INVALID_FORMAT'
         });
       }

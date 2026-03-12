@@ -6,13 +6,18 @@ import { body, query, ValidationChain } from 'express-validator';
 const VALID_STATUSES = ['active', 'inactive', 'under_repair', 'decommissioned'];
 const VALID_CONDITIONS = ['good', 'fair', 'poor', 'critical'];
 const VALID_CRITICALITIES = ['low', 'medium', 'high', 'critical'];
+const VALID_OWNERSHIP_TYPES = ['client', 'self'];
 
 /**
  * POST /client-asset-registry — create asset
  */
 export const createAssetValidation: ValidationChain[] = [
+  body('ownership_type')
+    .optional({ values: 'null' })
+    .isIn(VALID_OWNERSHIP_TYPES).withMessage(`ownership_type must be one of: ${VALID_OWNERSHIP_TYPES.join(', ')}`),
+
   body('owner_contact_id')
-    .notEmpty().withMessage('owner_contact_id is required — every asset must belong to a client')
+    .optional({ values: 'null' })
     .isUUID().withMessage('owner_contact_id must be a valid UUID'),
 
   body('resource_type_id')
@@ -114,6 +119,10 @@ export const updateAssetValidation: ValidationChain[] = [
   body('criticality')
     .optional({ values: 'null' })
     .isIn(VALID_CRITICALITIES).withMessage(`criticality must be one of: ${VALID_CRITICALITIES.join(', ')}`),
+
+  body('ownership_type')
+    .optional({ values: 'null' })
+    .isIn(VALID_OWNERSHIP_TYPES).withMessage(`ownership_type must be one of: ${VALID_OWNERSHIP_TYPES.join(', ')}`),
 
   body('owner_contact_id')
     .optional({ values: 'null' })
