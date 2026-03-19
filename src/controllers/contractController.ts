@@ -511,6 +511,166 @@ class ContractController {
   };
 
   // =================================================================
+  // BUYER EQUIPMENT ENDPOINTS
+  // =================================================================
+
+  /**
+   * POST /api/contracts/:id/buyer-equipment
+   * Add equipment from buyer's registry to the contract
+   */
+  buyerAddEquipment = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const { equipment_item } = req.body;
+
+      if (!equipment_item) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'equipment_item is required', 400);
+        return;
+      }
+
+      const result = await this.contractService.buyerAddEquipment(
+        id,
+        equipment_item,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in buyerAddEquipment:', error);
+      internalError(res, 'Failed to add equipment');
+    }
+  };
+
+  /**
+   * DELETE /api/contracts/:id/buyer-equipment
+   * Remove buyer-added equipment from the contract
+   */
+  buyerRemoveEquipment = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const { item_id } = req.body;
+
+      if (!item_id) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'item_id is required', 400);
+        return;
+      }
+
+      const result = await this.contractService.buyerRemoveEquipment(
+        id,
+        item_id,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in buyerRemoveEquipment:', error);
+      internalError(res, 'Failed to remove equipment');
+    }
+  };
+
+  // =================================================================
+  // SELLER EQUIPMENT ENDPOINTS
+  // =================================================================
+
+  /**
+   * POST /api/contracts/:id/seller-equipment
+   * Add equipment from seller's registry to the contract
+   */
+  sellerAddEquipment = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const { equipment_item } = req.body;
+
+      if (!equipment_item) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'equipment_item is required', 400);
+        return;
+      }
+
+      const result = await this.contractService.sellerAddEquipment(
+        id,
+        equipment_item,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in sellerAddEquipment:', error);
+      internalError(res, 'Failed to add equipment');
+    }
+  };
+
+  /**
+   * DELETE /api/contracts/:id/seller-equipment
+   * Remove seller-added equipment from the contract
+   */
+  sellerRemoveEquipment = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const { item_id } = req.body;
+
+      if (!item_id) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'item_id is required', 400);
+        return;
+      }
+
+      const result = await this.contractService.sellerRemoveEquipment(
+        id,
+        item_id,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in sellerRemoveEquipment:', error);
+      internalError(res, 'Failed to remove equipment');
+    }
+  };
+
+  // =================================================================
   // PUBLIC ENDPOINTS (no auth required)
   // =================================================================
 

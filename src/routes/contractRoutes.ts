@@ -241,6 +241,62 @@ router.post(
 );
 
 // =================================================================
+// BUYER EQUIPMENT ENDPOINTS
+// =================================================================
+
+/**
+ * @route POST /api/contracts/:id/buyer-equipment
+ * @description Add equipment from buyer's registry to the contract
+ * @param {string} id - Contract UUID
+ * @body { equipment_item: ContractEquipmentDetail }
+ * @returns { success, data: { contract_id, item_id, equipment_details } }
+ */
+router.post(
+  '/:id/buyer-equipment',
+  contractController.buyerAddEquipment
+);
+
+/**
+ * @route DELETE /api/contracts/:id/buyer-equipment
+ * @description Remove buyer-added equipment from the contract
+ * @param {string} id - Contract UUID
+ * @body { item_id: string }
+ * @returns { success, data: { contract_id, removed_item_id, equipment_details } }
+ */
+router.delete(
+  '/:id/buyer-equipment',
+  contractController.buyerRemoveEquipment
+);
+
+// =================================================================
+// SELLER EQUIPMENT ENDPOINTS
+// =================================================================
+
+/**
+ * @route POST /api/contracts/:id/seller-equipment
+ * @description Add equipment from seller's registry to the contract
+ * @param {string} id - Contract UUID
+ * @body { equipment_item: ContractEquipmentDetail }
+ * @returns { success, data: { contract_id, item_id, equipment_details } }
+ */
+router.post(
+  '/:id/seller-equipment',
+  contractController.sellerAddEquipment
+);
+
+/**
+ * @route DELETE /api/contracts/:id/seller-equipment
+ * @description Remove seller-added equipment from the contract
+ * @param {string} id - Contract UUID
+ * @body { item_id: string }
+ * @returns { success, data: { contract_id, removed_item_id, equipment_details } }
+ */
+router.delete(
+  '/:id/seller-equipment',
+  contractController.sellerRemoveEquipment
+);
+
+// =================================================================
 // INVOICE & PAYMENT ENDPOINTS
 // =================================================================
 

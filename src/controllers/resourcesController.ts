@@ -98,9 +98,7 @@ export class ResourcesController {
           return extractEdgeData(edgeResponse);
         },
         checkResourceNameExists: async (name: string, resourceTypeId: string, excludeResourceId?: string) => {
-          const edgeResponse = await resourcesService.checkResourceNameExists(authHeader, tenantId, name, resourceTypeId, excludeResourceId);
-          // 🔧 FIX: Extract the actual result from edge function response
-          return extractEdgeData(edgeResponse);
+          return resourcesService.checkResourceNameExists(authHeader, tenantId, name, resourceTypeId, excludeResourceId);
         },
         getResourceById: async (resourceId: string) => {
           const edgeResponse = await resourcesService.getResourceById(authHeader, tenantId, resourceId);

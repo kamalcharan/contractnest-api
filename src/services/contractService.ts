@@ -321,6 +321,58 @@ class ContractService {
   }
 
   // =================================================================
+  // BUYER EQUIPMENT METHODS
+  // =================================================================
+
+  async buyerAddEquipment(
+    contractId: string,
+    equipmentItem: any,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/buyer-equipment`;
+    return await this.makeRequest('POST', url, { equipment_item: equipmentItem }, userJWT, tenantId, environment);
+  }
+
+  async buyerRemoveEquipment(
+    contractId: string,
+    itemId: string,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/buyer-equipment`;
+    return await this.makeRequest('DELETE', url, { item_id: itemId }, userJWT, tenantId, environment);
+  }
+
+  // =================================================================
+  // SELLER EQUIPMENT METHODS
+  // =================================================================
+
+  async sellerAddEquipment(
+    contractId: string,
+    equipmentItem: any,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/seller-equipment`;
+    return await this.makeRequest('POST', url, { equipment_item: equipmentItem }, userJWT, tenantId, environment);
+  }
+
+  async sellerRemoveEquipment(
+    contractId: string,
+    itemId: string,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/seller-equipment`;
+    return await this.makeRequest('DELETE', url, { item_id: itemId }, userJWT, tenantId, environment);
+  }
+
+  // =================================================================
   // PUBLIC METHODS (no auth / HMAC — uses service role key)
   // =================================================================
 
