@@ -127,39 +127,84 @@ export interface TemplateBlock {
 
 export interface CatTemplate {
   id: string;
-  tenant_id?: string;
+  tenant_id?: string | null;
+  is_live: boolean;
   name: string;
+  display_name?: string;
   description?: string;
+  category?: string;
+  tags?: string[];
+  cover_image?: string | null;
   blocks: TemplateBlock[];
+  currency?: string;
+  tax_rate?: number;
+  discount_config?: Record<string, any>;
+  subtotal?: number | null;
+  total?: number | null;
+  settings?: Record<string, any>;
   is_system: boolean;
   is_public: boolean;
-  is_live: boolean;
-  status_id: string;
-  copied_from_id?: string;
-  created_by?: string;
+  copied_from_id?: string | null;
+  industry_tags?: string[];
+  is_active: boolean;
+  status_id?: string | null;
+  sequence_no?: number;
+  is_deletable: boolean;
+  created_by?: string | null;
+  updated_by?: string | null;
+  version: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateTemplateRequest {
   name: string;
+  display_name?: string;
   description?: string;
+  category?: string;
+  tags?: string[];
+  cover_image?: string;
   blocks: TemplateBlock[];
+  currency?: string;
+  tax_rate?: number;
+  discount_config?: Record<string, any>;
+  settings?: Record<string, any>;
+  industry_tags?: string[];
   is_public?: boolean;
+  is_system?: boolean;
+  is_active?: boolean;
   status_id?: string;
+  sequence_no?: number;
+  is_deletable?: boolean;
+  created_by?: string;
 }
 
 export interface UpdateTemplateRequest {
   name?: string;
+  display_name?: string;
   description?: string;
+  category?: string;
+  tags?: string[];
+  cover_image?: string | null;
   blocks?: TemplateBlock[];
+  currency?: string;
+  tax_rate?: number;
+  discount_config?: Record<string, any>;
+  settings?: Record<string, any>;
+  industry_tags?: string[];
   is_public?: boolean;
+  is_active?: boolean;
   status_id?: string;
+  sequence_no?: number;
+  is_deletable?: boolean;
+  updated_by?: string;
+  expected_version?: number;
 }
 
 export interface CopyTemplateRequest {
   name?: string;
-  description?: string;
+  display_name?: string;
+  created_by?: string;
 }
 
 // ============================================
@@ -173,6 +218,7 @@ export interface RequestContext {
   isAdmin: boolean;
   environment: 'live' | 'test';
   accessToken: string;
+  idempotencyKey?: string;
 }
 
 // ============================================
@@ -204,6 +250,31 @@ export interface TemplateListResponse {
   total: number;
 }
 
+export interface IndustryCoverage {
+  id: string;
+  name: string;
+  icon: string | null;
+  description: string | null;
+  templateCount: number;
+  hasCoverage: boolean;
+}
+
+export interface TemplateCoverageSummary {
+  totalTemplates: number;
+  totalIndustries: number;
+  coveredIndustries: number;
+  uncoveredIndustries: number;
+  coveragePercent: number;
+  totalCategories: number;
+  publicTemplates: number;
+}
+
+export interface TemplateCoverageResponse {
+  summary: TemplateCoverageSummary;
+  industries: IndustryCoverage[];
+  uncovered: Array<{ id: string; name: string; icon: string | null }>;
+}
+
 // ============================================
 // Query Parameters
 // ============================================
@@ -219,8 +290,10 @@ export interface BlockQueryParams {
 }
 
 export interface TemplateQueryParams {
-  status_id?: string;
+  category?: string;
+  is_system?: boolean;
   is_public?: boolean;
+  industry?: string;
   search?: string;
   page?: number;
   limit?: number;

@@ -35,6 +35,7 @@ class CatalogStudioController {
     const isAdmin = req.headers['x-is-admin'] === 'true';
     const environment = (req.headers['x-environment'] as 'live' | 'test') || 'test';
     const authHeader = req.headers.authorization;
+    const idempotencyKey = req.context?.idempotencyKey || req.headers['x-idempotency-key'] as string | undefined;
 
     if (!tenantId || !authHeader) {
       return null;
@@ -49,6 +50,7 @@ class CatalogStudioController {
       isAdmin,
       environment,
       accessToken,
+      idempotencyKey,
     };
   }
 
@@ -72,8 +74,10 @@ class CatalogStudioController {
    */
   private parseTemplateQueryParams(req: Request): TemplateQueryParams {
     return {
-      status_id: req.query.status_id as string,
+      category: req.query.category as string,
+      is_system: req.query.is_system === 'true' ? true : req.query.is_system === 'false' ? false : undefined,
       is_public: req.query.is_public === 'true' ? true : req.query.is_public === 'false' ? false : undefined,
+      industry: req.query.industry as string,
       search: req.query.search as string,
       page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
@@ -409,6 +413,26 @@ class CatalogStudioController {
 
     const data: UpdateTemplateRequest = req.body;
     const result = await catTemplatesService.updateTemplate(context, id, data);  // ✅ Use singleton
+
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
+
+    res.json(result);
+  };
+
+  getTemplateCoverage = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Missing required headers' },
+      });
+      return;
+    }
+
+    const result = await catTemplatesService.getCoverage(context);
 
     if (!result.success) {
       res.status(400).json(result);

@@ -431,7 +431,8 @@ app.use(cors({
     'x-timestamp',
     'idempotency-key',
     'x-idempotency-key',
-    'x-internal-signature'
+    'x-internal-signature',
+    'x-is-admin'
   ]
 }));
 

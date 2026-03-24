@@ -138,6 +138,13 @@ router.get(
   catalogStudioController.getTemplates
 );
 
+// GET /templates/coverage - Template coverage statistics (industries + stats)
+router.get(
+  '/templates/coverage',
+  validateHeaders,
+  catalogStudioController.getTemplateCoverage
+);
+
 // GET /templates/system - List system templates
 router.get(
   '/templates/system',

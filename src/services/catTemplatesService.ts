@@ -8,6 +8,7 @@ import {
   TemplateQueryParams,
   ApiResponse,
   TemplateListResponse,
+  TemplateCoverageResponse,
   RequestContext,
 } from '../types/catalogStudioTypes';
 
@@ -69,8 +70,17 @@ export class CatTemplatesService {
       'Authorization': `Bearer ${context.accessToken}`,
       'x-tenant-id': context.tenantId,
       'x-is-admin': String(context.isAdmin),
+      'x-environment': context.environment || 'live',
       'x-timestamp': timestamp,
     };
+
+    if (context.userId) {
+      headers['x-user-id'] = context.userId;
+    }
+
+    if (context.idempotencyKey) {
+      headers['x-idempotency-key'] = context.idempotencyKey;
+    }
 
     if (this.internalSecret) {
       headers['x-internal-signature'] = this.generateSignature(requestBody, timestamp);
@@ -151,6 +161,9 @@ export class CatTemplatesService {
           is_system: false,
           is_public: data.is_public || false,
           is_live: false,
+          is_active: true,
+          is_deletable: true,
+          version: 1,
           status_id: data.status_id || 'draft',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -171,6 +184,9 @@ export class CatTemplatesService {
           is_system: false,
           is_public: false,
           is_live: false,
+          is_active: true,
+          is_deletable: true,
+          version: 1,
           status_id: 'draft',
           copied_from_id: templateId,
           created_at: new Date().toISOString(),
@@ -178,7 +194,7 @@ export class CatTemplatesService {
         } as CatTemplate,
       };
     }
-    return this.makeRequest<CatTemplate>('POST', `?id=${templateId}&action=copy`, context, data || {});
+    return this.makeRequest<CatTemplate>('POST', `/copy?id=${templateId}`, context, data || {});
   }
 
   async updateTemplate(context: RequestContext, templateId: string, data: UpdateTemplateRequest): Promise<ApiResponse<CatTemplate>> {
@@ -192,7 +208,11 @@ export class CatTemplatesService {
           is_system: false,
           is_public: data.is_public || false,
           is_live: false,
+          is_active: true,
+          is_deletable: true,
+          version: 1,
           status_id: data.status_id || 'draft',
+          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as CatTemplate,
       };
@@ -205,10 +225,28 @@ export class CatTemplatesService {
     return this.makeRequest<{ deleted: boolean }>('DELETE', `?id=${templateId}`, context);
   }
 
+  async getCoverage(context: RequestContext): Promise<ApiResponse<TemplateCoverageResponse>> {
+    if (!this.edgeFunctionUrl) {
+      return {
+        success: true,
+        data: {
+          summary: {
+            totalTemplates: 0, totalIndustries: 0, coveredIndustries: 0,
+            uncoveredIndustries: 0, coveragePercent: 0, totalCategories: 0, publicTemplates: 0,
+          },
+          industries: [],
+          uncovered: [],
+        },
+      };
+    }
+    return this.makeRequest<TemplateCoverageResponse>('GET', '/coverage', context);
+  }
+
   private buildQueryString(params: TemplateQueryParams): string {
     const sp = new URLSearchParams();
-    if (params.status_id) sp.append('status_id', params.status_id);
-    if (params.is_public !== undefined) sp.append('is_public', String(params.is_public));
+    if (params.category) sp.append('category', params.category);
+    if (params.is_system !== undefined) sp.append('is_system', String(params.is_system));
+    if (params.industry) sp.append('industry', params.industry);
     if (params.search) sp.append('search', params.search);
     if (params.page) sp.append('page', String(params.page));
     if (params.limit) sp.append('limit', String(params.limit));
