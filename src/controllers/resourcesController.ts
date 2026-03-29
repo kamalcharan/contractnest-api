@@ -242,7 +242,7 @@ export class ResourcesController {
     try {
       const authHeader = req.headers.authorization;
       const tenantIdHeader = req.headers['x-tenant-id'] as string;
-      const { search, limit, offset, resource_type_id } = req.query;
+      const { search, limit, offset, resource_type_id, industry_ids } = req.query;
 
       console.log('📋 API getResourceTemplates called:', {
         tenantIdHeader,
@@ -250,6 +250,7 @@ export class ResourcesController {
         limit,
         offset,
         resource_type_id,
+        industry_ids,
         hasAuth: !!authHeader,
       });
 
@@ -266,6 +267,7 @@ export class ResourcesController {
         limit: limit ? parseInt(limit as string, 10) : undefined,
         offset: offset ? parseInt(offset as string, 10) : undefined,
         resource_type_id: resource_type_id as string,
+        industry_ids: industry_ids as string,
       });
 
       console.log(`✅ Successfully retrieved resource templates for tenant ${tenantId}`);

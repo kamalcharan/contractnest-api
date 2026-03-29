@@ -367,7 +367,7 @@ export class ResourcesService {
   async getResourceTemplates(
     authHeader: string,
     tenantId: string,
-    params: { search?: string; limit?: number; offset?: number; resource_type_id?: string }
+    params: { search?: string; limit?: number; offset?: number; resource_type_id?: string; industry_ids?: string }
   ): Promise<any> {
     try {
       const internalHeaders = InternalSigningService.createSignedHeaders();
@@ -377,6 +377,7 @@ export class ResourcesService {
       if (params.limit) queryParts.push(`limit=${params.limit}`);
       if (params.offset !== undefined) queryParts.push(`offset=${params.offset}`);
       if (params.resource_type_id) queryParts.push(`resource_type_id=${encodeURIComponent(params.resource_type_id)}`);
+      if (params.industry_ids) queryParts.push(`industry_ids=${encodeURIComponent(params.industry_ids)}`);
 
       const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
 

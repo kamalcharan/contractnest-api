@@ -246,6 +246,7 @@ export class CatTemplatesService {
     const sp = new URLSearchParams();
     if (params.category) sp.append('category', params.category);
     if (params.is_system !== undefined) sp.append('is_system', String(params.is_system));
+    if (params.is_active !== undefined) sp.append('is_active', String(params.is_active));
     if (params.industry) sp.append('industry', params.industry);
     if (params.search) sp.append('search', params.search);
     if (params.page) sp.append('page', String(params.page));

@@ -360,11 +360,13 @@ export const queryBlocksValidation: ValidationChain[] = [
 
   query('page')
     .optional()
+    .toInt()
     .isInt({ min: VALIDATION_CONSTRAINTS.PAGE.MIN, max: VALIDATION_CONSTRAINTS.PAGE.MAX })
     .withMessage(`Page must be between ${VALIDATION_CONSTRAINTS.PAGE.MIN} and ${VALIDATION_CONSTRAINTS.PAGE.MAX}`),
 
   query('limit')
     .optional()
+    .toInt()
     .isInt({ min: VALIDATION_CONSTRAINTS.LIMIT.MIN, max: VALIDATION_CONSTRAINTS.LIMIT.MAX })
     .withMessage(`Limit must be between ${VALIDATION_CONSTRAINTS.LIMIT.MIN} and ${VALIDATION_CONSTRAINTS.LIMIT.MAX}`)
 ];
@@ -592,6 +594,11 @@ export const queryTemplatesValidation: ValidationChain[] = [
     .isIn(['true', 'false'])
     .withMessage('is_public must be true or false'),
 
+  query('is_active')
+    .optional()
+    .isIn(['true', 'false', 'all'])
+    .withMessage('is_active must be true, false, or all'),
+
   query('industry')
     .optional()
     .isString()
@@ -607,11 +614,13 @@ export const queryTemplatesValidation: ValidationChain[] = [
 
   query('page')
     .optional()
+    .toInt()
     .isInt({ min: VALIDATION_CONSTRAINTS.PAGE.MIN, max: VALIDATION_CONSTRAINTS.PAGE.MAX })
     .withMessage(`Page must be between ${VALIDATION_CONSTRAINTS.PAGE.MIN} and ${VALIDATION_CONSTRAINTS.PAGE.MAX}`),
 
   query('limit')
     .optional()
+    .toInt()
     .isInt({ min: VALIDATION_CONSTRAINTS.LIMIT.MIN, max: VALIDATION_CONSTRAINTS.LIMIT.MAX })
     .withMessage(`Limit must be between ${VALIDATION_CONSTRAINTS.LIMIT.MIN} and ${VALIDATION_CONSTRAINTS.LIMIT.MAX}`)
 ];

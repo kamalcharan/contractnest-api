@@ -293,6 +293,7 @@ export interface TemplateQueryParams {
   category?: string;
   is_system?: boolean;
   is_public?: boolean;
+  is_active?: boolean | 'all';
   industry?: string;
   search?: string;
   page?: number;

@@ -77,6 +77,7 @@ class CatalogStudioController {
       category: req.query.category as string,
       is_system: req.query.is_system === 'true' ? true : req.query.is_system === 'false' ? false : undefined,
       is_public: req.query.is_public === 'true' ? true : req.query.is_public === 'false' ? false : undefined,
+      is_active: req.query.is_active === 'all' ? 'all' : req.query.is_active === 'true' ? true : req.query.is_active === 'false' ? false : undefined,
       industry: req.query.industry as string,
       search: req.query.search as string,
       page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
@@ -342,7 +343,10 @@ class CatalogStudioController {
       return;
     }
 
-    const data: CreateTemplateRequest = req.body;
+    const data: CreateTemplateRequest = {
+      ...req.body,
+      created_by: req.body.created_by || context.userId || null,
+    };
 
     if (!data.name || !data.blocks) {
       res.status(400).json({
@@ -381,7 +385,10 @@ class CatalogStudioController {
       return;
     }
 
-    const data: CopyTemplateRequest = req.body;
+    const data: CopyTemplateRequest = {
+      ...req.body,
+      created_by: req.body.created_by || context.userId || null,
+    };
     const result = await catTemplatesService.copyTemplate(context, id, data);  // ✅ Use singleton
 
     if (!result.success) {
@@ -411,7 +418,10 @@ class CatalogStudioController {
       return;
     }
 
-    const data: UpdateTemplateRequest = req.body;
+    const data: UpdateTemplateRequest = {
+      ...req.body,
+      updated_by: req.body.updated_by || context.userId || null,
+    };
     const result = await catTemplatesService.updateTemplate(context, id, data);  // ✅ Use singleton
 
     if (!result.success) {
