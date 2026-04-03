@@ -66,6 +66,12 @@ export interface BlockConfig {
   [key: string]: any;
 }
 
+export interface KnowledgeTreeRef {
+  resource_template_id: string;
+  service_activity?: string;
+  variant_id?: string;
+}
+
 export interface CatBlock {
   id: string;
   tenant_id?: string;
@@ -77,9 +83,12 @@ export interface CatBlock {
   is_seed?: boolean;
   visible: boolean;
   is_active: boolean;
+  is_live?: boolean;
   config: BlockConfig;
   resource_pricing?: ResourcePricingConfig;
   variant_pricing?: VariantPricingConfig;
+  form_template_id?: string;
+  knowledge_tree_ref?: KnowledgeTreeRef;
   tags?: string[];
   created_by?: string;
   created_at: string;
@@ -93,11 +102,14 @@ export interface CreateBlockRequest {
   pricing_mode_id: string;
   is_admin?: boolean;
   is_seed?: boolean;
+  is_live?: boolean;
   tenant_id?: string;
   visible?: boolean;
   config: BlockConfig;
   resource_pricing?: ResourcePricingConfig;
   variant_pricing?: VariantPricingConfig;
+  form_template_id?: string;
+  knowledge_tree_ref?: KnowledgeTreeRef;
   tags?: string[];
 }
 
@@ -109,9 +121,12 @@ export interface UpdateBlockRequest {
   is_admin?: boolean;
   visible?: boolean;
   is_active?: boolean;
+  is_live?: boolean;
   config?: BlockConfig;
   resource_pricing?: ResourcePricingConfig;
   variant_pricing?: VariantPricingConfig;
+  form_template_id?: string;
+  knowledge_tree_ref?: KnowledgeTreeRef;
   tags?: string[];
 }
 
