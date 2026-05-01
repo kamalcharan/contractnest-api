@@ -273,6 +273,21 @@ try {
   }
 }
 
+// Load Knowledge Tree Generator routes
+let knowledgeTreeRoutes;
+try {
+  knowledgeTreeRoutes = require('./routes/knowledgeTreeRoutes').default;
+  console.log('✅ Knowledge Tree Generator routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load knowledge tree routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without knowledge tree routes...');
+    knowledgeTreeRoutes = null;
+  }
+}
+
 // Load Catalog Studio routes with error handling
 let catalogStudioRoutes;
 try {
@@ -676,6 +691,18 @@ try {
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'seeds' }
   });
+}
+
+// Register Knowledge Tree Generator routes
+try {
+  if (knowledgeTreeRoutes) {
+    app.use('/api/knowledge-tree', knowledgeTreeRoutes);
+    console.log('✅ Knowledge Tree Generator routes registered at /api/knowledge-tree');
+  } else {
+    console.log('⚠️  Knowledge Tree Generator routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register knowledge tree routes:', error);
 }
 
 // Register Catalog Studio routes with error handling
