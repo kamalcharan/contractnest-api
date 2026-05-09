@@ -10,24 +10,43 @@ interface GenerateKTInput {
   resourceTemplateId: string;
   serviceActivity?: string;
   existingKT?: boolean;
+  resourceType?: 'equipment' | 'facility';
+}
+
+interface GenerateKTResult {
+  data: any;
+  truncated: boolean;
 }
 
 class KnowledgeTreeGeneratorService {
   private readonly anthropicKey: string;
+  private readonly anthropicUrl: string;
   private readonly model: string;
 
   constructor() {
     this.anthropicKey = process.env.ANTHROPIC_API_KEY || '';
+    this.anthropicUrl = process.env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1/messages';
     this.model = process.env.KT_LLM_MODEL || 'claude-sonnet-4-6';
     if (!this.anthropicKey) {
       console.warn('⚠️ ANTHROPIC_API_KEY not set — KnowledgeTreeGeneratorService disabled');
     } else {
-      console.log(`✅ KnowledgeTreeGeneratorService: Initialized (model: ${this.model})`);
+      console.log(`✅ KnowledgeTreeGeneratorService: model=${this.model}, url=${this.anthropicUrl}`);
     }
   }
 
-  private loadSkillPrompt(serviceActivity: string, existingKT: boolean): string {
-    const fileName = existingKT ? 'kt-activity-generator.md' : 'kt-equipment-generator.md';
+  // Selects the correct skill file based on generation mode and resource type.
+  // Skill files are cached by the OS file system; prompt caching is handled
+  // at the Anthropic API level via cache_control on the system message.
+  private loadSkillPrompt(serviceActivity: string, existingKT: boolean, resourceType: string): string {
+    let fileName: string;
+    if (existingKT) {
+      fileName = 'kt-activity-generator.md';
+    } else if (resourceType === 'facility') {
+      fileName = 'kt-facility-generator.md';
+    } else {
+      fileName = 'kt-equipment-generator.md';
+    }
+
     const skillPath = path.join(process.cwd(), 'src', 'skills', fileName);
     if (!fs.existsSync(skillPath)) {
       throw new Error(`Skill file not found at: ${skillPath}`);
@@ -36,35 +55,64 @@ class KnowledgeTreeGeneratorService {
     return content.replace(/\{\{SERVICE_ACTIVITY\}\}/g, serviceActivity);
   }
 
-  async generate(input: GenerateKTInput): Promise<any> {
-    const { equipmentName, subCategory, resourceTemplateId, serviceActivity = 'pm', existingKT = false } = input;
+  // Token budget per generation mode:
+  //   activity-only  — 12 000  (checkpoints + cycles only, no variants/parts)
+  //   facility full  — 28 000  (zones + consumables + checkpoints + cycles + overlays + checkpoint_values + spare_part_variant_map)
+  //   equipment full — 16 000  (variants + 40+ parts + spare_part_variant_map up to 100 entries)
+  private getMaxTokens(existingKT: boolean, resourceType: string): number {
+    if (existingKT) return 12_000;
+    // Hospital Ward / OT can produce 28 checkpoints × 3 values + 80-entry spare_part_variant_map
+    if (resourceType === 'facility') return 28_000;
+    return 16_000;
+  }
+
+  async generate(input: GenerateKTInput): Promise<GenerateKTResult> {
+    const {
+      equipmentName,
+      subCategory,
+      resourceTemplateId,
+      serviceActivity = 'pm',
+      existingKT = false,
+      resourceType = 'equipment',
+    } = input;
 
     if (!this.anthropicKey) {
       throw new Error('ANTHROPIC_API_KEY is not configured in .env');
     }
 
-    const systemPrompt = this.loadSkillPrompt(serviceActivity, existingKT);
+    const systemPrompt = this.loadSkillPrompt(serviceActivity, existingKT, resourceType);
+    const maxTokens = this.getMaxTokens(existingKT, resourceType);
 
-    const userMessage = `Generate a ${existingKT ? '' : 'complete '}Knowledge Tree for:
+    // Label used in the user turn — facilities get "Facility:" prefix, equipment keeps "Equipment:"
+    const resourceLabel = resourceType === 'facility' ? 'Facility' : 'Equipment';
+
+    const userMessage = existingKT
+      ? `Generate a Knowledge Tree activity plan for:
 Equipment: ${equipmentName}
+Sub-category: ${subCategory}
+resource_template_id: ${resourceTemplateId}
+service_activity: ${serviceActivity}`
+      : `Generate a complete Knowledge Tree for:
+${resourceLabel}: ${equipmentName}
 Sub-category: ${subCategory}
 resource_template_id: ${resourceTemplateId}
 service_activity: ${serviceActivity}`;
 
-    // Activity-only prompt is focused (no variants/parts) — needs far fewer tokens
-    const maxTokens = existingKT ? 12000 : 16000;
-
-    console.log(`🤖 KT Generate: "${equipmentName}" | activity: ${serviceActivity} | mode: ${existingKT ? 'activity-only' : 'full'} | maxTokens: ${maxTokens}`);
+    console.log(
+      `🤖 KT Generate: "${equipmentName}" | type: ${resourceType} | activity: ${serviceActivity} | ` +
+      `mode: ${existingKT ? 'activity-only' : 'full'} | maxTokens: ${maxTokens}`
+    );
 
     let response;
     try {
       response = await axios.post(
-        'https://api.anthropic.com/v1/messages',
+        this.anthropicUrl,
         {
           model: this.model,
           max_tokens: maxTokens,
-          // System as array enables prompt caching — saves ~90% of input token cost
-          // on repeated calls since the skill prompt is identical across all generations
+          // Prompt caching on the system message — the skill file is identical across all
+          // calls of the same type, so Anthropic caches it after the first call.
+          // Saves ~90% of input token cost on repeated generations.
           system: [
             {
               type: 'text',
@@ -81,7 +129,7 @@ service_activity: ${serviceActivity}`;
             'anthropic-beta': 'prompt-caching-2024-07-31',
             'content-type': 'application/json',
           },
-          timeout: 300000,
+          timeout: 300_000, // 5 min — LLM generation takes 60–180s for a full KT
         }
       );
     } catch (axiosErr: any) {
@@ -94,12 +142,23 @@ service_activity: ${serviceActivity}`;
     const stopReason: string = response.data?.stop_reason;
     const rawText: string = response.data?.content?.[0]?.text;
     const usage = response.data?.usage;
+    const truncated = stopReason === 'max_tokens';
 
     if (usage) {
-      console.log(`📊 Tokens — in: ${usage.input_tokens} (cached: ${usage.cache_read_input_tokens ?? 0}), out: ${usage.output_tokens}, stop: ${stopReason}`);
+      const cacheRead = usage.cache_read_input_tokens ?? 0;
+      const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+      const cacheHit = cacheRead > 0;
+      console.log(
+        `📊 Tokens — in: ${usage.input_tokens} (cache_read: ${cacheRead}, cache_write: ${cacheWrite}), ` +
+        `out: ${usage.output_tokens}, stop: ${stopReason}${cacheHit ? ' ✅ cache hit' : ' 🔄 cache miss'}`
+      );
     }
-    if (stopReason === 'max_tokens') {
-      console.warn(`⚠️ KT response hit max_tokens (${maxTokens}) — output may be truncated`);
+
+    if (truncated) {
+      console.warn(
+        `⚠️ KT output hit max_tokens (${maxTokens}) for "${equipmentName}" — ` +
+        `JSON may be incomplete. Attempting parse and reporting truncation flag.`
+      );
     }
 
     if (!rawText) {
@@ -116,20 +175,22 @@ service_activity: ${serviceActivity}`;
 
     const jsonText = rawText.substring(firstBrace, lastBrace + 1);
 
+    let parsed: any;
     try {
-      return JSON.parse(jsonText);
+      parsed = JSON.parse(jsonText);
     } catch {
       console.warn('⚠️ KT JSON has syntax errors — attempting repair...');
       try {
         const repaired = jsonrepair(jsonText);
-        const result = JSON.parse(repaired);
+        parsed = JSON.parse(repaired);
         console.log('✅ KT JSON repaired successfully');
-        return result;
       } catch (repairErr: any) {
         console.error('❌ KT JSON repair failed:', repairErr.message);
         throw new Error(`KT generation produced invalid JSON: ${repairErr.message}`);
       }
     }
+
+    return { data: parsed, truncated };
   }
 }
 

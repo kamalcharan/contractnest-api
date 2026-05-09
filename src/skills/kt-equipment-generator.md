@@ -40,7 +40,7 @@ Every rule below is mandatory. A field technician should look at your checkpoint
 5. **Meaningful severity** — `ok` = no action needed, `attention` = fixed during this visit, `critical` = escalation required
 6. **Real component groups only** — electrical, mechanical, refrigerant, filters, controls, consumables, water_side, hydraulic, pneumatic, optical, safety
 7. **Variants differ meaningfully** — by capacity, technology, or application — not just size labels
-8. **Spare part mappings are logical** — only map a part to a variant where it physically applies
+8. **applies_to is accurate** — only mark a part as variant-specific when it genuinely cannot apply to other variants
 9. **Every condition checkpoint** has at least 3 checkpoint_values
 10. **Every reading checkpoint** has unit, normal_min, normal_max, amber_threshold, red_threshold
 
@@ -48,9 +48,14 @@ Every rule below is mandatory. A field technician should look at your checkpoint
 
 ## Step 3: Output JSON
 
-Use temporary string IDs (v1, sp1, cp1, cv1, cvm1, spvm1, sc1, co1 …). The database replaces these with real UUIDs on insert.
+Use temporary string IDs (v1, sp1, cp1, cv1, cvm1, sc1 …). The database replaces these with real UUIDs on insert.
 
 Set `service_activity` to `"{{SERVICE_ACTIVITY}}"` on ALL checkpoints and service_cycles.
+
+**`applies_to` on spare_parts:**
+- Set `"applies_to": "all"` for parts that apply to every variant (most electrical, consumables, controls)
+- Set `"applies_to": ["v1", "v3"]` (array of temp variant IDs) only when the part genuinely cannot apply to other variants (e.g. water-side parts only for water-cooled variants, HEPA filters only for AHU/FCU)
+- The backend derives `spare_part_variant_map` from this field — do NOT include `spare_part_variant_map` in your output
 
 ```
 {
@@ -75,6 +80,7 @@ Set `service_activity` to `"{{SERVICE_ACTIVITY}}"` on ALL checkpoints and servic
       "component_group": "<from allowed set>",
       "name": "Part Name",
       "description": null,
+      "applies_to": "all",
       "specifications": {
         "typical_lifespan": "5–10 years",
         "common_makes": "Siemens, ABB, Schneider"
@@ -100,8 +106,6 @@ Set `service_activity` to `"{{SERVICE_ACTIVITY}}"` on ALL checkpoints and servic
       "amber_threshold": null,
       "red_threshold": null,
       "threshold_note": null,
-      "compliance_standard": null,
-      "is_mandatory": false,
       "sort_order": 0,
       "source": "ai_researched",
       "is_active": true
@@ -120,8 +124,6 @@ Set `service_activity` to `"{{SERVICE_ACTIVITY}}"` on ALL checkpoints and servic
       "amber_threshold": 50,
       "red_threshold": 40,
       "threshold_note": "Compare with nameplate rating",
-      "compliance_standard": null,
-      "is_mandatory": false,
       "sort_order": 1,
       "source": "ai_researched",
       "is_active": true
@@ -181,41 +183,15 @@ Set `service_activity` to `"{{SERVICE_ACTIVITY}}"` on ALL checkpoints and servic
       "source": "ai_researched",
       "is_active": true
     }
-  ],
-
-  "context_overlays": [
-    {
-      "id": "co1",
-      "context_type": "climate",
-      "context_value": "hot_humid",
-      "adjustments": {
-        "frequency_multiplier": 1.3,
-        "affected_checkpoints": ["Checkpoint Name"],
-        "additional_actions": ["Specific action for this context"],
-        "threshold_adjustments": {},
-        "notes": "Why this context matters for this equipment"
-      },
-      "priority": 1,
-      "is_active": true
-    }
-  ],
-
-  "spare_part_variant_map": [
-    {
-      "id": "spvm1",
-      "spare_part_id": "sp1",
-      "variant_id": "v1",
-      "is_recommended": true,
-      "notes": null
-    }
   ]
 }
 ```
 
-**CRITICAL OUTPUT ORDER:** Generate the arrays in exactly the order shown above.
-`spare_part_variant_map` is LAST by design — it is the largest array and is non-critical for validation.
-Maximum 100 entries in `spare_part_variant_map`. Universal parts that apply to all variants: map to v1 only.
-Do NOT cross-product every part × every variant.
+**CRITICAL OUTPUT ORDER:** Generate arrays in exactly this order:
+`variants → spare_parts → checkpoints → checkpoint_values → checkpoint_variant_map → service_cycles`
+
+Do NOT include `spare_part_variant_map` — it is derived from `applies_to` in the backend.
+Do NOT include `context_overlays` — they are generated separately on demand.
 
 ---
 
@@ -241,11 +217,6 @@ Do NOT cross-product every part × every variant.
 - `"attention"` — Fixed during this visit, or needs monitoring
 - `"critical"` — Requires escalation, follow-up visit, or part replacement
 
-### context_type
-- `"climate"` — hot_humid, cold_dry, tropical, arid, monsoon, hot_humid_monsoon
-- `"geography"` — coastal_salt_air, dusty_industrial, high_altitude, seismic_zone
-- `"industry_served"` — pharma_cleanroom, data_center, healthcare_hospital, food_processing
-
 ### frequency_unit
 - `"days"` — Calendar days (most common)
 - `"hours"` — Run hours (for compressors, motors, generators)
@@ -254,23 +225,25 @@ Do NOT cross-product every part × every variant.
 ### varies_by (array)
 Common values: climate, season, industry, equipment_age, load_pattern, environment, coastal, dust_level, humidity, monsoon, water_quality, usage_intensity, regulatory, contract, manufacturer, run_hours, leak_history
 
+### applies_to (on spare_parts)
+- `"all"` — part applies to every variant (string, not array)
+- `["v1", "v3"]` — part applies only to specific variants (array of temp IDs from this payload)
+
 ---
 
 ## Target Counts
 
 | Data Type | Min | Typical | Max |
 |---|---|---|---|
-| Variants | 3 | 6–10 | 15 |
-| Spare Parts | 15 | 25–40 | 60 |
+| Variants | 3 | 5–8 | 12 |
+| Spare Parts | 15 | 25–35 | 50 |
 | Component Groups | 3 | 5–7 | 10 |
-| **spare_part_variant_map** | 20 | 40–80 | **100** |
 | Checkpoints | 10 | 15–20 | 30 |
 | — Condition type | 5 | 8–12 | 20 |
 | — Reading type | 5 | 7–10 | 15 |
 | Checkpoint Values | 25 | 35–50 | 80 |
 | Values per condition checkpoint | 3 | 3–4 | 5 |
 | Service Cycles | 6 | 8–12 | 15 |
-| Context Overlays | 3 | 4–6 | 10 |
 
 ---
 
@@ -278,16 +251,16 @@ Common values: climate, season, industry, equipment_age, load_pattern, environme
 
 Use HVAC as your benchmark for depth and specificity. Every generated KT should match this level.
 
-**Variants (10):** Split AC (0.75–2.5 TR), Cassette AC (1.5–5 TR), Ductable AC (5.5–25 TR), VRF/VRV System (8–60 TR), Chiller Water-Cooled (50–2000 TR), Chiller Air-Cooled (30–500 TR), AHU, FCU, Package/Rooftop Unit (3–25 TR), Window AC (0.75–2 TR)
+**Variants (8):** Split AC (0.75–2.5 TR), Cassette AC (1.5–5 TR), Ductable AC (5.5–25 TR), VRF/VRV System (8–60 TR), Chiller Water-Cooled (50–2000 TR), Chiller Air-Cooled (30–500 TR), AHU, FCU
 
-**Spare Parts (40 across 7 groups):**
-- electrical (6): Capacitor, PCB/Controller Board, Contactor/Relay, Thermostat/Temp Sensor, Wiring Harness, Fuse/MCB
-- mechanical (8): Compressor, Fan Motor indoor, Fan Motor outdoor, Fan Blade/Blower Wheel, Bearing Set, Vibration Damper, Pulley, V-Belt
-- refrigerant (6): Refrigerant R410A, Refrigerant R22, Expansion Valve TXV/EEV, Filter Drier, Sight Glass, Schrader Valve Cap
-- filters (5): Pleated Panel Filter, Washable Mesh Filter, Carbon Filter, HEPA Filter, Pre-Filter Frame
-- water_side (6): Cooling Tower Fill Media, CT Float Valve, CT Spray Nozzle, Chilled Water Pump Seal, Strainer/Y-Filter, Water Treatment Chemical
-- controls (4): Digital Thermostat, Pressure Switch HP/LP, BMS Gateway Module, Remote Controller
-- consumables (5): Compressor Oil, Coil Cleaning Chemical, Drain Pan Algaecide Tablet, Pipe Insulation Tape, Copper Brazing Rod
+**Spare Parts (35 across 7 groups):**
+- electrical (6): Capacitor `applies_to:"all"`, PCB/Controller Board `applies_to:"all"`, Contactor/Relay `applies_to:"all"`, Thermostat/Temp Sensor `applies_to:"all"`, Wiring Harness `applies_to:"all"`, Fuse/MCB `applies_to:"all"`
+- mechanical (7): Compressor `applies_to:["v1","v2","v3","v4","v5","v6"]`, Fan Motor indoor `applies_to:"all"`, Fan Motor outdoor `applies_to:["v1","v2","v3","v4","v5","v6"]`, Fan Blade/Blower Wheel `applies_to:"all"`, Bearing Set `applies_to:"all"`, Vibration Damper `applies_to:"all"`, V-Belt `applies_to:["v3","v4"]`
+- refrigerant (5): Refrigerant R410A `applies_to:["v1","v2","v3","v4"]`, Refrigerant R22 `applies_to:["v1","v2"]`, Expansion Valve TXV/EEV `applies_to:"all"`, Filter Drier `applies_to:"all"`, Sight Glass `applies_to:"all"`
+- filters (4): Pleated Panel Filter `applies_to:"all"`, Washable Mesh Filter `applies_to:"all"`, Carbon Filter `applies_to:"all"`, HEPA Filter `applies_to:["v7","v8"]`
+- water_side (5): Cooling Tower Fill Media `applies_to:["v5"]`, CT Float Valve `applies_to:["v5"]`, Chilled Water Pump Seal `applies_to:["v5","v6"]`, Strainer/Y-Filter `applies_to:["v5","v6"]`, Water Treatment Chemical `applies_to:["v5"]`
+- controls (3): Digital Thermostat `applies_to:"all"`, Pressure Switch HP/LP `applies_to:"all"`, BMS Gateway Module `applies_to:"all"`
+- consumables (5): Compressor Oil `applies_to:"all"`, Coil Cleaning Chemical `applies_to:"all"`, Drain Pan Algaecide Tablet `applies_to:"all"`, Pipe Insulation Tape `applies_to:"all"`, Copper Brazing Rod `applies_to:"all"`
 
 **Checkpoints (17 across 3 sections):**
 - Filter/Coils/Drainage: Air Filter Condition, Evaporator Coil, Condenser Coil, Drain Line, Drain Tray (all condition)
@@ -295,8 +268,6 @@ Use HVAC as your benchmark for depth and specificity. Every generated KT should 
 - Refrigerant & Electrical: Gas Pressure Suction (55–130 PSI), Gas Pressure Discharge (200–350 PSI), Compressor Amp Draw, Supply Voltage (200–250 V), Outlet Air Temp (10–18 °C), Approach Temp Evaporator (1–3 °C), Approach Temp Condenser (1–2.5 °C), Filter Differential Pressure (50–200 Pa) (all reading)
 
 **Service Cycles (10):** Cooling Tower Water pH (30d), Air Filter (45d), Evaporator Coil (90d), Drain Line (90d), Electrical Connections (90d), Gas Pressure Suction (90d), Condenser Coil (180d), Supply Voltage (365d), Belt Condition (365d), Compressor Amp Draw (1000h)
-
-**Context Overlays (6):** hot_humid_monsoon (1.3×), coastal_salt_air (1.5×), dusty_industrial (1.6×), pharma_cleanroom (2.0×), data_center (1.4×), healthcare_hospital (1.5×)
 
 ---
 
@@ -316,14 +287,12 @@ Before returning the JSON, verify every item in this checklist:
 - [ ] service_activity on every checkpoint and service_cycle is `"{{SERVICE_ACTIVITY}}"`
 - [ ] frequency_unit is "days", "hours", or "visits"
 - [ ] severity values are "ok", "attention", or "critical"
-- [ ] context_type values are "climate", "geography", or "industry_served"
-- [ ] Variant count is 3–15, spare parts 15–60, checkpoints 10–30
+- [ ] Variant count is 3–12, spare parts 15–50, checkpoints 10–30
 - [ ] All source fields are "ai_researched"
-- [ ] Every checkpoint has `compliance_standard: null` and `is_mandatory: false` (compliance is tagged separately by admin)
-- [ ] Overlay frequency_multiplier values are between 1.2 and 2.0
 - [ ] No duplicate names within variants, spare_parts, or checkpoints
 - [ ] section_name groups logically related checkpoints (3–8 sections)
-- [ ] spare_part_variant_map is last and has ≤ 100 entries
-- [ ] All spare_part_variant_map entries reference valid spare_part_id and variant_id
+- [ ] Every spare part has applies_to set to "all" or a valid array of variant temp IDs from this payload
+- [ ] spare_part_variant_map is NOT present in output
+- [ ] context_overlays is NOT present in output
 
 Output raw JSON only. No markdown. No explanation.
