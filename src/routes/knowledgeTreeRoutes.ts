@@ -8,25 +8,30 @@ const validateHeaders = (req: Request, res: Response, next: NextFunction): void 
   const authHeader = req.headers.authorization;
   const tenantId = req.headers['x-tenant-id'];
   if (!authHeader || !tenantId) {
-    res.status(401).json({
-      success: false,
-      error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' },
-    });
+    res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } });
     return;
   }
   next();
 };
 
-// POST /api/knowledge-tree/generate
+// Legacy full generation (existingKT:true = + Install / + Decomm activity mode)
+// existingKT:false = internally runs 4 steps in sequence
 router.post('/generate', validateHeaders, knowledgeTreeController.generate);
 
-// POST /api/knowledge-tree/tag-compliance
-// Body: { equipmentName, subCategory, resourceTemplateId, checkpoints: [{id, name, section_name, service_activity}] }
-router.post('/tag-compliance', validateHeaders, knowledgeTreeController.tagCompliance);
+// Step 1 — Variants only
+router.post('/generate-variants', validateHeaders, knowledgeTreeController.generateVariants);
 
-// POST /api/knowledge-tree/generate-overlays
-// Body: { equipmentName, subCategory, resourceTemplateId }
-// Returns: { success: true, data: { resource_template_id, context_overlays: [...] } }
+// Step 2 — Spare parts + variant mappings (receives variants[] from UI after pulling from DB)
+router.post('/generate-spare-parts', validateHeaders, knowledgeTreeController.generateSpareParts);
+
+// Step 3 — Checkpoints + values only (no service_cycles)
+router.post('/generate-checkpoints', validateHeaders, knowledgeTreeController.generateCheckpoints);
+
+// Step 4 — Service cycles only (receives checkpoints[] from UI after pulling from DB)
+router.post('/generate-service-cycles', validateHeaders, knowledgeTreeController.generateServiceCycles);
+
+// Other routes
+router.post('/tag-compliance', validateHeaders, knowledgeTreeController.tagCompliance);
 router.post('/generate-overlays', validateHeaders, knowledgeTreeController.generateOverlays);
 
 export default router;
