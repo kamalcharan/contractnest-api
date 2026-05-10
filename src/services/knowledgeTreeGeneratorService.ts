@@ -17,8 +17,26 @@ interface GenerateStepInput {
   subCategory: string;
   resourceTemplateId: string;
   serviceActivity?: string;
+  layer?: string;
   variants?: Array<{ id: string; name: string; capacity_range?: string | null }>;
   checkpoints?: Array<{ id: string; name: string; section_name: string; service_activity: string }>;
+}
+
+interface GenerateServiceNamesInput {
+  equipmentName: string;
+  subCategory: string;
+  resourceTemplateId: string;
+  checkpoints: Array<{ id: string; name: string; section_name: string }>;
+}
+
+interface GeneratePricingInput {
+  equipmentName: string;
+  subCategory: string;
+  resourceTemplateId: string;
+  currency?: string;
+  geo?: string;
+  spareParts?: Array<{ id: string; name: string; component_group: string }>;
+  serviceCycles?: Array<{ id: string; catalog_name?: string | null; frequency_value: number; frequency_unit: string; checkpoint_name?: string }>;
 }
 
 class KnowledgeTreeGeneratorService {
@@ -144,11 +162,12 @@ class KnowledgeTreeGeneratorService {
     return this.callAnthropic(systemPrompt, userMessage, 2000, 'step1-variants');
   }
 
-  // ── Step 2: Spare parts + variant map ───────────────────────────────────────
+  // ── Step 2: Spare parts / consumables + variant map ─────────────────────────
   async generateSpareParts(input: GenerateStepInput): Promise<any> {
-    const { equipmentName, subCategory, resourceTemplateId, variants = [] } = input;
+    const { equipmentName, subCategory, resourceTemplateId, layer = 'equipment', variants = [] } = input;
     if (!this.anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
-    const systemPrompt = this.loadSkill('kt-spare-parts-generator.md');
+    const skillFile = layer === 'facility' ? 'kt-facility-spare-parts-generator.md' : 'kt-spare-parts-generator.md';
+    const systemPrompt = this.loadSkill(skillFile);
     const variantsContext = variants.map(v => `  - id: "${v.id}"  name: "${v.name}"${v.capacity_range ? `  range: "${v.capacity_range}"` : ''}`).join('\n');
     const userMessage = `Generate spare parts for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\n\nVariants (use EXACT UUIDs in spare_part_variant_map):\n${variantsContext}`;
     return this.callAnthropic(systemPrompt, userMessage, 10000, 'step2-spare-parts');
@@ -156,9 +175,10 @@ class KnowledgeTreeGeneratorService {
 
   // ── Step 3: Checkpoints + values only (no service_cycles) ───────────────────
   async generateCheckpoints(input: GenerateStepInput): Promise<any> {
-    const { equipmentName, subCategory, resourceTemplateId, serviceActivity = 'pm', variants = [] } = input;
+    const { equipmentName, subCategory, resourceTemplateId, serviceActivity = 'pm', layer = 'equipment', variants = [] } = input;
     if (!this.anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
-    const systemPrompt = this.loadSkill('kt-checkpoints-generator.md', { '\\{\\{SERVICE_ACTIVITY\\}\\}': serviceActivity });
+    const skillFile = layer === 'facility' ? 'kt-facility-checkpoints-generator.md' : 'kt-checkpoints-generator.md';
+    const systemPrompt = this.loadSkill(skillFile, { '\\{\\{SERVICE_ACTIVITY\\}\\}': serviceActivity });
     const variantsContext = variants.map(v => `  - id: "${v.id}"  name: "${v.name}"${v.capacity_range ? `  range: "${v.capacity_range}"` : ''}`).join('\n');
     const userMessage = `Generate checkpoints for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\nservice_activity: ${serviceActivity}\n\nVariants (for reference):\n${variantsContext}`;
     return this.callAnthropic(systemPrompt, userMessage, 8000, `step3-checkpoints-${serviceActivity}`);
@@ -175,6 +195,46 @@ class KnowledgeTreeGeneratorService {
       .join('\n');
     const userMessage = `Generate service cycles for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\nservice_activity: ${serviceActivity}\n\nCheckpoints already in DB (use EXACT UUIDs in checkpoint_id):\n${checkpointsContext}`;
     return this.callAnthropic(systemPrompt, userMessage, 4000, `step4-cycles-${serviceActivity}`);
+  }
+
+  // ── Option A: Generate service_name per section from existing checkpoints ────
+  // Sends checkpoint names grouped by section → returns [{ section_name, service_name }].
+  // Edge then patches only service_name column — no wipe, no data loss.
+  async generateServiceNames(input: GenerateServiceNamesInput): Promise<any> {
+    const { equipmentName, subCategory, resourceTemplateId, checkpoints } = input;
+    if (!this.anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    const systemPrompt = this.loadSkill('kt-service-names-generator.md');
+
+    // Group checkpoints by section for a compact prompt
+    const bySection: Record<string, string[]> = {};
+    for (const cp of checkpoints) {
+      if (!bySection[cp.section_name]) bySection[cp.section_name] = [];
+      bySection[cp.section_name].push(cp.name);
+    }
+    const sectionsContext = Object.entries(bySection)
+      .map(([sec, names]) => `  section: "${sec}"\n    checkpoints: ${names.map(n => `"${n}"`).join(', ')}`)
+      .join('\n');
+
+    const userMessage = `Generate service names for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\n\nCheckpoints by section:\n${sectionsContext}`;
+    return this.callAnthropic(systemPrompt, userMessage, 2000, 'service-names');
+  }
+
+  // ── Step 5: Pricing — geo + currency aware, min/median/max ──────────────────
+  // Receives real spare part and service cycle IDs already saved in DB.
+  async generatePricing(input: GeneratePricingInput): Promise<any> {
+    const { equipmentName, subCategory, resourceTemplateId, currency = 'INR', geo = 'IN', spareParts = [], serviceCycles = [] } = input;
+    if (!this.anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    const systemPrompt = this.loadSkill('kt-pricing-generator.md');
+
+    const partsContext = spareParts
+      .map(sp => `  - id: "${sp.id}"  name: "${sp.name}"  group: "${sp.component_group}"`)
+      .join('\n');
+    const cyclesContext = serviceCycles
+      .map(sc => `  - id: "${sc.id}"  name: "${sc.catalog_name || sc.checkpoint_name || 'unnamed'}"  frequency: ${sc.frequency_value} ${sc.frequency_unit}`)
+      .join('\n');
+
+    const userMessage = `Generate pricing for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\nCurrency: ${currency}\nGeography: ${geo}\n\nSpare Parts (use EXACT IDs):\n${partsContext}\n\nService Cycles (use EXACT IDs):\n${cyclesContext}`;
+    return this.callAnthropic(systemPrompt, userMessage, 6000, `step5-pricing-${geo}-${currency}`);
   }
 }
 

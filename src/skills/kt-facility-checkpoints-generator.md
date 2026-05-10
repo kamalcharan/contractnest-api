@@ -24,6 +24,17 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 
 ## Rules
 
+### service_name
+
+- The commercial catalog-facing name for the service — what a customer sees and buys.
+- All checkpoints in the **same section_name** share the same `service_name`.
+- Keep it concise and customer-friendly: "Fire Safety Inspection", "HVAC & Air Quality Check", "Electrical Distribution Audit"
+- Do NOT use internal jargon. Think: what would appear on a facility maintenance invoice?
+- Pattern: `[Building System] + [Service Type]`
+  - Example: "Fire Safety" section + PM activity → "Fire Safety Systems Inspection"
+  - Example: "HVAC & Air Quality" section + PM activity → "HVAC & Air Quality Maintenance"
+  - Example: "Access & Security" section + inspect activity → "Access Control & Security Audit"
+
 ### checkpoint_type
 
 - `condition` — inspector selects a label:
@@ -71,6 +82,7 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "name": "Fire Extinguisher — Visual Inspection",
       "description": null,
       "layer": "facility",
+      "service_name": "Fire Safety Systems Inspection",
       "unit": null,
       "normal_min": null,
       "normal_max": null,
@@ -89,6 +101,7 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "name": "Supply Air Temperature (°C)",
       "description": null,
       "layer": "facility",
+      "service_name": "HVAC & Air Quality Maintenance",
       "unit": "°C",
       "normal_min": 18,
       "normal_max": 24,
@@ -142,5 +155,6 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 - [ ] All checkpoint_values reference a valid cp ID from this payload
 - [ ] service_activity on every checkpoint = `"{{SERVICE_ACTIVITY}}"`
 - [ ] layer on every checkpoint = `"facility"`
+- [ ] service_name present on every checkpoint — all checkpoints in same section_name share same service_name
 
 Output raw JSON only. No markdown. No explanation.

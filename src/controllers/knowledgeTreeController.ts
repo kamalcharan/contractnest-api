@@ -70,7 +70,7 @@ class KnowledgeTreeController {
     const context = this.getContext(req);
     if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
 
-    const { equipmentName, subCategory, resourceTemplateId, serviceActivity, existingKT } = req.body;
+    const { equipmentName, subCategory, resourceTemplateId, serviceActivity, existingKT, layer } = req.body;
     if (!equipmentName || !subCategory || !resourceTemplateId) {
       res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'equipmentName, subCategory, and resourceTemplateId are required' } }); return;
     }
@@ -97,14 +97,15 @@ class KnowledgeTreeController {
         const variantRefs = vPayload.variants.map((v: any) => ({ id: v.id, name: v.name, capacity_range: v.capacity_range ?? null }));
         console.log(`✅ 1/4 — ${vPayload.variants.length} variants`);
 
-        // Step 2: spare parts (real variant UUIDs passed in)
-        const rawP = await knowledgeTreeGeneratorService.generateSpareParts({ equipmentName, subCategory, resourceTemplateId, variants: variantRefs });
+        // Step 2: spare parts / consumables (real variant UUIDs passed in)
+        const activity = serviceActivity || 'pm';
+        const ktLayer = layer || 'equipment';
+        const rawP = await knowledgeTreeGeneratorService.generateSpareParts({ equipmentName, subCategory, resourceTemplateId, layer: ktLayer, variants: variantRefs });
         const pPayload = resolveSparePartIds(rawP);
         console.log(`✅ 2/4 — ${pPayload.spare_parts?.length ?? 0} spare parts, ${pPayload.spare_part_variant_map?.length ?? 0} mappings`);
 
         // Step 3: checkpoints + values only
-        const activity = serviceActivity || 'pm';
-        const rawC = await knowledgeTreeGeneratorService.generateCheckpoints({ equipmentName, subCategory, resourceTemplateId, serviceActivity: activity, variants: variantRefs });
+        const rawC = await knowledgeTreeGeneratorService.generateCheckpoints({ equipmentName, subCategory, resourceTemplateId, serviceActivity: activity, layer: ktLayer, variants: variantRefs });
         if (!rawC.checkpoints?.length) throw new Error('Step 3: No checkpoints returned');
         const cPayload = resolveCheckpointIds(rawC);
         console.log(`✅ 3/4 — ${cPayload.checkpoints.length} checkpoints, ${cPayload.checkpoint_values?.length ?? 0} values`);
@@ -160,11 +161,11 @@ class KnowledgeTreeController {
   generateSpareParts = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
-    const { equipmentName, subCategory, resourceTemplateId, variants } = req.body;
+    const { equipmentName, subCategory, resourceTemplateId, layer, variants } = req.body;
     if (!equipmentName || !subCategory || !resourceTemplateId) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'equipmentName, subCategory, resourceTemplateId required' } }); return; }
     if (!Array.isArray(variants) || variants.length === 0) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'variants[] required — pull from DB first' } }); return; }
     try {
-      const raw = await knowledgeTreeGeneratorService.generateSpareParts({ equipmentName, subCategory, resourceTemplateId, variants });
+      const raw = await knowledgeTreeGeneratorService.generateSpareParts({ equipmentName, subCategory, resourceTemplateId, layer: layer || 'equipment', variants });
       if (!raw.spare_parts?.length) throw new Error('No spare parts returned');
       const payload = resolveSparePartIds(raw);
       payload.resource_template_id = resourceTemplateId;
@@ -180,12 +181,12 @@ class KnowledgeTreeController {
   generateCheckpoints = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
-    const { equipmentName, subCategory, resourceTemplateId, serviceActivity, variants } = req.body;
+    const { equipmentName, subCategory, resourceTemplateId, serviceActivity, layer, variants } = req.body;
     if (!equipmentName || !subCategory || !resourceTemplateId) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'equipmentName, subCategory, resourceTemplateId required' } }); return; }
     if (!Array.isArray(variants) || variants.length === 0) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'variants[] required — pull from DB first' } }); return; }
     try {
       const activity = serviceActivity || 'pm';
-      const raw = await knowledgeTreeGeneratorService.generateCheckpoints({ equipmentName, subCategory, resourceTemplateId, serviceActivity: activity, variants });
+      const raw = await knowledgeTreeGeneratorService.generateCheckpoints({ equipmentName, subCategory, resourceTemplateId, serviceActivity: activity, layer: layer || 'equipment', variants });
       if (!raw.checkpoints?.length) throw new Error('No checkpoints returned');
       const payload = resolveCheckpointIds(raw);
       payload.resource_template_id = resourceTemplateId;
@@ -233,6 +234,61 @@ class KnowledgeTreeController {
     } catch (error: any) {
       console.error('❌ Tag compliance error:', error.message);
       res.status(500).json({ success: false, error: { code: 'TAG_COMPLIANCE_FAILED', message: error.message } });
+    }
+  };
+
+  // POST /api/knowledge-tree/generate-service-names — Option A: patch service_name on existing checkpoints
+  // Body: { equipmentName, subCategory, resourceTemplateId, checkpoints: [{ id, name, section_name }] }
+  generateServiceNames = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
+    const { equipmentName, subCategory, resourceTemplateId, checkpoints } = req.body;
+    if (!equipmentName || !subCategory || !resourceTemplateId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'equipmentName, subCategory, resourceTemplateId required' } }); return;
+    }
+    if (!Array.isArray(checkpoints) || checkpoints.length === 0) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'checkpoints[] required — pull from DB first' } }); return;
+    }
+    try {
+      const raw = await knowledgeTreeGeneratorService.generateServiceNames({ equipmentName, subCategory, resourceTemplateId, checkpoints });
+      if (!raw.service_names?.length) throw new Error('No service names returned');
+      console.log(`✅ Service names — ${raw.service_names.length} sections named for "${equipmentName}"`);
+      res.status(200).json({ success: true, data: { resource_template_id: resourceTemplateId, service_names: raw.service_names } });
+    } catch (error: any) {
+      console.error('❌ Generate service names error:', error.message);
+      res.status(500).json({ success: false, error: { code: 'GENERATE_SERVICE_NAMES_FAILED', message: error.message } });
+    }
+  };
+
+  // POST /api/knowledge-tree/generate-pricing — Step 5
+  // UI pulls real spare part + service cycle UUIDs from DB, passes them here.
+  // Body: { equipmentName, subCategory, resourceTemplateId, currency, geo, spareParts[], serviceCycles[] }
+  generatePricing = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
+    const { equipmentName, subCategory, resourceTemplateId, currency, geo, spareParts, serviceCycles } = req.body;
+    if (!equipmentName || !subCategory || !resourceTemplateId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'equipmentName, subCategory, resourceTemplateId required' } }); return;
+    }
+    if ((!Array.isArray(spareParts) || spareParts.length === 0) && (!Array.isArray(serviceCycles) || serviceCycles.length === 0)) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'spareParts[] or serviceCycles[] required — pull from DB first' } }); return;
+    }
+    try {
+      const raw = await knowledgeTreeGeneratorService.generatePricing({
+        equipmentName,
+        subCategory,
+        resourceTemplateId,
+        currency: currency || 'INR',
+        geo: geo || 'IN',
+        spareParts: spareParts || [],
+        serviceCycles: serviceCycles || [],
+      });
+      if (!raw.spare_parts?.length && !raw.service_cycles?.length) throw new Error('No pricing returned');
+      console.log(`✅ Step 5 — pricing for ${raw.spare_parts?.length ?? 0} parts, ${raw.service_cycles?.length ?? 0} cycles [${currency || 'INR'}/${geo || 'IN'}]`);
+      res.status(200).json({ success: true, step: 5, data: { resource_template_id: resourceTemplateId, currency: currency || 'INR', geo: geo || 'IN', spare_parts: raw.spare_parts ?? [], service_cycles: raw.service_cycles ?? [] } });
+    } catch (error: any) {
+      console.error('❌ Step 5 error:', error.message);
+      res.status(500).json({ success: false, step: 5, error: { code: 'GENERATE_PRICING_FAILED', message: error.message } });
     }
   };
 

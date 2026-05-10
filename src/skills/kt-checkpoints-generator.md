@@ -24,6 +24,16 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 
 ## Rules
 
+### service_name
+
+- The commercial catalog-facing name for the service — what a customer sees and buys.
+- All checkpoints in the **same section_name** share the same `service_name`.
+- Keep it concise and customer-friendly: "Monthly AC Filter Service", "Quarterly Compressor Check", "Annual Chiller Overhaul"
+- Do NOT use internal jargon. Think: what would appear on an invoice?
+- Pattern: `[Frequency Hint] + [Equipment Short Name] + [Section Focus]`
+  - Example: "Filter, Coils & Drainage" section + PM activity → "AC Filter & Coil Maintenance"
+  - Example: "Refrigerant & Electrical" section + PM activity → "Refrigerant & Electrical Inspection"
+
 ### checkpoint_type
 
 - `condition` — technician selects a label:
@@ -66,10 +76,11 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "id": "cp1",
       "checkpoint_type": "condition",
       "service_activity": "{{SERVICE_ACTIVITY}}",
-      "section_name": "Section Name",
-      "name": "Checkpoint Name",
+      "section_name": "Filter, Coils & Drainage",
+      "name": "Air Filter Condition",
       "description": null,
       "layer": "equipment",
+      "service_name": "AC Filter & Coil Maintenance",
       "unit": null,
       "normal_min": null,
       "normal_max": null,
@@ -84,10 +95,11 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "id": "cp2",
       "checkpoint_type": "reading",
       "service_activity": "{{SERVICE_ACTIVITY}}",
-      "section_name": "Section Name",
-      "name": "Reading Name",
+      "section_name": "Refrigerant & Electrical",
+      "name": "Gas Pressure — Suction (PSI)",
       "description": null,
       "layer": "equipment",
+      "service_name": "Refrigerant & Electrical Inspection",
       "unit": "PSI",
       "normal_min": 55,
       "normal_max": 130,
@@ -140,5 +152,6 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 - [ ] No reading checkpoint has checkpoint_values
 - [ ] All checkpoint_values reference a valid cp ID from this payload
 - [ ] service_activity on every checkpoint = `"{{SERVICE_ACTIVITY}}"`
+- [ ] service_name present on every checkpoint — all checkpoints in same section_name share same service_name
 
 Output raw JSON only. No markdown. No explanation.
