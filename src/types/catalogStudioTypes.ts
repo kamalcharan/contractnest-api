@@ -89,6 +89,8 @@ export interface CatBlock {
   variant_pricing?: VariantPricingConfig;
   form_template_id?: string;
   knowledge_tree_ref?: KnowledgeTreeRef;
+  resource_template_id?: string;
+  kt_checkpoint_ids?: string[];
   tags?: string[];
   created_by?: string;
   created_at: string;
@@ -110,6 +112,8 @@ export interface CreateBlockRequest {
   variant_pricing?: VariantPricingConfig;
   form_template_id?: string;
   knowledge_tree_ref?: KnowledgeTreeRef;
+  resource_template_id?: string;
+  kt_checkpoint_ids?: string[];
   tags?: string[];
 }
 
@@ -127,6 +131,8 @@ export interface UpdateBlockRequest {
   variant_pricing?: VariantPricingConfig;
   form_template_id?: string;
   knowledge_tree_ref?: KnowledgeTreeRef;
+  resource_template_id?: string;
+  kt_checkpoint_ids?: string[];
   tags?: string[];
 }
 

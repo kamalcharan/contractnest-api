@@ -282,6 +282,92 @@ export class CatBlocksService {
 
     return searchParams.toString();
   }
+
+  // --------------------------------------------------------------------------
+  // Bulk seed — used by Onboarding Agent (seedTenantOnIndustryConfirmed)
+  // Orchestrates KtCatBlockMapperService → Edge bulk endpoint sequentially.
+  // --------------------------------------------------------------------------
+  async bulkSeed(
+    context: RequestContext,
+    resourceTemplateIds: string[],
+    isLive: boolean = true
+  ): Promise<ApiResponse<{ results: BulkSeedResult[]; summary: BulkSeedSummary }>> {
+    if (!this.edgeFunctionUrl) {
+      return {
+        success: true,
+        data: {
+          results: [],
+          summary: { total: 0, succeeded: 0, failed: 0, skipped: 0, blocks_created: 0 },
+        },
+      };
+    }
+
+    // Lazy import to avoid circular dependency at module load time
+    const { ktCatBlockMapperService } = await import('./ktCatBlockMapperService');
+
+    // Build payloads for each KT sequentially (mapper is read-only, safe to parallelize)
+    const kts: BulkSeedKtInput[] = [];
+
+    for (const resourceTemplateId of resourceTemplateIds) {
+      try {
+        const { blocks } = await ktCatBlockMapperService.buildBlocksForTemplate(resourceTemplateId);
+        kts.push({
+          resource_template_id: resourceTemplateId,
+          kt_name: blocks[0]
+            ? `${resourceTemplateId.slice(0, 8)}...`
+            : resourceTemplateId.slice(0, 8),
+          blocks,
+        });
+      } catch (err: any) {
+        console.error(`CatBlocksService.bulkSeed: mapper failed for ${resourceTemplateId}:`, err.message);
+        kts.push({
+          resource_template_id: resourceTemplateId,
+          kt_name: resourceTemplateId.slice(0, 8),
+          blocks: [], // edge will log as skipped/no_kt_data
+        });
+      }
+    }
+
+    return this.makeRequest<{ results: BulkSeedResult[]; summary: BulkSeedSummary }>(
+      'POST',
+      '/bulk',
+      context,
+      { kts, tenant_id: context.tenantId, is_live: isLive }
+    );
+  }
 }
 
 export const catBlocksService = new CatBlocksService();
+
+// ============================================================================
+// Re-export bulk seed types
+// ============================================================================
+export interface BulkSeedKtInput {
+  resource_template_id: string;
+  kt_name: string;
+  blocks: Record<string, any>[];
+}
+
+export interface BulkSeedResult {
+  resource_template_id: string;
+  kt_name: string;
+  status: 'success' | 'failed' | 'skipped';
+  blocks_created: number;
+  blocks_skipped: number;
+  skip_reason?: string;
+  error?: string;
+  duration_ms: number;
+}
+
+export interface BulkSeedSummary {
+  total: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  blocks_created: number;
+}
+
+export interface BulkSeedResponse {
+  results: BulkSeedResult[];
+  summary: BulkSeedSummary;
+}

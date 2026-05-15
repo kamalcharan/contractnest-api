@@ -46,6 +46,19 @@ const validateUUIDField = (value: any, fieldName: string): boolean => {
   return true;
 };
 
+const validateUUIDArrayField = (value: any): boolean => {
+  if (value === null || value === undefined) return true;
+  if (!Array.isArray(value)) {
+    throw new Error('kt_checkpoint_ids must be an array');
+  }
+  for (const item of value) {
+    if (typeof item !== 'string' || !isValidUUID(item)) {
+      throw new Error('Each kt_checkpoint_ids entry must be a valid UUID');
+    }
+  }
+  return true;
+};
+
 const validateTagsArray = (value: any): boolean => {
   if (!Array.isArray(value)) {
     throw new Error('Tags must be an array');
@@ -230,7 +243,15 @@ export const createBlockValidation: ValidationChain[] = [
     .custom((value) => {
       if (value === null) return true;
       return validateUUIDField(value, 'tenant_id');
-    })
+    }),
+
+  body('resource_template_id')
+    .optional()
+    .custom((value) => validateUUIDField(value, 'resource_template_id')),
+
+  body('kt_checkpoint_ids')
+    .optional()
+    .custom(validateUUIDArrayField)
 ];
 
 /**
@@ -313,7 +334,15 @@ export const updateBlockValidation: ValidationChain[] = [
 
   body('sequence_no')
     .optional()
-    .isInt({ min: VALIDATION_CONSTRAINTS.SEQUENCE.MIN, max: VALIDATION_CONSTRAINTS.SEQUENCE.MAX })
+    .isInt({ min: VALIDATION_CONSTRAINTS.SEQUENCE.MIN, max: VALIDATION_CONSTRAINTS.SEQUENCE.MAX }),
+
+  body('resource_template_id')
+    .optional()
+    .custom((value) => validateUUIDField(value, 'resource_template_id')),
+
+  body('kt_checkpoint_ids')
+    .optional()
+    .custom(validateUUIDArrayField)
 ];
 
 /**
