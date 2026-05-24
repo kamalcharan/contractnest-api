@@ -17,6 +17,8 @@ import {
   generateSequencePreview
 } from '../seeds';
 import { SeedResult, TenantSeedResult } from '../seeds/types';
+import { seedTenantOnIndustryConfirmed } from '../services/seedTenantOnIndustryConfirmedService';
+import { seedSampleContacts } from '../services/seedSampleContactsService';
 
 const router = express.Router();
 
@@ -202,7 +204,82 @@ router.post('/tenant', async (req: Request, res: Response) => {
 });
 
 // =================================================================
+// POST /tenant/industry-confirmed — Full onboarding seed skill
+// Seeds KT blocks, facility nodes, sample contacts, sequences
+// =================================================================
+router.post('/tenant/industry-confirmed', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+
+    const { industryId, businessType } = req.body;
+
+    if (!industryId) {
+      return res.status(400).json({ error: 'industryId is required' });
+    }
+    if (!businessType || !['buyer', 'seller', 'both'].includes(businessType)) {
+      return res.status(400).json({ error: 'businessType must be buyer, seller, or both' });
+    }
+
+    console.log('[SeedRoutes] POST /tenant/industry-confirmed', { tenantId, industryId, businessType });
+
+    const result = await seedTenantOnIndustryConfirmed({
+      tenantId,
+      industryId,
+      businessType,
+      authToken: authHeader,
+    });
+
+    return res.status(result.success ? 200 : 207).json({ success: result.success, data: result });
+  } catch (error: any) {
+    console.error('[SeedRoutes] Error in industry-confirmed seed:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =================================================================
+// POST /tenant/sample-contacts — Standalone sample contact reseed
+// Useful for cleanup/reseed flows: delete is_seed contacts then call this
+// =================================================================
+router.post('/tenant/sample-contacts', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+
+    const { industryId } = req.body;
+
+    if (!industryId) {
+      return res.status(400).json({ error: 'industryId is required' });
+    }
+
+    console.log('[SeedRoutes] POST /tenant/sample-contacts', { tenantId, industryId });
+
+    const result = await seedSampleContacts({ tenantId, industryId });
+
+    return res.status(result.success ? 200 : 500).json({ success: result.success, data: result });
+  } catch (error: any) {
+    console.error('[SeedRoutes] Error seeding sample contacts:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =================================================================
 // POST /tenant/:category - Seed specific category for tenant
+// NOTE: must come AFTER all /tenant/<named-routes> above
 // =================================================================
 router.post('/tenant/:category', async (req: Request, res: Response) => {
   try {
