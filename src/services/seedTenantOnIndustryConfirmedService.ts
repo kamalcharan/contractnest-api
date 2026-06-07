@@ -3,7 +3,8 @@
 //
 // What it does (in order):
 //   1. Idempotency guard — checks existing data, skips if already seeded
-//   2. Clone KT (global m_cat_blocks) → tenant-scoped blocks (is_live=false, is_seed=true)
+//   2. KT-based catalog seeding: query m_catalog_resource_templates for the industry
+//      → insert one m_cat_block per template (seller/both only)
 //   3. Buyer/both only: create placeholder facility hierarchy via SECURITY DEFINER RPC
 //   4. Seed 3 industry-specific sample contacts via SECURITY DEFINER RPC
 //   5. Seed sequence numbers for both live + test environments (silent, non-fatal)
@@ -58,53 +59,113 @@ export async function seedTenantOnIndustryConfirmed(
   // ── Step 1: Application-level idempotency ────────────────────────────────
   let alreadySeeded = false;
 
-  // ── Step 2: Clone global KT blocks for this industry ────────────────────
+  // ── Step 2: KT-based catalog seeding (seller/both only) ─────────────────
   let catalogBlocksSeeded = 0;
-  const tagsFilter = JSON.stringify([industryId]);
+  const isSeller = businessType === 'seller' || businessType === 'both';
 
-  const { count: existingSeedCount } = await supabase
-    .from('m_cat_blocks')
-    .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', tenantId)
-    .eq('is_seed', true)
-    .filter('tags', 'cs', tagsFilter);
+  let existingSeedCount = 0;
 
-  if ((existingSeedCount ?? 0) > 0) {
-    catalogBlocksSeeded = existingSeedCount ?? 0;
-    console.log('[seedTenantOnIndustryConfirmed] KT blocks already cloned, skipping');
-  } else {
-    const { data: ktBlocks, error: fetchError } = await supabase
+  if (isSeller) {
+    // Idempotency: check if we already seeded catalog blocks for this tenant+industry
+    const { count: seedCount } = await supabase
       .from('m_cat_blocks')
-      .select('*')
-      .is('tenant_id', null)
-      .filter('tags', 'cs', tagsFilter);
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('is_seed', true)
+      .contains('tags', [industryId]);
 
-    if (fetchError) {
-      errors.push(`KT blocks fetch failed: ${fetchError.message}`);
-    } else if (ktBlocks && ktBlocks.length > 0) {
-      const tenantBlocks = ktBlocks.map(
-        ({ created_at, updated_at, created_by, updated_by, ...block }) => ({
-          ...block,
-          id: randomUUID(),
-          tenant_id: tenantId,
-          is_live: false,
-          is_seed: true,
-          is_active: true,
-          created_by: null,
-          updated_by: null,
-        })
-      );
+    existingSeedCount = seedCount ?? 0;
 
-      const { error: insertError } = await supabase.from('m_cat_blocks').insert(tenantBlocks);
-
-      if (insertError) {
-        console.warn('[seedTenantOnIndustryConfirmed] KT block clone skipped:', insertError.message);
-      } else {
-        catalogBlocksSeeded = tenantBlocks.length;
-        console.log(`[seedTenantOnIndustryConfirmed] Cloned ${catalogBlocksSeeded} KT blocks`);
-      }
+    if (existingSeedCount > 0) {
+      catalogBlocksSeeded = existingSeedCount;
+      console.log('[seedTenantOnIndustryConfirmed] Catalog blocks already seeded, skipping');
     } else {
-      console.log('[seedTenantOnIndustryConfirmed] No global KT blocks found for:', industryId);
+      // Resolve block_type_id for 'service' from master data
+      let blockTypeId: string | null = null;
+
+      try {
+        const { data: masterRow } = await supabase
+          .from('m_category_master')
+          .select('id')
+          .eq('category_name', 'cat_block_type')
+          .single();
+
+        if (masterRow?.id) {
+          const { data: detailRow } = await supabase
+            .from('m_category_details')
+            .select('id')
+            .eq('category_id', masterRow.id)
+            .eq('sub_cat_name', 'service')
+            .single();
+
+          blockTypeId = detailRow?.id ?? null;
+        }
+      } catch (lookupErr: any) {
+        console.warn(
+          '[seedTenantOnIndustryConfirmed] block_type_id lookup failed (non-fatal):',
+          lookupErr?.message
+        );
+      }
+
+      if (!blockTypeId) {
+        errors.push(
+          'block_type_id for "service" not found in m_category_details — catalog seeding skipped'
+        );
+        console.warn(
+          '[seedTenantOnIndustryConfirmed] Skipping catalog seed: block_type_id not resolved'
+        );
+      } else {
+        // Query KT resource templates for this industry
+        const { data: templates, error: templateError } = await supabase
+          .from('m_catalog_resource_templates')
+          .select('id, name, description')
+          .eq('industry_id', industryId)
+          .eq('is_active', true);
+
+        if (templateError) {
+          errors.push(`KT template fetch failed: ${templateError.message}`);
+          console.error(
+            '[seedTenantOnIndustryConfirmed] Template fetch error:',
+            templateError.message
+          );
+        } else if (templates && templates.length > 0) {
+          const tenantBlocks = templates.map(template => ({
+            id: randomUUID(),
+            tenant_id: tenantId,
+            block_type_id: blockTypeId as string,
+            name: template.name,
+            description: template.description ?? null,
+            tags: [industryId],
+            resource_template_id: template.id,
+            is_seed: true,
+            is_live: false,
+            is_active: true,
+            config: {},
+          }));
+
+          const { error: insertError } = await supabase
+            .from('m_cat_blocks')
+            .insert(tenantBlocks);
+
+          if (insertError) {
+            errors.push(`Catalog block insert failed: ${insertError.message}`);
+            console.error(
+              '[seedTenantOnIndustryConfirmed] Insert error:',
+              insertError.message
+            );
+          } else {
+            catalogBlocksSeeded = tenantBlocks.length;
+            console.log(
+              `[seedTenantOnIndustryConfirmed] Seeded ${catalogBlocksSeeded} catalog blocks from KT`
+            );
+          }
+        } else {
+          console.log(
+            '[seedTenantOnIndustryConfirmed] No KT templates found for industry:',
+            industryId
+          );
+        }
+      }
     }
   }
 
@@ -158,7 +219,7 @@ export async function seedTenantOnIndustryConfirmed(
 
   // Mark as already seeded if all application-level checks showed existing data
   if (
-    (existingSeedCount ?? 0) > 0 &&
+    (!isSeller || existingSeedCount > 0) &&
     (!isBuyer || existingPlaceholderCount > 0) &&
     contactResult.alreadySeeded
   ) {
