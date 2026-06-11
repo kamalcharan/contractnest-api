@@ -19,6 +19,7 @@ import {
 import { SeedResult, TenantSeedResult } from '../seeds/types';
 import { seedTenantOnIndustryConfirmed } from '../services/seedTenantOnIndustryConfirmedService';
 import { seedSampleContacts } from '../services/seedSampleContactsService';
+import { seedTenantTemplates } from '../services/seedTenantTemplatesService';
 
 const router = express.Router();
 
@@ -273,6 +274,46 @@ router.post('/tenant/sample-contacts', async (req: Request, res: Response) => {
     return res.status(result.success ? 200 : 500).json({ success: result.success, data: result });
   } catch (error: any) {
     console.error('[SeedRoutes] Error seeding sample contacts:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =================================================================
+// POST /tenant/templates — Template-scoped onboarding seed
+// Seeds ONLY the templates the user selected; both test + live envs.
+// Must come BEFORE /tenant/:category catch-all.
+// =================================================================
+router.post('/tenant/templates', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+
+    const { equipmentTemplateIds = [], facilityTemplateIds = [], businessType, industryId } = req.body;
+
+    if (!businessType || !['buyer', 'seller', 'both'].includes(businessType)) {
+      return res.status(400).json({ error: 'businessType must be buyer, seller, or both' });
+    }
+    if (!Array.isArray(equipmentTemplateIds) || !Array.isArray(facilityTemplateIds)) {
+      return res.status(400).json({ error: 'equipmentTemplateIds and facilityTemplateIds must be arrays' });
+    }
+
+    console.log('[SeedRoutes] POST /tenant/templates', { tenantId, equipmentTemplateIds, facilityTemplateIds, businessType });
+
+    const result = await seedTenantTemplates({
+      tenantId,
+      equipmentTemplateIds,
+      facilityTemplateIds,
+      businessType,
+      industryId: industryId || '',
+      authToken: authHeader,
+    });
+
+    return res.status(result.success ? 200 : 207).json({ success: result.success, data: result });
+  } catch (error: any) {
+    console.error('[SeedRoutes] Error in templates seed:', error.message);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
