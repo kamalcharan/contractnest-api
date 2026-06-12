@@ -1,0 +1,27 @@
+# Sprint 1 (Task 6.5) — first CI in this repo.
+# Typecheck always; integration tests (6.1–6.3) run only when DB secrets are
+# configured (they self-skip otherwise, so the job stays honest, not green-washed).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Integration tests (resolution, idempotency, persistence)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --test src/__tests__/

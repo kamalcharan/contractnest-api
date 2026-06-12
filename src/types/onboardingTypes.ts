@@ -177,6 +177,23 @@ export const ONBOARDING_CONSTANTS = {
   },
   REQUIRED_STEPS: ['user-profile', 'business-profile'] as RequiredStepId[],
   TOTAL_STEPS: 6,
+  // Sprint 1 / S13 — the live 13-step VaNi flow. isValidStepId accepts these
+  // alongside the legacy ids so step/complete no longer 400s on VaNi steps.
+  VANI_STEPS: [
+    'vani-intro',
+    'user-profile',
+    'business-details',
+    'persona-selection',
+    'theme-selection',
+    'industry-selection',
+    'resource-pick',
+    'vani-consent',
+    'vani-working',
+    'pricing-review',
+    'equipment-confirm',
+    'vani-intelligence',
+    'done',
+  ] as readonly string[],
 } as const;
 
 /**
@@ -227,8 +244,9 @@ export const ONBOARDING_ERROR_MESSAGES: Record<OnboardingErrorCode, string> = {
  */
 export const OnboardingTypeGuards = {
   isValidStepId: (stepId: any): stepId is OnboardingStepId => {
-    return typeof stepId === 'string' && 
-           (Object.values(ONBOARDING_CONSTANTS.STEPS) as string[]).includes(stepId);
+    return typeof stepId === 'string' &&
+           ((Object.values(ONBOARDING_CONSTANTS.STEPS) as string[]).includes(stepId) ||
+            (ONBOARDING_CONSTANTS.VANI_STEPS as readonly string[]).includes(stepId));
   },
   
   isRequiredStep: (stepId: string): stepId is RequiredStepId => {

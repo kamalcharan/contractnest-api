@@ -19,7 +19,7 @@ const VALIDATION_CONSTRAINTS = {
   MAX_TAGS: 20,
   SEARCH: { MIN: 2, MAX: 100 },
   PAGE: { MIN: 1, MAX: 10000 },
-  LIMIT: { MIN: 1, MAX: 100 },
+  LIMIT: { MIN: 1, MAX: 500 },  // Sprint 1: pricing-review fetches all seeded blocks in one page
   PRICE: { MIN: 0, MAX: 99999999.99 },
   TAX_RATE: { MIN: 0, MAX: 100 },
   SEQUENCE: { MIN: 0, MAX: 999999 },
@@ -381,6 +381,11 @@ export const queryBlocksValidation: ValidationChain[] = [
     .optional()
     .isIn(['true', 'false'])
     .withMessage('is_active must be true or false'),
+
+  query('is_seed')
+    .optional()
+    .isIn(['true', 'false'])
+    .withMessage('is_seed must be true or false'),
 
   query('visible')
     .optional()

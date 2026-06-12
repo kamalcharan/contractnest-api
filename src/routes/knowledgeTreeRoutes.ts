@@ -36,6 +36,9 @@ router.post('/generate-pricing', validateHeaders, knowledgeTreeController.genera
 // Option A — Generate service_name per section from existing checkpoints (patch, no wipe)
 router.post('/generate-service-names', validateHeaders, knowledgeTreeController.generateServiceNames);
 
+// Patch — Variant applicability for existing checkpoints (receives variants[] + checkpoints[] from DB)
+router.post('/generate-variant-map', validateHeaders, knowledgeTreeController.generateVariantApplicability);
+
 // Other routes
 router.post('/tag-compliance', validateHeaders, knowledgeTreeController.tagCompliance);
 router.post('/generate-overlays', validateHeaders, knowledgeTreeController.generateOverlays);

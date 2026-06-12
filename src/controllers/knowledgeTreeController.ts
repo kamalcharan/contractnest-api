@@ -260,6 +260,54 @@ class KnowledgeTreeController {
     }
   };
 
+  // POST /api/knowledge-tree/generate-variant-map — patch variant applicability on existing KT
+  // Body: { equipmentName, subCategory, resourceTemplateId, variants: [{ id, name, capacity_range }], checkpoints: [{ id, name, section_name, service_activity }] }
+  // Returns checkpoint_variant_map rows with REAL UUIDs — edge /patch-variant-map persists them.
+  generateVariantApplicability = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
+    const { equipmentName, subCategory, resourceTemplateId, variants, checkpoints } = req.body;
+    if (!equipmentName || !subCategory || !resourceTemplateId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'equipmentName, subCategory, resourceTemplateId required' } }); return;
+    }
+    if (!Array.isArray(variants) || variants.length === 0) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'variants[] required — pull from DB first' } }); return;
+    }
+    if (!Array.isArray(checkpoints) || checkpoints.length === 0) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'checkpoints[] required — pull from DB first' } }); return;
+    }
+    try {
+      const raw = await knowledgeTreeGeneratorService.generateVariantApplicability({ equipmentName, subCategory, resourceTemplateId, variants, checkpoints });
+
+      // Keep only entries whose IDs exist in the provided sets; dedupe pairs; force null overrides
+      const validCpIds = new Set(checkpoints.map((cp: any) => cp.id));
+      const validVarIds = new Set(variants.map((v: any) => v.id));
+      const seen = new Set<string>();
+      const entries: any[] = [];
+      let dropped = 0;
+      for (const m of raw.checkpoint_variant_map ?? []) {
+        const pair = `${m.checkpoint_id}|${m.variant_id}`;
+        if (!validCpIds.has(m.checkpoint_id) || !validVarIds.has(m.variant_id) || seen.has(pair)) { dropped++; continue; }
+        seen.add(pair);
+        entries.push({ id: randomUUID(), checkpoint_id: m.checkpoint_id, variant_id: m.variant_id, override_min: null, override_max: null });
+      }
+
+      const mappedCheckpoints = new Set(entries.map(e => e.checkpoint_id)).size;
+      console.log(`✅ Variant applicability — ${entries.length} mappings across ${mappedCheckpoints} variant-specific checkpoints for "${equipmentName}"${dropped ? ` (${dropped} invalid/duplicate dropped)` : ''}`);
+      res.status(200).json({
+        success: true,
+        data: {
+          resource_template_id: resourceTemplateId,
+          checkpoint_variant_map: entries,
+          stats: { mappings: entries.length, variant_specific_checkpoints: mappedCheckpoints, universal_checkpoints: checkpoints.length - mappedCheckpoints, dropped },
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ Generate variant applicability error:', error.message);
+      res.status(500).json({ success: false, error: { code: 'GENERATE_VARIANT_MAP_FAILED', message: error.message } });
+    }
+  };
+
   // POST /api/knowledge-tree/generate-pricing — Step 5
   // UI pulls real spare part + service cycle UUIDs from DB, passes them here.
   // Body: { equipmentName, subCategory, resourceTemplateId, currency, geo, spareParts[], serviceCycles[] }

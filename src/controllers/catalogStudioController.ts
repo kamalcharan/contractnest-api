@@ -62,6 +62,7 @@ class CatalogStudioController {
       block_type_id: req.query.block_type_id as string,
       pricing_mode_id: req.query.pricing_mode_id as string,
       is_active: req.query.is_active === 'true' ? true : req.query.is_active === 'false' ? false : undefined,
+      is_seed: req.query.is_seed === 'true' ? true : req.query.is_seed === 'false' ? false : undefined,
       tags: req.query.tags ? (req.query.tags as string).split(',') : undefined,
       search: req.query.search as string,
       page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,

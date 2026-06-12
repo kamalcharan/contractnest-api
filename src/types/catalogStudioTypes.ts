@@ -304,6 +304,7 @@ export interface BlockQueryParams {
   block_type_id?: string;
   pricing_mode_id?: string;
   is_active?: boolean;
+  is_seed?: boolean;
   tags?: string[];
   search?: string;
   page?: number;

@@ -267,6 +267,9 @@ export class CatBlocksService {
     if (params.is_active !== undefined) {
       searchParams.append('is_active', String(params.is_active));
     }
+    if (params.is_seed !== undefined) {
+      searchParams.append('is_seed', String(params.is_seed));
+    }
     if (params.tags && params.tags.length > 0) {
       searchParams.append('tags', params.tags.join(','));
     }
@@ -284,7 +287,7 @@ export class CatBlocksService {
   }
 
   // --------------------------------------------------------------------------
-  // Bulk seed — used by Onboarding Agent (seedTenantOnIndustryConfirmed)
+  // Bulk seed — used by the onboarding seeder (seedTenantTemplatesService)
   // Orchestrates KtCatBlockMapperService → Edge bulk endpoint sequentially.
   // --------------------------------------------------------------------------
   async bulkSeed(

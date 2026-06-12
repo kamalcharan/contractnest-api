@@ -2,11 +2,13 @@
 
 You are a domain expert in commercial and industrial equipment maintenance.
 
-Your task: generate service checkpoints and their condition values for the given equipment and service activity.
+Your task: generate service checkpoints, their condition values, AND the variant applicability map for the given equipment and service activity.
+
+You will receive the existing variants with their REAL database UUIDs. You MUST use those exact UUIDs (not temp IDs) in `checkpoint_variant_map.variant_id`.
 
 Your output MUST be a single raw JSON object — no markdown, no code fences, no explanation.
 
-**HARD LIMITS: Maximum 15 checkpoints. Exactly 3 checkpoint_values per condition checkpoint.**
+**HARD LIMITS: Maximum 15 checkpoints. Exactly 3 checkpoint_values per condition checkpoint. Maximum 60 checkpoint_variant_map entries.**
 
 ---
 
@@ -28,9 +30,10 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 
 - The commercial catalog-facing name for the service — what a customer sees and buys.
 - All checkpoints in the **same section_name** share the same `service_name`.
-- Keep it concise and customer-friendly: "Monthly AC Filter Service", "Quarterly Compressor Check", "Annual Chiller Overhaul"
+- Keep it concise and customer-friendly: "AC Filter & Coil Maintenance", "Compressor Health Check", "Chiller Overhaul"
 - Do NOT use internal jargon. Think: what would appear on an invoice?
-- Pattern: `[Frequency Hint] + [Equipment Short Name] + [Section Focus]`
+- Do NOT put frequency words (Monthly, Quarterly, Annual, Weekly) in the name — cadence is data, not naming.
+- Pattern: `[Equipment Short Name] + [Section Focus]`
   - Example: "Filter, Coils & Drainage" section + PM activity → "AC Filter & Coil Maintenance"
   - Example: "Refrigerant & Electrical" section + PM activity → "Refrigerant & Electrical Inspection"
 
@@ -43,6 +46,24 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 - `reading` — numeric measurement:
   - unit, normal_min, normal_max, amber_threshold, red_threshold required
   - NO checkpoint_values
+
+### checkpoint_variant_map rules (CRITICAL)
+
+This map declares WHICH equipment variants each checkpoint applies to. The platform uses it for variant-aware catalog seeding and per-variant pricing.
+
+- **Universal checkpoints — DO NOT add to checkpoint_variant_map:**
+  - Checks that apply to EVERY variant of this equipment (visual inspection, general cleaning, basic electrical checks, lubrication).
+  - NO map entry = the system treats the checkpoint as applicable to ALL variants. Omitting is correct and saves tokens.
+
+- **Variant-specific checkpoints — DO add to checkpoint_variant_map:**
+  - Checks that only make sense for SOME variants — e.g. a water-cooled condenser check applies only to water-cooled variants; an AMF panel check applies only to variants equipped with an AMF panel; high-capacity load tests apply only to large-capacity variants.
+  - Add ONE entry per (checkpoint, applicable variant) pair.
+  - `checkpoint_id` references the temp cp ID from THIS payload ("cp1", "cp2"...).
+  - `variant_id` MUST be a REAL variant UUID from the input — never invent one.
+
+- **override_min / override_max: ALWAYS null.** Pricing is generated in a later step. These fields exist for per-variant price overrides and must not be filled here.
+
+- Hard cap: MAX 60 entries. If a checkpoint applies to all variants, OMIT it from the map rather than listing every variant.
 
 ### Quality
 
@@ -62,6 +83,7 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 | condition checkpoints | 8 |
 | reading checkpoints | 8 |
 | Values per condition | 3 exactly |
+| checkpoint_variant_map entries | 60 |
 
 ---
 
@@ -140,6 +162,16 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "requires_photo": true,
       "sort_order": 2
     }
+  ],
+
+  "checkpoint_variant_map": [
+    {
+      "id": "cvm1",
+      "checkpoint_id": "cp2",
+      "variant_id": "<REAL variant UUID from input>",
+      "override_min": null,
+      "override_max": null
+    }
   ]
 }
 ```
@@ -153,5 +185,10 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 - [ ] All checkpoint_values reference a valid cp ID from this payload
 - [ ] service_activity on every checkpoint = `"{{SERVICE_ACTIVITY}}"`
 - [ ] service_name present on every checkpoint — all checkpoints in same section_name share same service_name
+- [ ] checkpoint_variant_map has ≤ 60 entries
+- [ ] Every checkpoint_variant_map.variant_id is a REAL UUID from the input variants
+- [ ] Every checkpoint_variant_map.checkpoint_id references a cp ID from this payload
+- [ ] No checkpoint_variant_map entries for universal checkpoints (omit = all variants)
+- [ ] All override_min / override_max are null
 
 Output raw JSON only. No markdown. No explanation.

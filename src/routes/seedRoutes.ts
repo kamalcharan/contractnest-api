@@ -17,7 +17,6 @@ import {
   generateSequencePreview
 } from '../seeds';
 import { SeedResult, TenantSeedResult } from '../seeds/types';
-import { seedTenantOnIndustryConfirmed } from '../services/seedTenantOnIndustryConfirmedService';
 import { seedSampleContacts } from '../services/seedSampleContactsService';
 import { seedTenantTemplates } from '../services/seedTenantTemplatesService';
 
@@ -205,45 +204,182 @@ router.post('/tenant', async (req: Request, res: Response) => {
 });
 
 // =================================================================
-// POST /tenant/industry-confirmed — Full onboarding seed skill
-// Seeds KT blocks, facility nodes, sample contacts, sequences
+// Settings → Seed Data (founder request): UI-managed seed lifecycle.
+// Overview + reseed run from PERSISTED intent (t_tenant_selected_resources) —
+// no onboarding replay needed. Cleanup keeps contract-referenced rows.
 // =================================================================
-router.post('/tenant/industry-confirmed', async (req: Request, res: Response) => {
+function jwtClient(authToken: string) {
+  // API layer holds only the anon key by design; the user's JWT makes the
+  // role 'authenticated' and the RPCs below are SECURITY DEFINER.
+  const { createClient } = require('@supabase/supabase-js');
+  return createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY!,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: authToken } },
+    },
+  );
+}
+
+// GET /tenant/seed-preview?resource_template_id=X — what a seed WOULD create.
+// Runs the read-only mapper; nothing is written (Catalog Studio preview modal).
+router.get('/tenant/seed-preview', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
-    const tenantId = req.headers['x-tenant-id'] as string;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+    const templateId = req.query.resource_template_id as string;
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+    if (!templateId) return res.status(400).json({ error: 'resource_template_id is required' });
 
-    if (!authHeader) {
-      return res.status(401).json({ error: 'Authorization header is required' });
-    }
-    if (!tenantId) {
-      return res.status(400).json({ error: 'x-tenant-id header is required' });
-    }
+    const { ktCatBlockMapperService } = await import('../services/ktCatBlockMapperService');
+    const { blocks } = await ktCatBlockMapperService.buildBlocksForTemplate(templateId, authHeader);
 
-    const { industryId, businessType } = req.body;
-
-    if (!industryId) {
-      return res.status(400).json({ error: 'industryId is required' });
-    }
-    if (!businessType || !['buyer', 'seller', 'both'].includes(businessType)) {
-      return res.status(400).json({ error: 'businessType must be buyer, seller, or both' });
-    }
-
-    console.log('[SeedRoutes] POST /tenant/industry-confirmed', { tenantId, industryId, businessType });
-
-    const result = await seedTenantOnIndustryConfirmed({
-      tenantId,
-      industryId,
-      businessType,
-      authToken: authHeader,
+    const SPARE_TYPE = '1221e2dd-a603-47fb-9063-c393193514b7';
+    const services = blocks.filter(b => b.block_type_id !== SPARE_TYPE);
+    const spares   = blocks.filter(b => b.block_type_id === SPARE_TYPE);
+    const summarize = (b: any) => ({
+      name: b.name,
+      base_price: b.base_price,
+      currency: b.currency,
+      currencies: (b.config?.pricingRecords || []).map((r: any) => r.currency),
+      cycle_days: b.config?.serviceCycles?.days ?? null,
+      variants: (b.config?.selectedVariants || []).length,
+      kt_price_min: b.config?.kt_price_min ?? null,
+      kt_price_max: b.config?.kt_price_max ?? null,
     });
 
-    return res.status(result.success ? 200 : 207).json({ success: result.success, data: result });
+    const variantIds = new Set<string>();
+    blocks.forEach((b: any) => (b.config?.selectedVariants || []).forEach((v: any) => v?.variant_id && variantIds.add(v.variant_id)));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        resource_template_id: templateId,
+        counts: {
+          services: services.length,
+          spares: spares.length,
+          priced: blocks.filter(b => (b.base_price || 0) > 0).length,
+          variants: variantIds.size,
+          total: blocks.length,
+        },
+        services: services.map(summarize),
+        spares: spares.map(summarize),
+      },
+    });
   } catch (error: any) {
-    console.error('[SeedRoutes] Error in industry-confirmed seed:', error.message);
+    console.error('[SeedRoutes] seed-preview error:', error.message);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// POST /tenant/seed-equipment — body { resourceTemplateId, purpose? }
+// The single-equipment seed (Catalog Studio "Seed with VaNi" → Load).
+router.post('/tenant/seed-equipment', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+
+    const { resourceTemplateId, purpose } = req.body || {};
+    if (!resourceTemplateId) return res.status(400).json({ error: 'resourceTemplateId is required' });
+
+    const { seedSingleEquipment } = await import('../services/seedTenantTemplatesService');
+    const result = await seedSingleEquipment({
+      tenantId,
+      resourceTemplateId,
+      purpose: purpose === 'own' ? 'own' : 'sell',
+      authToken: authHeader,
+      userId: (req as any).user?.id || null,
+    });
+
+    return res.status(result.success ? 200 : 207).json({ success: result.success, status: result.status, data: result });
+  } catch (error: any) {
+    console.error('[SeedRoutes] seed-equipment error:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /tenant/seed-overview — what onboarding seeded + picks + recent logs
+router.get('/tenant/seed-overview', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+
+    const sb = jwtClient(authHeader);
+    const { data, error } = await sb.rpc('get_tenant_seed_overview', { p_tenant_id: tenantId });
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    console.error('[SeedRoutes] seed-overview error:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /tenant/reseed — body { target: 'catalog' | 'registry' | 'all' }
+// 1) cleanup (skips contract-referenced rows)  2) re-run the idempotent seed
+// from persisted picks; persona + industries are read server-side.
+router.post('/tenant/reseed', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+
+    const target = ['catalog', 'registry', 'all'].includes(req.body?.target) ? req.body.target : 'all';
+    const sb = jwtClient(authHeader);
+
+    const { data: cleanup, error: cleanupError } = await sb.rpc('cleanup_tenant_seed_data', {
+      p_tenant_id: tenantId,
+      p_target: target,
+    });
+    if (cleanupError) return res.status(500).json({ success: false, error: `Cleanup failed: ${cleanupError.message}` });
+
+    // Server-side intent: persona from profile, industries from served list
+    const [{ data: profile }, { data: served }] = await Promise.all([
+      sb.from('t_tenant_profiles').select('persona, business_type_id').eq('tenant_id', tenantId).maybeSingle(),
+      sb.from('t_tenant_served_industries').select('industry_id').eq('tenant_id', tenantId),
+    ]);
+    const rawPersona = profile?.persona || profile?.business_type_id || 'seller';
+    const businessType = (['seller', 'buyer', 'both'].includes(rawPersona) ? rawPersona : 'seller') as 'seller' | 'buyer' | 'both';
+    const industryIds: string[] = (served || []).map((r: any) => r.industry_id).filter(Boolean);
+
+    console.log('[SeedRoutes] reseed', { tenantId, target, businessType, industryIds, cleanup });
+
+    // Picks come from t_tenant_selected_resources inside the seeder (S8)
+    const result = await seedTenantTemplates({
+      tenantId,
+      equipmentTemplateIds: [],
+      facilityTemplateIds: [],
+      businessType,
+      industryId: industryIds[0] || '',
+      industryIds,
+      authToken: authHeader,
+      userId: (req as any).user?.id || null,
+    });
+
+    const httpStatus = result.status === 'success' || result.status === 'no_coverage' ? 200 : 207;
+    return res.status(httpStatus).json({
+      success: result.success,
+      status: result.status,
+      data: { cleanup, seed: result },
+    });
+  } catch (error: any) {
+    console.error('[SeedRoutes] reseed error:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =================================================================
+// POST /tenant/industry-confirmed — REMOVED (Sprint 1, Task 1.3)
+// The legacy name-only/price-less seeder (seedTenantOnIndustryConfirmedService)
+// was the wrong seeder identified by the legibility probe (B0.5 point 1) and
+// had zero remaining UI callers. The KT-aware path is POST /tenant/templates.
+// =================================================================
 
 // =================================================================
 // POST /tenant/sample-contacts — Standalone sample contact reseed
@@ -291,7 +427,7 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
     if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
     if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
 
-    const { equipmentTemplateIds = [], facilityTemplateIds = [], businessType, industryId } = req.body;
+    const { equipmentTemplateIds = [], facilityTemplateIds = [], businessType, industryId, industryIds } = req.body;
 
     if (!businessType || !['buyer', 'seller', 'both'].includes(businessType)) {
       return res.status(400).json({ error: 'businessType must be buyer, seller, or both' });
@@ -300,7 +436,7 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'equipmentTemplateIds and facilityTemplateIds must be arrays' });
     }
 
-    console.log('[SeedRoutes] POST /tenant/templates', { tenantId, equipmentTemplateIds, facilityTemplateIds, businessType });
+    console.log('[SeedRoutes] POST /tenant/templates', { tenantId, equipmentTemplateIds, facilityTemplateIds, businessType, industryIds });
 
     const result = await seedTenantTemplates({
       tenantId,
@@ -308,10 +444,15 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
       facilityTemplateIds,
       businessType,
       industryId: industryId || '',
+      industryIds: Array.isArray(industryIds) ? industryIds : undefined,
       authToken: authHeader,
+      userId: (req as any).user?.id || null,
     });
 
-    return res.status(result.success ? 200 : 207).json({ success: result.success, data: result });
+    // no_coverage is an honest, non-exceptional outcome — 200 with status field so
+    // the UI can render it without tripping error handling. partial/error → 207.
+    const httpStatus = result.status === 'success' || result.status === 'no_coverage' ? 200 : 207;
+    return res.status(httpStatus).json({ success: result.success, status: result.status, data: result });
   } catch (error: any) {
     console.error('[SeedRoutes] Error in templates seed:', error.message);
     return res.status(500).json({ success: false, error: error.message });

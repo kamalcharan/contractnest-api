@@ -36,7 +36,15 @@ interface GeneratePricingInput {
   currency?: string;
   geo?: string;
   spareParts?: Array<{ id: string; name: string; component_group: string }>;
-  serviceCycles?: Array<{ id: string; catalog_name?: string | null; frequency_value: number; frequency_unit: string; checkpoint_name?: string }>;
+  serviceCycles?: Array<{
+    id: string;
+    catalog_name?: string | null;
+    frequency_value: number;
+    frequency_unit: string;
+    checkpoint_name?: string;
+    // Layer 2: applicable variants → LLM returns currency-neutral variant_multipliers
+    variants?: Array<{ id: string; name: string; capacity_range?: string | null }>;
+  }>;
 }
 
 class KnowledgeTreeGeneratorService {
@@ -180,8 +188,8 @@ class KnowledgeTreeGeneratorService {
     const skillFile = layer === 'facility' ? 'kt-facility-checkpoints-generator.md' : 'kt-checkpoints-generator.md';
     const systemPrompt = this.loadSkill(skillFile, { '\\{\\{SERVICE_ACTIVITY\\}\\}': serviceActivity });
     const variantsContext = variants.map(v => `  - id: "${v.id}"  name: "${v.name}"${v.capacity_range ? `  range: "${v.capacity_range}"` : ''}`).join('\n');
-    const userMessage = `Generate checkpoints for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\nservice_activity: ${serviceActivity}\n\nVariants (for reference):\n${variantsContext}`;
-    return this.callAnthropic(systemPrompt, userMessage, 8000, `step3-checkpoints-${serviceActivity}`);
+    const userMessage = `Generate checkpoints for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\nservice_activity: ${serviceActivity}\n\nVariants (use EXACT UUIDs in checkpoint_variant_map; omit universal checkpoints from the map):\n${variantsContext}`;
+    return this.callAnthropic(systemPrompt, userMessage, 10000, `step3-checkpoints-${serviceActivity}`);
   }
 
   // ── Step 4: Service cycles only ──────────────────────────────────────────────
@@ -216,7 +224,26 @@ class KnowledgeTreeGeneratorService {
       .join('\n');
 
     const userMessage = `Generate service names for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\n\nCheckpoints by section:\n${sectionsContext}`;
-    return this.callAnthropic(systemPrompt, userMessage, 2000, 'service-names');
+    return this.callAnthropic(systemPrompt, userMessage, 3000, 'service-names');
+  }
+
+  // ── Patch: Variant applicability for EXISTING checkpoints ───────────────────
+  // Sends real variant + checkpoint UUIDs from DB → returns checkpoint_variant_map
+  // rows (universal checkpoints omitted = applies to all variants).
+  async generateVariantApplicability(input: GenerateStepInput): Promise<any> {
+    const { equipmentName, subCategory, resourceTemplateId, variants = [], checkpoints = [] } = input;
+    if (!this.anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    const systemPrompt = this.loadSkill('kt-variant-applicability-generator.md');
+
+    const variantsContext = variants
+      .map(v => `  - id: "${v.id}"  name: "${v.name}"${v.capacity_range ? `  range: "${v.capacity_range}"` : ''}`)
+      .join('\n');
+    const checkpointsContext = checkpoints
+      .map(cp => `  - id: "${cp.id}"  name: "${cp.name}"  section: "${cp.section_name}"  activity: "${cp.service_activity}"`)
+      .join('\n');
+
+    const userMessage = `Generate variant applicability for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\n\nVariants (REAL UUIDs — use exactly):\n${variantsContext}\n\nCheckpoints (REAL UUIDs — use exactly):\n${checkpointsContext}`;
+    return this.callAnthropic(systemPrompt, userMessage, 6000, 'variant-applicability');
   }
 
   // ── Step 5: Pricing — geo + currency aware, min/median/max ──────────────────
@@ -230,11 +257,18 @@ class KnowledgeTreeGeneratorService {
       .map(sp => `  - id: "${sp.id}"  name: "${sp.name}"  group: "${sp.component_group}"`)
       .join('\n');
     const cyclesContext = serviceCycles
-      .map(sc => `  - id: "${sc.id}"  name: "${sc.catalog_name || sc.checkpoint_name || 'unnamed'}"  frequency: ${sc.frequency_value} ${sc.frequency_unit}`)
+      .map(sc => {
+        const head = `  - id: "${sc.id}"  name: "${sc.catalog_name || sc.checkpoint_name || 'unnamed'}"  frequency: ${sc.frequency_value} ${sc.frequency_unit}`;
+        if (!sc.variants?.length) return head;
+        const vars = sc.variants
+          .map(v => `      * variant_id: "${v.id}"  name: "${v.name}"${v.capacity_range ? `  range: "${v.capacity_range}"` : ''}`)
+          .join('\n');
+        return `${head}\n    variants (return variant_multipliers using these EXACT UUIDs):\n${vars}`;
+      })
       .join('\n');
 
     const userMessage = `Generate pricing for:\nEquipment: ${equipmentName}\nSub-category: ${subCategory}\nresource_template_id: ${resourceTemplateId}\nCurrency: ${currency}\nGeography: ${geo}\n\nSpare Parts (use EXACT IDs):\n${partsContext}\n\nService Cycles (use EXACT IDs):\n${cyclesContext}`;
-    return this.callAnthropic(systemPrompt, userMessage, 6000, `step5-pricing-${geo}-${currency}`);
+    return this.callAnthropic(systemPrompt, userMessage, 8000, `step5-pricing-${geo}-${currency}`);
   }
 }
 

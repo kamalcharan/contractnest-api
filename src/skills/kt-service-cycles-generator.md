@@ -50,7 +50,7 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "frequency_unit": "days",
       "varies_by": ["environment", "dust_level"],
       "alert_overdue_days": 7,
-      "catalog_name": "Monthly Preventive Maintenance",
+      "catalog_name": "Preventive Maintenance — Standard Scope",
       "source": "ai_researched",
       "is_active": true
     },
@@ -61,7 +61,7 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
       "frequency_unit": "days",
       "varies_by": ["equipment_age", "usage_intensity"],
       "alert_overdue_days": 14,
-      "catalog_name": "Annual Preventive Maintenance",
+      "catalog_name": "Preventive Maintenance — Comprehensive Scope",
       "source": "ai_researched",
       "is_active": true
     }
@@ -77,3 +77,18 @@ Your output MUST be a single raw JSON object — no markdown, no code fences, no
 - [ ] frequency_unit is one of: "days", "hours", "visits"
 
 Output raw JSON only. No markdown. No explanation.
+
+
+## catalog_name naming rules (Sprint 1 — contract-layer separation)
+
+- `catalog_name` names a SELLABLE WORK PACKAGE billed per visit — it must describe
+  the WORK SCOPE, never the schedule.
+- Do NOT include frequency words (Monthly, Quarterly, Bi-Annual, Annual, Weekly).
+  Cadence is carried separately in `frequency_value`/`frequency_unit` and used by
+  the contract layer for scheduling.
+  - WRONG: "Monthly DG Set Preventive Maintenance"
+  - RIGHT: "DG Set Preventive Maintenance — Standard Scope"
+- catalog_name must be UNIQUE per equipment: when two work packages would collide,
+  qualify by scope or activity ("… — Comprehensive", "… — Output & Performance").
+- Cycles belonging to the same sellable package must share the exact same
+  catalog_name (the catalog creates ONE service block per catalog_name).
