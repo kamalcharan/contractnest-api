@@ -184,6 +184,7 @@ export const ONBOARDING_CONSTANTS = {
     'user-profile',
     'business-details',
     'persona-selection',
+    'engagement-model',
     'theme-selection',
     'industry-selection',
     'resource-pick',

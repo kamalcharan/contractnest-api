@@ -427,7 +427,7 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
     if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
     if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
 
-    const { equipmentTemplateIds = [], facilityTemplateIds = [], businessType, industryId, industryIds } = req.body;
+    const { equipmentTemplateIds = [], facilityTemplateIds = [], serviceTemplateIds = [], businessType, industryId, industryIds } = req.body;
 
     if (!businessType || !['buyer', 'seller', 'both'].includes(businessType)) {
       return res.status(400).json({ error: 'businessType must be buyer, seller, or both' });
@@ -436,12 +436,13 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'equipmentTemplateIds and facilityTemplateIds must be arrays' });
     }
 
-    console.log('[SeedRoutes] POST /tenant/templates', { tenantId, equipmentTemplateIds, facilityTemplateIds, businessType, industryIds });
+    console.log('[SeedRoutes] POST /tenant/templates', { tenantId, equipmentTemplateIds, facilityTemplateIds, serviceTemplateIds, businessType, industryIds });
 
     const result = await seedTenantTemplates({
       tenantId,
       equipmentTemplateIds,
       facilityTemplateIds,
+      serviceTemplateIds: Array.isArray(serviceTemplateIds) ? serviceTemplateIds : [],
       businessType,
       industryId: industryId || '',
       industryIds: Array.isArray(industryIds) ? industryIds : undefined,

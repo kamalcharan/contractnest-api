@@ -39,6 +39,7 @@ export interface SeedTemplatesInput {
   tenantId:               string;
   equipmentTemplateIds:   string[];   // ResourceTemplate IDs selected on ResourcePickStep
   facilityTemplateIds:    string[];   // ResourceTemplate IDs selected on ResourcePickStep
+  serviceTemplateIds?:    string[];   // Service template IDs (no KT required — flat pricing)
   businessType:           'buyer' | 'seller' | 'both';
   industryId:             string;     // primary industry (legacy single-value)
   industryIds?:           string[];   // all selected industries (preferred)
@@ -62,6 +63,7 @@ export interface SeedTemplatesResult {
   statusDetail:          string;
   industryIds:           string[];
   equipmentBlocksSeeded: number;   // catalog blocks created in test + live envs combined
+  serviceBlocksSeeded:   number;   // service catalog blocks (no KT — flat pricing)
   registryAssetsSeeded:  number;   // buyer registry entries created (is_live=false)
   facilityNodesSeeded:   number;   // kept for response compatibility (= registryAssetsSeeded)
   sampleContactsSeeded:  number;
@@ -135,6 +137,68 @@ async function callBulkSeed(
   }
 
   return { blocksCreated, alreadySeeded, errors };
+}
+
+// ── Service template → flat cat-block (no KT lookup) ─────────────────────────
+// Services don't have KT variants or checkpoints. One block per template,
+// priced at 0 (user sets in pricing-review), pricingMode=independent.
+const BLOCK_TYPE_SERVICE   = 'ae7050b4-3cca-4ed9-aa02-4a1f697b75cc';
+const PRICING_MODE_INDEPENDENT = '718f839d-9d41-4212-b2b0-553a2198fb86';
+
+async function buildServiceCatBlocks(
+  serviceTemplateIds: string[],
+  authToken: string,
+): Promise<Array<{ resource_template_id: string; kt_name: string; blocks: CatBlockPayload[] }>> {
+  if (!serviceTemplateIds.length) return [];
+
+  const { createClient } = await import('@supabase/supabase-js');
+  const url = process.env.SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY!;
+  const sb  = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: process.env.SUPABASE_SERVICE_ROLE_KEY ? undefined : { headers: { Authorization: authToken } },
+  });
+
+  const { data: templates, error } = await sb
+    .from('m_catalog_resource_templates')
+    .select('id, name, description, sub_category')
+    .in('id', serviceTemplateIds)
+    .eq('is_active', true);
+
+  if (error || !templates?.length) {
+    console.warn('[buildServiceCatBlocks] Failed to fetch service templates:', error?.message);
+    return [];
+  }
+
+  return templates.map((tmpl: any) => ({
+    resource_template_id: tmpl.id,
+    kt_name: tmpl.name,
+    blocks: [{
+      name:                 tmpl.name,
+      display_name:         tmpl.name,
+      description:          tmpl.description ?? null,
+      block_type_id:        BLOCK_TYPE_SERVICE,
+      pricing_mode_id:      PRICING_MODE_INDEPENDENT,
+      base_price:           0,
+      currency:             'INR',
+      resource_template_id: tmpl.id,
+      knowledge_tree_ref:   { resource_template_id: tmpl.id },
+      config: {
+        selectedResources:    [],
+        selectedVariants:     [],
+        pricingMode:          'independent',
+        priceType:            'fixed',
+        deliveryMode:         'onsite',
+        pricingRecords:       [{ id: '1', currency: 'INR', amount: 0, price_type: 'fixed', tax_inclusion: 'exclusive', taxes: [], is_active: true }],
+        variantPricingMode:   'all',
+        kt_reference_price:   null,
+        kt_service_activity:  'service_delivery',
+      },
+      is_seed:   true,
+      is_active: true,
+      visible:   true,
+    }],
+  }));
 }
 
 // Persona → selection purposes:
@@ -228,6 +292,7 @@ export async function seedTenantTemplates(
     tenantId,
     equipmentTemplateIds,
     facilityTemplateIds,
+    serviceTemplateIds = [],
     businessType,
     industryId,
     industryIds,
@@ -239,14 +304,39 @@ export async function seedTenantTemplates(
   const perTemplate: PerTemplateResult[] = [];
   const droppedTemplateIds: string[] = [];
   let equipmentBlocksSeeded = 0;
-  let catalogAlreadySeeded = 0;
-  let registryAssetsSeeded = 0;
+  let serviceBlocksSeeded   = 0;
+  let catalogAlreadySeeded  = 0;
+  let registryAssetsSeeded  = 0;
 
   const allIndustryIds = [...new Set([...(industryIds || []), industryId].filter(Boolean))];
 
   console.log('[seedTenantTemplates] Starting', {
-    tenantId, equipmentTemplateIds, facilityTemplateIds, businessType, allIndustryIds,
+    tenantId, equipmentTemplateIds, facilityTemplateIds, serviceTemplateIds, businessType, allIndustryIds,
   });
+
+  // ── Step -1: Seed services (no KT — always runs before coverage check) ───────
+  if (serviceTemplateIds.length > 0) {
+    try {
+      const serviceSelections: ResourceSelection[] = serviceTemplateIds.map(id => ({
+        resource_template_id: id, purpose: 'sell',
+      }));
+      await persistSelectedResources(tenantId, serviceSelections, 'onboarding', userId, authToken);
+
+      const svcKts = await buildServiceCatBlocks(serviceTemplateIds, authToken);
+      if (svcKts.length > 0) {
+        const [testRes, liveRes] = await Promise.all([
+          callBulkSeed(svcKts, tenantId, authToken, false),
+          callBulkSeed(svcKts, tenantId, authToken, true),
+        ]);
+        serviceBlocksSeeded = testRes.blocksCreated + liveRes.blocksCreated;
+        errors.push(...testRes.errors, ...liveRes.errors);
+        console.log(`[seedTenantTemplates] Services seeded: test=${testRes.blocksCreated} live=${liveRes.blocksCreated} blocks`);
+      }
+    } catch (err: any) {
+      errors.push(`Services: ${err?.message || 'service seed failed'}`);
+      console.error('[seedTenantTemplates] Service seed error:', err?.message);
+    }
+  }
 
   // ── Step 0a: Persist intent (S8) — upsert, race-safe ─────────────────────────
   const requestedSelections = buildSelections(businessType, equipmentTemplateIds, facilityTemplateIds);
@@ -271,6 +361,7 @@ export async function seedTenantTemplates(
       statusDetail: `Industry resolution failed: ${err?.message || 'unknown error'}`,
       industryIds: allIndustryIds,
       equipmentBlocksSeeded: 0,
+      serviceBlocksSeeded,
       registryAssetsSeeded: 0,
       facilityNodesSeeded: 0,
       sampleContactsSeeded: 0,
@@ -284,11 +375,14 @@ export async function seedTenantTemplates(
   if (!hasCoverage) {
     console.warn(`[seedTenantTemplates] NO COVERAGE for industries [${allIndustryIds.join(', ')}] — tenant ${tenantId}`);
     return {
-      success: false,
-      status: 'no_coverage',
-      statusDetail: `No resource templates are mapped to industry "${allIndustryIds.join(', ')}" yet. Nothing was seeded.`,
+      success: serviceBlocksSeeded > 0,
+      status: serviceBlocksSeeded > 0 ? 'success' : 'no_coverage',
+      statusDetail: serviceBlocksSeeded > 0
+        ? `No equipment KT coverage, but ${serviceBlocksSeeded} service blocks seeded.`
+        : `No resource templates are mapped to industry "${allIndustryIds.join(', ')}" yet. Nothing was seeded.`,
       industryIds: allIndustryIds,
       equipmentBlocksSeeded: 0,
+      serviceBlocksSeeded,
       registryAssetsSeeded: 0,
       facilityNodesSeeded: 0,
       sampleContactsSeeded: 0,
@@ -312,15 +406,17 @@ export async function seedTenantTemplates(
     persisted.filter(s => s.purpose === 'own').map(s => s.resource_template_id),
   )];
 
-  for (const id of [...sellTemplateIds, ...ownTemplateIds]) {
+  // Coverage filter applies only to sell-leg (KT mapper requires it).
+  // Registry entries (purpose='own') do NOT need KT coverage — drop only sell IDs.
+  for (const id of sellTemplateIds) {
     if (!inCoverage(id) && !droppedTemplateIds.includes(id)) {
       droppedTemplateIds.push(id);
-      console.warn(`[seedTenantTemplates] Dropping template ${id}: outside industry resolution set`);
+      console.warn(`[seedTenantTemplates] Dropping sell template ${id}: outside industry resolution set`);
     }
   }
 
   const sellIds = sellTemplateIds.filter(inCoverage);
-  const ownIds  = ownTemplateIds.filter(inCoverage);
+  const ownIds  = ownTemplateIds; // registry doesn't require KT coverage
 
   // ── Step 1: SELLER leg — catalog blocks from the KT mapper ───────────────────
   const isSeller = businessType === 'seller' || businessType === 'both';
@@ -469,6 +565,7 @@ export async function seedTenantTemplates(
     statusDetail,
     industryIds: allIndustryIds,
     equipmentBlocksSeeded,
+    serviceBlocksSeeded,
     registryAssetsSeeded,
     facilityNodesSeeded: registryAssetsSeeded, // response compatibility
     sampleContactsSeeded,
@@ -479,7 +576,7 @@ export async function seedTenantTemplates(
   };
 
   console.log('[seedTenantTemplates] Done', {
-    status, equipmentBlocksSeeded, registryAssetsSeeded, sampleContactsSeeded,
+    status, equipmentBlocksSeeded, serviceBlocksSeeded, registryAssetsSeeded, sampleContactsSeeded,
     dropped: droppedTemplateIds.length, errorCount: errors.length,
   });
 
