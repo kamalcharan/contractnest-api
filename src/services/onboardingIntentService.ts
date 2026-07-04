@@ -88,6 +88,24 @@ export async function persistSelectedResources(
     console.error('[onboardingIntent] persistSelectedResources failed:', error.message);
     return { persisted: 0, errors: [error.message] };
   }
+
+  // Owner decision (2026-07-02): the picks ARE the tenant's Resources.
+  // Materialize them into t_category_resources_master (idempotent RPC) so
+  // Settings → Resources, catalog-studio dependencies, wizard coverage and
+  // VaNi all read the same working set. Non-fatal: reseed can recover.
+  try {
+    const { data: mat, error: matError } = await sb.rpc('materialize_tenant_resources', {
+      p_tenant_id: tenantId,
+    });
+    if (matError) {
+      console.warn('[onboardingIntent] materialize_tenant_resources failed (recoverable via reseed):', matError.message);
+    } else {
+      console.log(`[onboardingIntent] resources materialized: ${mat?.resourcesMaterialized ?? 0}`);
+    }
+  } catch (e: any) {
+    console.warn('[onboardingIntent] materialize_tenant_resources threw (recoverable via reseed):', e.message);
+  }
+
   return { persisted: rows.length, errors: [] };
 }
 

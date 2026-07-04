@@ -363,6 +363,21 @@ try {
   }
 }
 
+// Load VaNi Composer routes with error handling
+let vaniComposerRoutes;
+try {
+  vaniComposerRoutes = require('./routes/vaniComposerRoutes').default;
+  console.log('✅ VaNi composer routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load VaNi composer routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without VaNi composer routes...');
+    vaniComposerRoutes = null;
+  }
+}
+
 // Load Service Execution routes with error handling
 let serviceExecutionRoutes;
 try {
@@ -777,6 +792,21 @@ try {
   console.error('❌ Failed to register contract event routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'contract_events' }
+  });
+}
+
+// Register VaNi Composer routes with error handling
+try {
+  if (vaniComposerRoutes) {
+    app.use('/api/vani-composer', vaniComposerRoutes);
+    console.log('✅ VaNi composer routes registered at /api/vani-composer');
+  } else {
+    console.log('⚠️  VaNi composer routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register VaNi composer routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'vani_composer' }
   });
 }
 

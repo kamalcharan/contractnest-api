@@ -30,6 +30,7 @@ export interface VaniLLMOptions {
   maxTokens?: number;      // default 300 — structured outputs stay small
   temperature?: number;    // default 0.3 — factual/structured
   label?: string;          // for logs, e.g. 'composer:intent-parse'
+  timeoutMs?: number;      // per-call override (CPU inference on long prompts)
 }
 
 export interface VaniLLMResult {
@@ -100,10 +101,11 @@ class VaniLLMClient {
       temperature: options.temperature ?? DEFAULT_TEMPERATURE,
     };
 
+    const callTimeout = options.timeoutMs ?? this.timeoutMs;
     const started = Date.now();
     let response;
     try {
-      response = await this.post(body);
+      response = await this.post(body, callTimeout);
     } catch (firstErr: any) {
       const status = firstErr.response?.status;
       const retryable = !status || status >= 500;
@@ -113,7 +115,7 @@ class VaniLLMClient {
       }
       console.warn(`⚠️ VaniLLM [${label}] retrying after error: ${firstErr.message}`);
       await new Promise((r) => setTimeout(r, 2000));
-      response = await this.post(body);
+      response = await this.post(body, callTimeout);
     }
     const latencyMs = Date.now() - started;
 
@@ -172,13 +174,13 @@ class VaniLLMClient {
     return { ...result, parsed };
   }
 
-  private post(body: Record<string, any>) {
+  private post(body: Record<string, any>, timeoutMs?: number) {
     return axios.post(this.url, body, {
       headers: {
         'Content-Type': 'application/json',
         ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
       },
-      timeout: this.timeoutMs,
+      timeout: timeoutMs ?? this.timeoutMs,
     });
   }
 }
