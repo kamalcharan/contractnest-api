@@ -363,6 +363,36 @@ try {
   }
 }
 
+// Load Finance routes with error handling
+let financeRoutes;
+try {
+  financeRoutes = require('./routes/financeRoutes').default;
+  console.log('✅ Finance routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load finance routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without finance routes...');
+    financeRoutes = null;
+  }
+}
+
+// Load Appointment routes with error handling
+let appointmentRoutes;
+try {
+  appointmentRoutes = require('./routes/appointmentRoutes').default;
+  console.log('✅ Appointment routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load appointment routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without appointment routes...');
+    appointmentRoutes = null;
+  }
+}
+
 // Load VaNi Composer routes with error handling
 let vaniComposerRoutes;
 try {
@@ -792,6 +822,36 @@ try {
   console.error('❌ Failed to register contract event routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'contract_events' }
+  });
+}
+
+// Register Finance routes with error handling
+try {
+  if (financeRoutes) {
+    app.use('/api/finance', financeRoutes);
+    console.log('✅ Finance routes registered at /api/finance');
+  } else {
+    console.log('⚠️  Finance routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register finance routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'finance' }
+  });
+}
+
+// Register Appointment routes with error handling
+try {
+  if (appointmentRoutes) {
+    app.use('/api/appointments', appointmentRoutes);
+    console.log('✅ Appointment routes registered at /api/appointments');
+  } else {
+    console.log('⚠️  Appointment routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register appointment routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'appointments' }
   });
 }
 
