@@ -25,6 +25,7 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import { catBlocksService } from './catBlocksService';
 import { catTemplatesService } from './catTemplatesService';
+import { taxSettingsService } from './taxSettingsService';
 import ContactService from './contactService';
 import ProductMasterdataService from './productMasterdataService';
 import resourcesService from './resourcesService';
@@ -65,6 +66,8 @@ export interface NomenclatureItem {
   id: string;
   name: string;
   group: string;
+  /** Industries this contract type applies to (from form_settings.industries) */
+  industries?: string[];
 }
 
 export interface BuyerResolution {
@@ -88,6 +91,8 @@ export interface CandidatePayload {
   description: string;
   activity: string;
   cycle_days: number;
+  /** Saved billing cycle for this block (template path); '' = fall back to intent */
+  cycle?: string;
   price: number;
   currency: string;
   tax_rate: number;
@@ -292,6 +297,175 @@ class ContractComposerService {
     return createClient(url, key);
   }
 
+  // Service-role read for tenant-scoped ICP tables (smartprofile, semantic
+  // clusters, materialized resources). The composer is already tenant-guarded
+  // (auth + entitlement), and every query below is filtered by ctx.tenantId,
+  // so this only ever reads the calling tenant's own rows.
+  private supabaseServiceRead() {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+    if (!url || !key) return null;
+    return createClient(url, key);
+  }
+
+  // ==========================================================================
+  // ICP signal for smart chips — the tenant's REAL Smart Profile vocabulary
+  // (approved keywords + semantic clusters) and their materialized resources.
+  // Read-only, tenant-scoped, never throws (chips degrade to empty on any gap).
+  // ==========================================================================
+  async fetchTenantIcp(ctx: ComposerCallContext): Promise<{
+    vocabulary: string[];
+    clusters: Array<{ primary_term: string; category: string }>;
+    persona: string;
+    resources: Array<{ name: string; type: string }>;
+    industryIds: string[];
+  }> {
+    const empty = { vocabulary: [] as string[], clusters: [] as Array<{ primary_term: string; category: string }>, persona: '', resources: [] as Array<{ name: string; type: string }>, industryIds: [] as string[] };
+    const supabase = this.supabaseServiceRead();
+    if (!supabase) return empty;
+    try {
+      const [profileRes, clusterRes, resourceRes, tprofRes, servedRes] = await Promise.all([
+        supabase
+          .from('t_tenant_smartprofiles')
+          .select('approved_keywords, suggested_keywords, profile_type')
+          .eq('tenant_id', ctx.tenantId)
+          .eq('is_active', true)
+          .limit(1),
+        supabase
+          .from('t_semantic_clusters')
+          .select('primary_term, related_terms, category')
+          .eq('tenant_id', ctx.tenantId)
+          .eq('is_active', true),
+        supabase
+          .from('t_category_resources_master')
+          .select('display_name, name, resource_type_id, sequence_no')
+          .eq('tenant_id', ctx.tenantId)
+          .eq('is_active', true)
+          .eq('is_live', true)
+          .order('sequence_no', { ascending: true })
+          .limit(12),
+        supabase
+          .from('t_tenant_profiles')
+          .select('industry_id')
+          .eq('tenant_id', ctx.tenantId)
+          .limit(1),
+        supabase
+          .from('t_tenant_served_industries')
+          .select('industry_id')
+          .eq('tenant_id', ctx.tenantId),
+      ]);
+
+      const profile: any = (profileRes.data || [])[0] || {};
+      const clusters: any[] = clusterRes.data || [];
+      const resourceRows: any[] = resourceRes.data || [];
+
+      const industryIds = new Set<string>();
+      const ownInd = (tprofRes.data || [])[0]?.industry_id;
+      if (ownInd) industryIds.add(String(ownInd));
+      for (const s of (servedRes.data || [])) if (s.industry_id) industryIds.add(String(s.industry_id));
+
+      const vocab = new Set<string>();
+      for (const k of [...(profile.approved_keywords || []), ...(profile.suggested_keywords || [])]) {
+        if (k) vocab.add(String(k).toLowerCase());
+      }
+      for (const c of clusters) {
+        if (c.primary_term) vocab.add(String(c.primary_term).toLowerCase());
+        for (const rt of (c.related_terms || [])) if (rt) vocab.add(String(rt).toLowerCase());
+      }
+
+      const seen = new Set<string>();
+      const resources = resourceRows
+        .map((r: any) => ({ name: String(r.display_name || r.name || '').trim(), type: String(r.resource_type_id || '') }))
+        .filter((r) => r.name && !seen.has(r.name.toLowerCase()) && seen.add(r.name.toLowerCase()));
+
+      return {
+        vocabulary: Array.from(vocab),
+        clusters: clusters
+          .filter((c: any) => c.primary_term)
+          .map((c: any) => ({ primary_term: String(c.primary_term), category: String(c.category || '') })),
+        persona: String(profile.profile_type || ''),
+        resources,
+        industryIds: Array.from(industryIds),
+      };
+    } catch (e: any) {
+      console.warn('⚠️ Composer: ICP fetch failed (chips degrade):', e.message);
+      return empty;
+    }
+  }
+
+  // ==========================================================================
+  // ICP chips — Phase B: borrowed chips for thin/cold-start tenants.
+  //   1) Curated ICP archetype (m_icp_archetypes) matched by industry / persona
+  //      / vocabulary — works from day one, even with an empty profile.
+  //   2) Embedding neighbours (icp_similar_tenants) — borrow the vocabulary of
+  //      the most similar profiled tenants once this tenant has an embedding.
+  // Both are grounded starters; they only fill slots the tenant's OWN data left
+  // empty (called only when the own-data candidate pool is short).
+  // ==========================================================================
+  async fetchIcpBorrowedChips(
+    ctx: ComposerCallContext,
+    icp: { vocabulary: string[]; persona: string; industryIds: string[] }
+  ): Promise<{ archetype: string[]; neighbour: string[] }> {
+    const supabase = this.supabaseServiceRead();
+    if (!supabase) return { archetype: [], neighbour: [] };
+
+    const archetype: string[] = [];
+    const neighbour: string[] = [];
+
+    // 1) Archetype classification
+    try {
+      const { data: rows } = await supabase
+        .from('m_icp_archetypes')
+        .select('id, personas, industry_ids, keywords, chip_patterns, sort_order')
+        .eq('is_active', true);
+      const arches: any[] = rows || [];
+      const industrySet = new Set(icp.industryIds.map((s) => s.toLowerCase()));
+      const vocabSet = new Set(icp.vocabulary.map((s) => s.toLowerCase()));
+      const score = (a: any): number => {
+        const inds: string[] = a.industry_ids || [];
+        const kws: string[] = a.keywords || [];
+        const personas: string[] = a.personas || [];
+        const indHits = inds.filter((i: string) => industrySet.has(String(i).toLowerCase())).length;
+        const kwHits = kws.filter((k: string) => vocabSet.has(String(k).toLowerCase())).length;
+        const personaOk = personas.length === 0 || (icp.persona && personas.includes(icp.persona));
+        if (a.id !== 'generic_service' && indHits === 0 && kwHits === 0) return -1; // no signal
+        return indHits * 3 + kwHits + (personaOk ? 1 : -2);
+      };
+      const best = arches
+        .map((a) => ({ a, s: score(a) }))
+        .sort((x, y) => y.s - x.s)[0];
+      const chosen = best && best.s >= 0 ? best.a : arches.find((a) => a.id === 'generic_service');
+      if (chosen) archetype.push(...(chosen.chip_patterns || []).map((s: string) => String(s)));
+    } catch (e: any) {
+      console.warn('⚠️ Composer: archetype chips failed:', e.message);
+    }
+
+    // 2) Embedding neighbours — borrow their cluster vocabulary (needs an embedding)
+    try {
+      const { data: sim } = await supabase.rpc('icp_similar_tenants', { p_tenant_id: ctx.tenantId, p_limit: 5 });
+      const neighbourIds: string[] = (sim || []).map((r: any) => r.tenant_id).filter(Boolean);
+      if (neighbourIds.length) {
+        const { data: nclusters } = await supabase
+          .from('t_semantic_clusters')
+          .select('primary_term')
+          .in('tenant_id', neighbourIds)
+          .eq('is_active', true)
+          .limit(20);
+        const seen = new Set<string>();
+        const terms = (nclusters || [])
+          .map((c: any) => String(c.primary_term || '').trim())
+          .filter((t: string) => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
+          .slice(0, 3);
+        const tc = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+        for (const t of terms) neighbour.push(`1 year ${tc(t)} service package, billed quarterly`);
+      }
+    } catch (e: any) {
+      console.warn('⚠️ Composer: neighbour chips failed:', e.message);
+    }
+
+    return { archetype, neighbour };
+  }
+
   // ==========================================================================
   // Nomenclature helpers
   // ==========================================================================
@@ -309,12 +483,42 @@ class ContractComposerService {
           id: it.id,
           name: it.form_settings?.short_name || it.display_name || it.sub_cat_name || '',
           group: it.form_settings?.group || '',
+          industries: Array.isArray(it.form_settings?.industries)
+            ? it.form_settings.industries.map((s: any) => String(s))
+            : [],
         }))
         .filter((n) => n.id && n.name);
     } catch (e: any) {
       console.warn('⚠️ Composer: nomenclature fetch failed:', e.message);
       return [];
     }
+  }
+
+  // Smart nomenclature: keep only the contract types that fit the tenant's ICP —
+  // their resource types (equipment/consumable→equipment_maintenance,
+  // asset→facility_property, service or service-led→service_delivery), any
+  // nomenclature whose industries overlap the tenant's, plus the always-on
+  // flexible_hybrid catch-all. Falls back to the FULL list when there's no signal
+  // (so a blank/new tenant still sees everything).
+  relevantNomenclatures(
+    nomenclatures: NomenclatureItem[],
+    icp: { industryIds: string[]; resources: Array<{ type: string }>; persona: string }
+  ): NomenclatureItem[] {
+    const industrySet = new Set((icp.industryIds || []).map((s) => String(s).toLowerCase()));
+    const types = new Set((icp.resources || []).map((r) => r.type));
+    const hasHard = types.has('equipment') || types.has('consumable') || types.has('asset');
+
+    const relevantGroups = new Set<string>(['flexible_hybrid']);
+    if (types.has('equipment') || types.has('consumable')) relevantGroups.add('equipment_maintenance');
+    if (types.has('asset')) relevantGroups.add('facility_property');
+    if (types.has('service') || !hasHard) relevantGroups.add('service_delivery');
+
+    const relevant = nomenclatures.filter((n) =>
+      relevantGroups.has(n.group) ||
+      (n.industries || []).some((i) => industrySet.has(String(i).toLowerCase()))
+    );
+    // Only shrink when it actually narrows things; otherwise keep the full list.
+    return relevant.length > 0 && relevant.length < nomenclatures.length ? relevant : nomenclatures;
   }
 
   matchNomenclature(text: string, list: NomenclatureItem[]): NomenclatureItem | null {
@@ -339,7 +543,14 @@ class ContractComposerService {
       throw new Error('VaNi LLM is not configured (VANI_LLM_URL)');
     }
 
-    const nomenclatures = await this.fetchNomenclatures(ctx);
+    const [nomenclaturesAll, icp] = await Promise.all([
+      this.fetchNomenclatures(ctx),
+      this.fetchTenantIcp(ctx).catch(() => ({ vocabulary: [], clusters: [], persona: '', resources: [], industryIds: [] } as any)),
+    ]);
+    // Smart nomenclature: shrink the closed list the LLM picks from to the
+    // tenant's ICP-relevant contract types (faster, more accurate). Resolution
+    // below still matches the FULL list, so a valid choice is never lost.
+    const nomenclatures = this.relevantNomenclatures(nomenclaturesAll, icp);
     const nomenclatureLines = nomenclatures.length > 0
       ? nomenclatures.map((n) => `- ${n.name} (${n.group})`).join('\n')
       : '- (none available)';
@@ -363,8 +574,8 @@ class ContractComposerService {
 
     const intent = this.normalizeIntent(parsed);
     const nomenclatureMatch =
-      this.matchNomenclature(intent.nomenclature, nomenclatures) ||
-      this.matchNomenclature(intent.contract_kind, nomenclatures);
+      this.matchNomenclature(intent.nomenclature, nomenclaturesAll) ||
+      this.matchNomenclature(intent.contract_kind, nomenclaturesAll);
 
     return { intent, nomenclatureMatch, interactionId };
   }
@@ -756,6 +967,7 @@ class ContractComposerService {
         description: String(b.description || ''),
         activity: 'pm',
         cycle_days: Number(b.serviceCycleDays) || Math.max(1, Math.floor(durationDays / qty)),
+        cycle: String(b.cycle || ''),
         price: Number(b.config?.customPrice ?? b.price) || 0,
         currency: b.currency || t.currency || 'INR',
         tax_rate: Number(b.taxRate) || 0,
@@ -771,12 +983,40 @@ class ContractComposerService {
       reason: `From template "${t.name}"`,
     }));
 
-    // Template defaults fill intent gaps (never override what the user asked)
+    // Template defaults become the baseline setup when instantiating — billing,
+    // EMI, grace and acceptance carry over — but an EXPLICIT user request wins.
     const defaults = settings.defaults || {};
+    const tplPay = String(defaults.payment_mode || '');
+    const tplCycleType = String(defaults.billing_cycle_type || '');
+    const blockCycles = wizardBlocks
+      .map((b: any) => String(b.cycle || ''))
+      .filter((c: string) => c && c !== 'prepaid');
+    const userAskedBilling =
+      intent.billing.mode === 'emi' || (intent.billing.mode === 'per_block' && !!intent.billing.cycle);
+
+    let billing = intent.billing;
+    if (!userAskedBilling && tplPay) {
+      if (tplPay === 'emi' && (Number(defaults.emi_months) || 0) > 0) {
+        billing = { mode: 'emi', emi_months: Number(defaults.emi_months), cycle: '' };
+      } else if (tplPay === 'defined' || tplCycleType === 'mixed' || blockCycles.length > 0) {
+        billing = { mode: 'per_block', emi_months: 0, cycle: blockCycles[0] || intent.billing.cycle || 'monthly' };
+      } else {
+        billing = { mode: 'prepaid', emi_months: 0, cycle: '' };
+      }
+    }
+
+    const graceDays = Number(intent.grace_period_days) > 0
+      ? intent.grace_period_days
+      : (Number(defaults.grace_period_value) > 0
+          ? durationToDays(Number(defaults.grace_period_value), defaults.grace_period_unit || 'days')
+          : intent.grace_period_days);
+
     const mergedIntent: ParsedIntent = {
       ...intent,
       acceptance: intent.acceptance || (defaults.acceptance_method as ParsedIntent['acceptance']) || '',
       nomenclature: intent.nomenclature || String(defaults.nomenclature_name || ''),
+      grace_period_days: graceDays,
+      billing,
     };
 
     const result = await this.assembleDraft(
@@ -798,6 +1038,36 @@ class ContractComposerService {
       result.draft.evidenceSelectedForms = Array.isArray(defaults.evidence_selected_forms)
         ? defaults.evidence_selected_forms
         : [];
+    }
+
+    // Template-carried CONTRACT-LEVEL tax. Wizard-authored templates put tax on
+    // selected_tax_rate_ids (not per-block), which the fast path would otherwise
+    // drop. Apply them to the subtotal — but ONLY when the per-block tax came out
+    // zero, so we never double-count a template that already taxes per block.
+    const taxRateIds: string[] = Array.isArray(defaults.selected_tax_rate_ids)
+      ? defaults.selected_tax_rate_ids.filter(Boolean)
+      : [];
+    if (taxRateIds.length && result.draft.taxTotal === 0 && result.draft.baseSubtotal > 0) {
+      try {
+        const allRates = await taxSettingsService.getTaxRates(ctx.userJWT, ctx.tenantId);
+        const chosen = (allRates || []).filter((r: any) => taxRateIds.includes(r.id));
+        if (chosen.length) {
+          const subtotal = result.draft.baseSubtotal;
+          const breakdown = chosen.map((r: any) => ({
+            tax_rate_id: r.id,
+            name: r.name,
+            rate: Number(r.rate) || 0,
+            amount: Math.round(subtotal * (Number(r.rate) || 0)) / 100,
+          }));
+          const taxTotal = Math.round(breakdown.reduce((s, b) => s + b.amount, 0) * 100) / 100;
+          result.draft.selectedTaxRateIds = chosen.map((r: any) => r.id);
+          result.draft.taxBreakdown = breakdown;
+          result.draft.taxTotal = taxTotal;
+          result.draft.grandTotal = Math.round((subtotal + taxTotal) * 100) / 100;
+        }
+      } catch (e: any) {
+        console.warn('⚠️ Composer: template tax-rate apply failed (tax degrades):', e.message);
+      }
     }
 
     // Honest note when the template was built for a different duration
@@ -842,85 +1112,116 @@ class ContractComposerService {
     };
 
     try {
-      const [templates, nomenclatures] = await Promise.all([
+      const [templates, nomenclatures, icp] = await Promise.all([
         this.fetchSignedOffTemplates(ctx).catch(() => [] as any[]),
         this.fetchNomenclatures(ctx).catch(() => [] as NomenclatureItem[]),
+        this.fetchTenantIcp(ctx).catch(() => ({ vocabulary: [] as string[], clusters: [] as Array<{ primary_term: string; category: string }>, persona: '', resources: [] as Array<{ name: string; type: string }>, industryIds: [] as string[] })),
       ]);
 
-      // A recent active client personalises the contract chips
-      // Personalisation: the most recent CLIENT — never vendors/team members.
-      // If none, the chip simply omits the name and the buyer card asks.
-      let recentClient = '';
-      if (mode === 'contract') {
-        try {
-          const res = await this.contactService.listContacts(
-            { per_page: 3, status: 'active', classifications: ['client'] } as any,
-            ctx.userJWT,
-            ctx.tenantId,
-            ctx.environment
-          );
-          const items: any[] = Array.isArray(res?.data) ? res.data : (res?.data?.items || []);
-          recentClient = items[0]?.name || items[0]?.company_name || '';
-        } catch { /* chips work without a name */ }
-      }
-
-      const nomFor = (group: string): string => {
-        const n = nomenclatures.find((x) => x.group === group);
-        return n?.name || '';
-      };
-
-      // 1. Published templates → guaranteed fast-path phrasing.
-      // Billing suffix is derived from the template's actual blocks —
-      // never invented.
-      for (const t of templates.slice(0, 2)) {
-        const d = t.settings?.defaults || {};
-        const kind = d.nomenclature_name || t.name;
-        const dur = durText(d.duration_value || 1, d.duration_unit || 'years');
-        const blockCycle = t.settings?.wizard_state?.selectedBlocks?.[0]?.cycle;
-        const billing = ['monthly', 'fortnightly', 'quarterly'].includes(blockCycle)
-          ? ` with ${blockCycle} billing`
-          : d.payment_mode === 'emi' && d.emi_months
-            ? ` on ${d.emi_months}-month EMI`
-            : '';
-        if (mode === 'contract') {
-          push(`${dur} ${kind}${recentClient ? ` for ${recentClient}` : ''}${billing}`);
-        } else {
-          push(`${dur} ${kind} based on a different scope than "${t.name}"`);
+      // ICP relevance = how many of the tenant's OWN vocabulary terms (approved
+      // keywords + semantic cluster terms) a candidate contains — drives ranking
+      // so the most "like their business" chip wins within each archetype.
+      const icpScore = (text: string): number => {
+        if (!icp.vocabulary.length || !text) return 0;
+        const lc = text.toLowerCase();
+        let s = 0;
+        for (const term of icp.vocabulary) {
+          if (term.length >= 3 && lc.includes(term)) s++;
         }
-      }
+        return s;
+      };
+      const titleCase = (s: string) => String(s || '').replace(/\b\w/g, (c) => c.toUpperCase());
+      const nomFor = (group: string): string => nomenclatures.find((x) => x.group === group)?.name || '';
 
-      // 2. Resources from the tenant's own catalog blocks — phrased by TYPE
-      // (facility resources pair with the facility nomenclature, not AMC)
-      let resources: Array<{ name: string; type: string }> = [];
-      try {
-        const blocks = await this.fetchTenantBlocks(ctx);
-        resources = (await this.fetchResourceInfo(blocks)).slice(0, 3);
-      } catch { /* resource chips are optional */ }
-
+      // Each chip is a distinct OFFERING — never a specific buyer (the buyer is
+      // chosen on the composer's buyer card). We build candidates tagged by
+      // ARCHETYPE, then select a DIVERSE set so the row portrays the tenant's
+      // whole portfolio (their best template, an equipment AMC, a facility FMC, a
+      // service package, a consulting program) instead of four look-alikes.
+      type ChipCand = { text: string; archetype: string; score: number };
+      const cands: ChipCand[] = [];
       const equipNom = nomFor('equipment_maintenance');
       const facNom = nomFor('facility_property');
-      for (const r of resources) {
-        if (suggestions.length >= (mode === 'contract' ? 3 : 4)) break;
-        // resource_type_id: equipment | asset (facility) | service — skip the rest
-        if (!['equipment', 'asset'].includes(String(r.type))) continue;
-        const isFacility = String(r.type) === 'asset';
-        const nom = isFacility ? (facNom || 'FMC') : (equipNom || 'AMC');
-        if (mode === 'contract') {
-          // Resource leads the phrase — "for <Name>" stays reserved for the buyer
-          push(`${r.name} ${nom} for 1 year, billed ${isFacility ? 'monthly' : 'quarterly'}`);
-        } else {
-          push(`1 year ${r.name} ${nom} with ${isFacility ? 'monthly service visits' : 'quarterly PM visits'} and sign-off acceptance`);
-        }
+
+      // Templates — whole signed-off contracts (highest trust). Billing suffix is
+      // derived from the template's real blocks, never invented.
+      [...templates]
+        .sort((a, b) =>
+          icpScore(`${b.name} ${b.settings?.defaults?.nomenclature_name || ''} ${b.category || ''}`) -
+          icpScore(`${a.name} ${a.settings?.defaults?.nomenclature_name || ''} ${a.category || ''}`))
+        .slice(0, 2)
+        .forEach((t, i) => {
+          const d = t.settings?.defaults || {};
+          const kind = d.nomenclature_name || t.name;
+          const dur = durText(d.duration_value || 1, d.duration_unit || 'years');
+          const cyc = t.settings?.wizard_state?.selectedBlocks?.[0]?.cycle;
+          const billing = ['monthly', 'fortnightly', 'quarterly'].includes(cyc)
+            ? ` with ${cyc} billing`
+            : d.payment_mode === 'emi' && d.emi_months ? ` on ${d.emi_months}-month EMI` : '';
+          const text = mode === 'contract'
+            ? `${dur} ${kind}${billing}`
+            : `${dur} ${kind} based on a different scope than "${t.name}"`;
+          cands.push({ text, archetype: 'template', score: 100 - i + icpScore(`${t.name} ${kind}`) });
+        });
+
+      // Resource-backed chips — the tenant's REAL materialized resources in their
+      // OWN display names, top 3 per type, ranked by vocabulary overlap.
+      const resourceChips = (type: string, archetype: string, base: number, phrase: (name: string) => string) => {
+        icp.resources
+          .filter((r) => r.type === type)
+          .map((r) => ({ name: r.name, score: icpScore(r.name) }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3)
+          .forEach((r, i) => cands.push({ text: phrase(r.name), archetype, score: base - i + r.score }));
+      };
+      const eqPhrase = (n: string) => mode === 'contract'
+        ? `1 year ${n} ${equipNom || 'AMC'}, billed quarterly`
+        : `1 year ${n} ${equipNom || 'AMC'} with quarterly PM visits and sign-off acceptance`;
+      resourceChips('equipment', 'equipment', 60, eqPhrase);
+      resourceChips('consumable', 'equipment', 58, eqPhrase);
+      resourceChips('asset', 'facility', 55, (n) => mode === 'contract'
+        ? `1 year ${n} ${facNom || 'FMC'}, billed monthly`
+        : `1 year ${n} ${facNom || 'FMC'} with monthly service visits and sign-off acceptance`);
+      resourceChips('service', 'service', 52, (n) => mode === 'contract'
+        ? `6 month ${n} service package, billed monthly`
+        : `6 month ${n} service package with monthly reviews and sign-off acceptance`);
+
+      // Consulting/vocabulary chip — the tenant's STRONGEST semantic clusters as a
+      // program, in their own words. Real cluster terms only; sellers/both only.
+      if (icp.persona !== 'buyer') {
+        icp.clusters.slice(0, 2).forEach((c, i) => {
+          const term = titleCase(c.primary_term);
+          const text = mode === 'contract'
+            ? `1 year ${term} program, billed quarterly`
+            : `1 year ${term} program with quarterly reviews and sign-off acceptance`;
+          cands.push({ text, archetype: 'consulting', score: 48 - i });
+        });
       }
 
-      // 3. Service phrasing when the tenant sells services
-      const serviceNom = nomFor('service_delivery');
-      if (serviceNom && suggestions.length < 4) {
-        if (mode === 'contract') {
-          push(`6 month ${serviceNom}${recentClient ? ` for ${recentClient}` : ''}, billed monthly`);
-        } else {
-          push(`6 month ${serviceNom} with monthly reviews`);
-        }
+      // Phase B: when the tenant's OWN data didn't yield a full row, borrow from
+      // their ICP archetype (+ embedding neighbours) — so cold-start / thin
+      // tenants still get relevant, composable starters, not generic examples.
+      // Scored below all own-data chips: neighbours above archetype fallback.
+      if (cands.length < 4) {
+        const borrowed = await this.fetchIcpBorrowedChips(ctx, icp)
+          .catch(() => ({ archetype: [] as string[], neighbour: [] as string[] }));
+        borrowed.neighbour.forEach((text, i) => cands.push({ text, archetype: 'borrowed', score: 30 - i }));
+        borrowed.archetype.forEach((text, i) => cands.push({ text, archetype: 'archetype', score: 20 - i }));
+      }
+
+      // Diverse selection: the best of each archetype first (so the row spans the
+      // tenant's portfolio), then fill any remaining slots with the next best.
+      cands.sort((a, b) => b.score - a.score);
+      const usedArchetypes = new Set<string>();
+      for (const c of cands) {
+        if (suggestions.length >= 4) break;
+        if (usedArchetypes.has(c.archetype)) continue;
+        usedArchetypes.add(c.archetype);
+        push(c.text);
+      }
+      for (const c of cands) {
+        if (suggestions.length >= 4) break;
+        push(c.text);
       }
     } catch (e: any) {
       console.warn('⚠️ Composer: suggestions build failed:', e.message);
@@ -1049,7 +1350,6 @@ class ContractComposerService {
     const byId = new Map(candidates.map((c) => [c.block_id, c]));
 
     const perBlock = intent.billing.mode === 'per_block';
-    const blockCycle = perBlock ? intent.billing.cycle : 'prepaid';
     const perBlockPaymentType: Record<string, 'prepaid' | 'postpaid'> = {};
     const blockReasons: Record<string, string> = {};
 
@@ -1062,6 +1362,9 @@ class ContractComposerService {
           : 1;
         const qty = Math.max(1, Math.min(Number(s.quantity) || cycleQty, Math.max(cycleQty, 1)));
 
+        // Template blocks carry their own saved cycle; LLM candidates fall back
+        // to the request's cycle (or prepaid for non-per-block billing).
+        const cycle = perBlock ? (cand.cycle || intent.billing.cycle || 'monthly') : 'prepaid';
         if (perBlock) perBlockPaymentType[cand.block_id] = 'postpaid';
         blockReasons[cand.block_id] = s.reason;
 
@@ -1071,7 +1374,7 @@ class ContractComposerService {
           description: cand.description,
           icon: cand.icon,
           quantity: qty,
-          cycle: blockCycle,
+          cycle,
           serviceCycleDays: cand.cycle_days || undefined,
           unlimited: false,
           price: cand.price,

@@ -120,4 +120,63 @@ router.get('/selected-resources', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/onboarding/resource-ranking   (ICP seeding — Piece 2)
+ * Per-tenant ICP relevance ranking for the resource-picker step. Returns
+ * { [resource_template_id]: { score, forYou } }. Empty {} when the tenant has
+ * no ICP signal — the UI then keeps its existing static order (no regression).
+ * Read-only; degrades to {} on any error so the seeding step never breaks.
+ */
+router.get('/resource-ranking', async (req, res) => {
+  try {
+    const tenantId = req.headers['x-tenant-id'] as string;
+    if (!tenantId) return res.status(400).json({ success: false, error: 'x-tenant-id header is required' });
+
+    const { default: icpRankingService } = await import('../services/icpRankingService');
+    const ranking = await icpRankingService.rankTemplatesForTenant(
+      req.headers.authorization || '',
+      tenantId,
+    );
+    return res.status(200).json({ success: true, data: ranking });
+  } catch (error: any) {
+    // Ranking is a pure enhancement — never fail the step. Degrade to no ranking.
+    console.warn('[OnboardingRoutes] resource-ranking error (degrading):', error.message);
+    return res.status(200).json({ success: true, data: {} });
+  }
+});
+
+/**
+ * POST /api/onboarding/build-smart-profile   (ICP Smart Profile — Piece 1)
+ * Kicks off a BACKGROUND Smart Profile build from the tenant's website URL
+ * (captured at the branding step). Responds 202 immediately and runs the n8n
+ * pipeline (scrape → save → clusters) detached, so onboarding is never blocked.
+ * Honest-fail (persists nothing on failure) + idempotent (skips if a profile
+ * already exists) — both enforced in onboardingSmartProfileService.
+ * Body: { website_url }
+ */
+router.post('/build-smart-profile', async (req, res) => {
+  try {
+    const tenantId = req.headers['x-tenant-id'] as string;
+    if (!tenantId) return res.status(400).json({ success: false, error: 'x-tenant-id header is required' });
+
+    const websiteUrl = String((req.body || {}).website_url || '').trim();
+    if (!websiteUrl) return res.status(400).json({ success: false, error: 'website_url is required' });
+
+    const authHeader = req.headers.authorization || '';
+    const environment = (req.headers['x-environment'] as string) || 'live';
+
+    // Respond BEFORE building — the pipeline can take 10–90s (n8n scrape + AI),
+    // and onboarding must not wait on it. The detached promise keeps running.
+    res.status(202).json({ success: true, data: { accepted: true } });
+
+    const { autobuildSmartProfile } = await import('../services/onboardingSmartProfileService');
+    autobuildSmartProfile({ authHeader, tenantId, websiteUrl, environment })
+      .then((r) => console.log('[Onboarding] smart-profile autobuild:', JSON.stringify(r)))
+      .catch((e) => console.warn('[Onboarding] smart-profile autobuild crashed:', e?.message));
+  } catch (error: any) {
+    console.warn('[OnboardingRoutes] build-smart-profile error:', error.message);
+    if (!res.headersSent) return res.status(200).json({ success: true, data: { accepted: false } });
+  }
+});
+
 export default router;

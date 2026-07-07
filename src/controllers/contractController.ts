@@ -780,10 +780,14 @@ class ContractController {
       'FORBIDDEN': 403,
       'UNAUTHORIZED': 401,
       'EDGE_FUNCTION_ERROR': 502,
+      // Edge RPC failures are server-side faults — surface as 502, never as a
+      // client 400 (a 400 here masked the get_contract_by_id overload
+      // incident as a client error).
+      'RPC_ERROR': 502,
       'NETWORK_ERROR': 503
     };
 
-    const statusCode = codeToStatus[result.code] || 400;
+    const statusCode = codeToStatus[result.code] || 502;
     res.status(statusCode).json(result);
   }
 }
