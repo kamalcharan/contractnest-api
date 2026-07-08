@@ -33,7 +33,14 @@ export const listContractsValidation: ValidationChain[] = [
 
   query('contract_type')
     .optional()
-    .isIn(CONTRACT_TYPES).withMessage(`contract_type must be one of: ${CONTRACT_TYPES.join(', ')}`),
+    .custom((value) => {
+      // Accept a single type OR a comma-separated list (e.g. 'client,partner').
+      // A perspective can span multiple relationships — Revenue = client + partner
+      // (both receivable) — so the list handler/edge treat contract_type as a
+      // comma-list. Validate every part is a known type.
+      const types = String(value).split(',').map((t) => t.trim()).filter(Boolean);
+      return types.length > 0 && types.every((t) => CONTRACT_TYPES.includes(t));
+    }).withMessage(`contract_type must be one or more (comma-separated) of: ${CONTRACT_TYPES.join(', ')}`),
 
   query('status')
     .optional()

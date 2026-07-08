@@ -71,6 +71,26 @@ class ContactService {
     return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 
+  // Proxies the edge /stats route (get_contact_stats RPC): totals, by_type,
+  // by_classification, by_tag — with optional search/type/classifications/tags filters
+  async getContactStats(filters: any, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
+    const queryParams = new URLSearchParams();
+
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        if (Array.isArray(value)) {
+          if (value.length > 0) queryParams.append(key, value.join(','));
+        } else {
+          queryParams.append(key, String(value));
+        }
+      }
+    });
+
+    const query = queryParams.toString();
+    const url = `${this.edgeFunctionUrl}/stats${query ? `?${query}` : ''}`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+  }
+
   async createContact(contactData: any, userJWT: string, tenantId: string, userId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const requestPayload = {
       ...contactData,
@@ -80,6 +100,56 @@ class ContactService {
     };
 
     return await this.makeRequest('POST', this.edgeFunctionUrl, requestPayload, userJWT, tenantId, environment);
+  }
+
+  /**
+   * Bulk import: creates contacts sequentially (one edge call per row) and
+   * returns a per-row report. skipDuplicates=true lets the edge duplicate
+   * check reject matches (reported as 'duplicate'); false forces creation.
+   */
+  async importContacts(
+    rows: any[],
+    skipDuplicates: boolean,
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const results: Array<{
+      index: number;
+      status: 'created' | 'duplicate' | 'failed';
+      contact_id?: string;
+      error?: string;
+    }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = { ...rows[i], force_create: !skipDuplicates };
+      try {
+        const result = await this.createContact(row, userJWT, tenantId, userId, environment);
+        if (result.success) {
+          results.push({ index: i, status: 'created', contact_id: result.data?.id });
+        } else if (result.code === 'DUPLICATE_CONTACTS_FOUND') {
+          results.push({ index: i, status: 'duplicate' });
+        } else {
+          results.push({ index: i, status: 'failed', error: result.error || 'Unknown error' });
+        }
+      } catch (error: any) {
+        results.push({ index: i, status: 'failed', error: error?.message || 'Unexpected error' });
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        results,
+        summary: {
+          total: rows.length,
+          created: results.filter(r => r.status === 'created').length,
+          duplicates: results.filter(r => r.status === 'duplicate').length,
+          failed: results.filter(r => r.status === 'failed').length
+        }
+      }
+    };
   }
 
   async updateContact(contactId: string, updateData: any, userJWT: string, tenantId: string, userId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {

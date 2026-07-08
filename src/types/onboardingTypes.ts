@@ -192,6 +192,7 @@ export const ONBOARDING_CONSTANTS = {
     'vani-working',
     'pricing-review',
     'equipment-confirm',
+    'lov-setup',
     'vani-intelligence',
     'done',
   ] as readonly string[],

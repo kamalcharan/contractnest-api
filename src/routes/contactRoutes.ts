@@ -56,6 +56,16 @@ const createContactRateLimit = rateLimit({
   }
 });
 
+const importContactsRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 import batches (of up to 25 rows) per 15 minutes
+  message: {
+    success: false,
+    error: 'Too many import requests, please try again later',
+    code: 'IMPORT_RATE_LIMIT_EXCEEDED'
+  }
+});
+
 // Apply rate limiting
 router.use(contactRateLimit);
 
@@ -487,6 +497,15 @@ router.post('/search', contactController.searchContacts);
  *                   type: boolean
  */
 router.post('/duplicates', contactController.checkDuplicates);
+
+/**
+ * @swagger
+ * /api/contacts/import:
+ *   post:
+ *     summary: Bulk import contacts (batch of up to 25 per request)
+ *     description: Creates contacts sequentially and returns a per-row result report. Duplicate rows are reported (not created) unless force_create is set.
+ */
+router.post('/import', importContactsRateLimit, contactController.importContacts);
 
 /**
  * @swagger

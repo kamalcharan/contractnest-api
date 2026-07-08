@@ -107,29 +107,32 @@ class ContactController {
         return;
       }
 
-      // Get counts for different statuses
-      const [activeResult, inactiveResult, archivedResult] = await Promise.all([
-        this.contactService.listContacts({ status: 'active', limit: 1 }, userJWT, tenantId, environment),
-        this.contactService.listContacts({ status: 'inactive', limit: 1 }, userJWT, tenantId, environment),
-        this.contactService.listContacts({ status: 'archived', limit: 1 }, userJWT, tenantId, environment)
-      ]);
+      // Proxy the edge /stats route — single RPC returns totals, by_type,
+      // by_classification and by_tag (the UI filter chips depend on these)
+      const result = await this.contactService.getContactStats(
+        {
+          search: req.query.search,
+          type: req.query.type,
+          classifications: req.query.classifications,
+          tags: req.query.tags
+        },
+        userJWT,
+        tenantId,
+        environment
+      );
 
-      const stats = {
-        total: (activeResult.pagination?.total || 0) + 
-               (inactiveResult.pagination?.total || 0) + 
-               (archivedResult.pagination?.total || 0),
-        active: activeResult.pagination?.total || 0,
-        inactive: inactiveResult.pagination?.total || 0,
-        archived: archivedResult.pagination?.total || 0,
-        byType: {
-          individual: 0,
-          corporate: 0
-        }
-      };
+      if (!result.success) {
+        res.status(500).json({
+          success: false,
+          error: result.error || 'Failed to get contact statistics',
+          code: result.code || 'GET_STATS_ERROR'
+        });
+        return;
+      }
 
       res.status(200).json({
         success: true,
-        data: stats,
+        data: result.data,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -227,6 +230,65 @@ class ContactController {
       res.status(500).json({
         success: false,
         error: 'Failed to create contact',
+        code: 'INTERNAL_ERROR'
+      });
+    }
+  };
+
+  /**
+   * POST /api/contacts/import
+   * Bulk import a batch of contacts (max 25 per request).
+   * Returns a per-row result report; one bad row never fails the batch.
+   */
+  importContacts = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: 'Tenant ID is required',
+          code: 'MISSING_TENANT_ID'
+        });
+        return;
+      }
+
+      const { contacts, skip_duplicates = true } = req.body || {};
+      if (!Array.isArray(contacts) || contacts.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'contacts must be a non-empty array',
+          code: 'VALIDATION_ERROR'
+        });
+        return;
+      }
+      if (contacts.length > 25) {
+        res.status(400).json({
+          success: false,
+          error: 'Maximum 25 contacts per import batch',
+          code: 'BATCH_TOO_LARGE'
+        });
+        return;
+      }
+
+      const result = await this.contactService.importContacts(
+        contacts,
+        skip_duplicates !== false,
+        userJWT,
+        tenantId,
+        userId,
+        environment
+      );
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('Error in importContacts:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to import contacts',
         code: 'INTERNAL_ERROR'
       });
     }
