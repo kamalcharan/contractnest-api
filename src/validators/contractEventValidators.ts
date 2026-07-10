@@ -9,7 +9,12 @@ import { body, query, param, ValidationChain } from 'express-validator';
 
 // Valid enum values (kept in sync with contractEventTypes.ts)
 const EVENT_TYPES = ['service', 'billing'];
-const EVENT_STATUSES = ['scheduled', 'in_progress', 'completed', 'cancelled', 'overdue'];
+// NOTE: event statuses are DB-driven and tenant-configurable (m_event_status_config),
+// with a distinct set per event type (service vs billing vs spare_part). A hardcoded
+// allow-list here silently rejected billing statuses (due, invoice_generated, paid, …)
+// before requests reached the DB. Status values are validated as plain strings; the
+// real transition legality is enforced by update_contract_event against the tenant's
+// configured transitions.
 const BILLING_SUB_TYPES = ['advance', 'milestone', 'recurring', 'final'];
 const SORT_ORDERS = ['asc', 'desc'];
 const SORT_FIELDS = ['scheduled_date', 'created_at', 'updated_at', 'status', 'event_type', 'amount'];
@@ -37,7 +42,8 @@ export const listContractEventsValidation: ValidationChain[] = [
 
   query('status')
     .optional()
-    .isIn(EVENT_STATUSES).withMessage(`status must be one of: ${EVENT_STATUSES.join(', ')}`),
+    .isString().withMessage('status must be a string')
+    .isLength({ min: 1, max: 50 }).withMessage('status must be 1-50 characters'),
 
   query('event_type')
     .optional()
@@ -186,7 +192,8 @@ export const updateContractEventValidation: ValidationChain[] = [
 
   body('status')
     .optional()
-    .isIn(EVENT_STATUSES).withMessage(`status must be one of: ${EVENT_STATUSES.join(', ')}`),
+    .isString().withMessage('status must be a string')
+    .isLength({ min: 1, max: 50 }).withMessage('status must be 1-50 characters'),
 
   body('scheduled_date')
     .optional()

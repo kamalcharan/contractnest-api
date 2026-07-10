@@ -109,8 +109,18 @@ class VaniComposerController {
       const result = await contractComposerService.buildShortlist(intent, this.getContext(req));
       sendSuccess(res, result);
     } catch (error: any) {
-      console.error('❌ VaniComposer shortlist failed:', error.message);
-      internalError(res, error.message || 'Shortlist failed');
+      const msg = error?.message || 'Shortlist failed';
+      // "No matching catalog blocks" is a user-actionable condition (the
+      // tenant's catalog has nothing for this request — e.g. a template-only
+      // tenant), not a server fault. Return 422 so the canvas shows an
+      // actionable message and steers to the template path instead of a 500
+      // with a useless retry.
+      if (/no matching service blocks/i.test(msg)) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, msg, 422);
+        return;
+      }
+      console.error('❌ VaniComposer shortlist failed:', msg);
+      internalError(res, msg);
     }
   };
 
