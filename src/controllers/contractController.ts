@@ -11,6 +11,7 @@ import { validationResult } from 'express-validator';
 import { AuthRequest } from '../middleware/auth';
 import ContractService from '../services/contractService';
 import {
+  sendSuccess,
   sendError,
   internalError,
   ERROR_CODES
@@ -239,6 +240,115 @@ class ContractController {
     } catch (error) {
       console.error('[ContractController] Error in createContract:', error);
       internalError(res, 'Failed to create contract');
+    }
+  };
+
+  /**
+   * POST /api/contracts/bulk-create
+   * Bulk template assignment (Phase 3): create — and optionally activate — many
+   * contracts in a single request. Each item is created independently (one
+   * failure never rolls back the others). Reuses the SAME createContract /
+   * updateContractStatus service path as the single flow (no mapper duplication;
+   * the client maps each draft → request via mapWizardToRequest and posts them
+   * here). Idempotent: members who already hold a live contract from the given
+   * template are skipped.
+   *
+   * Body: { template_id?: string, activate?: boolean,
+   *         items: Array<{ buyer_id: string, request: CreateContractRequest }> }
+   * Returns: { results: [...], summary: { total, created, skipped, failed } }
+   */
+  bulkCreateContracts = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const body = req.body || {};
+      const templateId: string | undefined = body.template_id;
+      const activate: boolean = body.activate !== false; // default true
+      const items: Array<{ buyer_id?: string; request?: any }> = Array.isArray(body.items) ? body.items : [];
+
+      if (items.length === 0) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'items is required and must be a non-empty array', 400);
+        return;
+      }
+      if (items.length > 200) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'items exceeds the 200-per-request limit', 400);
+        return;
+      }
+      if (items.some((i) => !i || typeof i.request !== 'object' || i.request === null)) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'each item must include a request object', 400);
+        return;
+      }
+
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      // Idempotency: which selected members already hold a live contract from
+      // this template? Skip them so a re-run never double-creates.
+      let alreadyAssigned = new Set<string>();
+      if (templateId) {
+        const buyerIds = items.map((i) => i.buyer_id || '').filter(Boolean);
+        alreadyAssigned = await this.contractService.findAssignedBuyerIds(tenantId, templateId, buyerIds);
+      }
+
+      const results: Array<Record<string, any>> = [];
+      let created = 0, skipped = 0, failed = 0;
+
+      for (const item of items) {
+        const buyerId = item.buyer_id || null;
+
+        if (buyerId && alreadyAssigned.has(buyerId)) {
+          skipped += 1;
+          results.push({ buyer_id: buyerId, status: 'skipped', reason: 'already has a contract from this template' });
+          continue;
+        }
+
+        try {
+          const createRes = await this.contractService.createContract(
+            item.request, userJWT, tenantId, userId, environment
+          );
+          if (!createRes.success) {
+            failed += 1;
+            results.push({ buyer_id: buyerId, status: 'failed', error: createRes.error || 'Create failed' });
+            continue;
+          }
+
+          const contract: any = createRes.data || {};
+          let status: string = contract.status || 'created';
+          let globalAccessId: string | undefined = contract.global_access_id;
+
+          if (activate && contract.id && contract.status === 'draft') {
+            const st = await this.contractService.updateContractStatus(
+              contract.id, { status: 'active' }, userJWT, tenantId, userId, environment
+            );
+            if (st.success) {
+              status = 'active';
+              if ((st.data as any)?.global_access_id) globalAccessId = (st.data as any).global_access_id;
+            }
+            // A failed activation is non-fatal: the contract exists as a draft
+            // and can be activated later.
+          }
+
+          created += 1;
+          results.push({
+            buyer_id: buyerId,
+            status,
+            contract_id: contract.id,
+            contract_number: contract.contract_number,
+            ...(globalAccessId ? { global_access_id: globalAccessId } : {}),
+          });
+        } catch (err: any) {
+          failed += 1;
+          results.push({ buyer_id: buyerId, status: 'failed', error: err?.message || 'Create failed' });
+        }
+      }
+
+      sendSuccess(res, {
+        results,
+        summary: { total: items.length, created, skipped, failed },
+      });
+    } catch (error) {
+      console.error('[ContractController] Error in bulkCreateContracts:', error);
+      internalError(res, 'Bulk contract creation failed');
     }
   };
 

@@ -185,6 +185,22 @@ router.post(
 );
 
 /**
+ * @route POST /api/contracts/bulk-create
+ * @description Bulk template assignment — create (+ optionally activate) many
+ *              contracts in one request. Idempotent per (template, buyer):
+ *              members already holding a live contract from the template are
+ *              skipped. Reuses the single-create service path.
+ * @body { template_id?: string, activate?: boolean,
+ *         items: Array<{ buyer_id: string, request: CreateContractRequest }> }
+ * @returns { results, summary } 200
+ */
+router.post(
+  '/bulk-create',
+  createContractRateLimit,
+  contractController.bulkCreateContracts
+);
+
+/**
  * @route PUT /api/contracts/:id
  * @description Update existing contract (optimistic concurrency via version)
  * @param {string} id - Contract UUID

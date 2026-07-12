@@ -3,6 +3,7 @@
 // Communicates with Edge function via HMAC-signed requests
 
 import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 
 interface EdgeFunctionResponse<T = any> {
   success: boolean;
@@ -125,6 +126,47 @@ class ContractService {
       environment,
       idempotencyKey
     );
+  }
+
+  /**
+   * Bulk-assign idempotency helper: given a template and a set of buyer ids,
+   * returns the subset that ALREADY hold a live contract from that template
+   * (status active / pending_acceptance). Callers skip these so a re-run never
+   * double-creates / double-bills the same member.
+   *
+   * Read-only, service-role query — never throws to the caller (a failed dedup
+   * degrades to "assume none assigned", which is the safe-for-availability but
+   * the caller should treat a thrown DB error as "cannot guarantee dedup").
+   */
+  async findAssignedBuyerIds(
+    tenantId: string,
+    templateId: string,
+    buyerIds: string[]
+  ): Promise<Set<string>> {
+    const unique = Array.from(new Set(buyerIds.filter(Boolean)));
+    if (!tenantId || !templateId || unique.length === 0) return new Set();
+
+    const url = process.env.SUPABASE_URL as string;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+    if (!url || !key) {
+      console.warn('[ContractService] findAssignedBuyerIds: missing Supabase creds — dedup skipped');
+      return new Set();
+    }
+
+    const sb = createClient(url, key, { auth: { persistSession: false } });
+    const { data, error } = await sb
+      .from('t_contracts')
+      .select('buyer_id')
+      .eq('tenant_id', tenantId)
+      .eq('template_id', templateId)
+      .in('buyer_id', unique)
+      .in('status', ['active', 'pending_acceptance']);
+
+    if (error) {
+      console.warn('[ContractService] findAssignedBuyerIds query failed:', error.message);
+      return new Set();
+    }
+    return new Set((data || []).map((r: any) => r.buyer_id).filter(Boolean));
   }
 
   async updateContract(

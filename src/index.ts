@@ -14,6 +14,9 @@ import { createServer } from 'http';
 import { specs } from './docs/swagger';
 
 import { authenticate } from './middleware/auth';
+import sandboxRoutes from './routes/sandboxRoutes'; // [sandbox-route]
+import sessionCheckinPublicRoutes from './routes/sessionCheckinPublicRoutes'; // [batch3-checkin]
+import sessionCheckinRoutes from './routes/sessionCheckinRoutes'; // [batch3-checkin]
 import { errorHandler } from './middleware/error';
 import { setProductContext } from './middleware/productContext';
 import { logProductStatus } from './config/products';
@@ -32,6 +35,7 @@ import productsRoutes from './routes/productsRoutes';
 
 import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
+import cadenceSettingsRoutes from './routes/cadenceSettingsRoutes';
 import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
 import fkauthProxyRoutes from './routes/fkauthProxy';
 import fkonboardingProxyRoutes from './routes/fkonboardingProxy';
@@ -553,6 +557,9 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // 9. System routes
 app.use('/api', systemRoutes);
+app.use('/api/sandbox', sandboxRoutes); // [sandbox-route] tenant-scoped reset
+app.use('/api/checkin', sessionCheckinPublicRoutes); // [batch3-checkin] PUBLIC (no auth)
+app.use('/api/session-checkin', sessionCheckinRoutes); // [batch3-checkin] chair (auth)
 
 // ====================
 // REGISTER ALL ROUTES
@@ -968,6 +975,10 @@ console.log('✅ JTD routes registered at /api/jtd');
 // Onboarding Routes
 app.use('/api/onboarding', onboardingRoutes);
 console.log('✅ Onboarding routes registered at /api/onboarding');
+
+// Cadence Settings (tenant holiday calendar + shift policy for smart Service Cycles)
+app.use('/api/settings/cadence', cadenceSettingsRoutes);
+console.log('✅ Cadence settings routes registered at /api/settings/cadence');
 
 // Admin Tenant Management Routes
 try {
