@@ -14,7 +14,6 @@ import { createServer } from 'http';
 import { specs } from './docs/swagger';
 
 import { authenticate } from './middleware/auth';
-import sandboxRoutes from './routes/sandboxRoutes'; // [sandbox-route]
 import sessionCheckinPublicRoutes from './routes/sessionCheckinPublicRoutes'; // [batch3-checkin]
 import sessionCheckinRoutes from './routes/sessionCheckinRoutes'; // [batch3-checkin]
 import { errorHandler } from './middleware/error';
@@ -557,7 +556,6 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // 9. System routes
 app.use('/api', systemRoutes);
-app.use('/api/sandbox', sandboxRoutes); // [sandbox-route] tenant-scoped reset
 app.use('/api/checkin', sessionCheckinPublicRoutes); // [batch3-checkin] PUBLIC (no auth)
 app.use('/api/session-checkin', sessionCheckinRoutes); // [batch3-checkin] chair (auth)
 
