@@ -202,3 +202,30 @@ export const toggleIntegrationStatus = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Failed to toggle status' });
   }
 };
+
+export const deleteIntegration = async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId = req.headers['x-tenant-id'] as string;
+    const integrationId = req.params.id;
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authorization header is required' });
+    }
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+    if (!integrationId) {
+      return res.status(400).json({ error: 'Integration ID is required' });
+    }
+
+    const result = await integrationService.deleteTenantIntegration(authHeader, tenantId, integrationId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('Error in deleteIntegration controller:', error);
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    return res.status(500).json({ error: 'Failed to delete integration' });
+  }
+};

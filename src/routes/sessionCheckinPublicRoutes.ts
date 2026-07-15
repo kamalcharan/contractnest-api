@@ -12,8 +12,16 @@ const router = express.Router();
 
 // GET  /api/checkin/:token                          → resolve today's occurrence
 router.get('/:token', sessionCheckinController.resolve);
+// GET  /api/checkin/:token/form                     → check-in Smart Form schema
+router.get('/:token/form', sessionCheckinController.form);
+// GET  /api/checkin/:token/payment-config           → Offline UPI VPA (if configured)
+router.get('/:token/payment-config', sessionCheckinController.paymentConfig);
 // POST /api/checkin/:token/lookup   body:{ phone }  → match a roster member
 router.post('/:token/lookup', sessionCheckinController.lookup);
+// POST /api/checkin/:token/guest      → save a guest contact + mark present
+router.post('/:token/guest', sessionCheckinController.guest);
+// POST /api/checkin/:token/substitute → save substitute as member's alt contact + mark member present
+router.post('/:token/substitute', sessionCheckinController.substitute);
 // GET  /api/checkin/:token/member/:memberId/history → attendance + BAU billing
 router.get('/:token/member/:memberId/history', sessionCheckinController.history);
 // POST /api/checkin/:token/submit                   → attendance (+ optional dues)

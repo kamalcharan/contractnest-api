@@ -99,6 +99,10 @@ export interface CandidatePayload {
   form_template_id: string | null;
   equipment: string;
   icon: string;
+  /** Fees/dues blocks: bill on their cycle but never generate service events */
+  billing_only?: boolean;
+  /** 'group' → a group session (1:N roster); persisted so the calendar labels it */
+  audience?: string;
 }
 
 /** Step 3 result */
@@ -161,7 +165,7 @@ export interface PrefillBlock {
   taxRate?: number;
   taxInclusion?: 'inclusive' | 'exclusive';
   taxes: Array<{ id: string; name: string; rate: number }>;
-  config: { showDescription?: boolean; notes?: string };
+  config: { showDescription?: boolean; notes?: string; billingOnly?: boolean; audience?: string };
 }
 
 export interface PrefillEquipmentDetail {
@@ -719,6 +723,8 @@ class ContractComposerService {
       form_template_id: s.block.form_template_id || null,
       equipment: s.equipment,
       icon: s.block.icon || 'wrench',
+      billing_only: s.block.config?.billingOnly === true,
+      audience: s.block.config?.audience,
     }));
 
     return { candidates, scannedCount: allBlocks.length };
@@ -974,6 +980,8 @@ class ContractComposerService {
         form_template_id: null,
         equipment: '',
         icon: b.icon || 'layout-template',
+        billing_only: b.config?.billingOnly === true,
+        audience: b.config?.audience,
       };
     });
 
@@ -1387,7 +1395,7 @@ class ContractComposerService {
           taxRate: cand.tax_rate,
           taxInclusion: 'exclusive' as const,
           taxes: [],
-          config: { showDescription: false, notes: s.reason || undefined },
+          config: { showDescription: false, notes: s.reason || undefined, billingOnly: cand.billing_only, audience: cand.audience },
         };
       })
       .filter((b): b is NonNullable<typeof b> => b !== null);
@@ -1453,11 +1461,13 @@ class ContractComposerService {
     const derivationBlocks: DerivationBlock[] = selectedBlocks.map((blk) => ({
       id: blk.id,
       name: blk.name,
-      categoryId: 'service',
+      categoryId: blk.categoryId || 'service',
       quantity: blk.quantity,
       cycle: blk.cycle,
       serviceCycleDays: blk.serviceCycleDays,
-      unlimited: false,
+      unlimited: blk.unlimited,
+      billingOnly: blk.config?.billingOnly,
+      audience: blk.config?.audience,
       currency: blk.currency,
       totalPrice: blk.totalPrice,
     }));

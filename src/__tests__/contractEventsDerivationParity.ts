@@ -25,6 +25,8 @@ type RefEventType = 'service' | 'billing';
 interface RefBlock {
   id: string; name: string; categoryId?: string; quantity: number; cycle: string;
   customCycleDays?: number; serviceCycleDays?: number; unlimited: boolean;
+  billingOnly?: boolean;
+  audience?: string;
   currency?: string; totalPrice?: number;
 }
 
@@ -108,6 +110,8 @@ function refComputeContractEvents(input: RefInput): RefEvent[] {
   for (const block of selectedBlocks) {
     const hasPricing = refCategoryHasPricing(block.categoryId || '');
     if (!hasPricing || block.unlimited) continue;
+    if (block.billingOnly) continue; // fees/dues: bill on cycle, no service events
+    if (block.audience === 'group') continue; // shared 1:N session, no per-member rows
 
     const qty = block.quantity || 1;
 
@@ -289,6 +293,19 @@ const customCycleBlock: RefBlock = {
   categoryId: 'service', quantity: 8, cycle: 'custom', customCycleDays: 45, serviceCycleDays: 45,
   unlimited: false, currency: 'INR', totalPrice: 56000,
 };
+// Billing-only block (membership dues): bills every cycle but delivers no
+// service visits — must yield billing events and ZERO service events.
+const membershipDues: RefBlock = {
+  id: '77777777-1111-2222-3333-444444444444', name: 'Monthly Membership Dues',
+  categoryId: 'service', quantity: 12, cycle: 'monthly', serviceCycleDays: 30,
+  unlimited: false, billingOnly: true, currency: 'INR', totalPrice: 18000,
+};
+// Group session (shared 1:N): must yield ZERO per-member service events.
+const groupSession: RefBlock = {
+  id: '66666666-1111-2222-3333-444444444444', name: 'Bi Weekly Meetings',
+  categoryId: 'service', quantity: 26, cycle: 'prepaid', serviceCycleDays: 14,
+  unlimited: false, audience: 'group', currency: 'INR', totalPrice: 0,
+};
 
 interface Scenario {
   name: string;
@@ -313,6 +330,25 @@ const SCENARIOS: Scenario[] = [
       selectedBlocks: [hvacPM, chillerDeep],
       paymentMode: 'emi', emiMonths: 5, perBlockPaymentType: {},
       billingCycleType: 'unified', grandTotal: 254880.5, currency: 'INR',
+    },
+  },
+  {
+    name: 'billing-only membership dues: 12 monthly billing events, ZERO service events',
+    input: {
+      startDate: START, durationValue: 1, durationUnit: 'years',
+      selectedBlocks: [membershipDues],
+      paymentMode: 'defined', emiMonths: 0,
+      perBlockPaymentType: { [membershipDues.id]: 'postpaid' },
+      billingCycleType: 'mixed', grandTotal: 18000, currency: 'INR',
+    },
+  },
+  {
+    name: 'group session (audience=group): ZERO per-member service events',
+    input: {
+      startDate: START, durationValue: 1, durationUnit: 'years',
+      selectedBlocks: [groupSession],
+      paymentMode: 'prepaid', emiMonths: 0, perBlockPaymentType: {},
+      billingCycleType: 'unified', grandTotal: 0, currency: 'INR',
     },
   },
   {

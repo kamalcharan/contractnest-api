@@ -37,6 +37,8 @@ export interface DerivationBlock {
   customCycleDays?: number;      // for cycle === 'custom'
   serviceCycleDays?: number;     // days between recurring service visits
   unlimited: boolean;
+  billingOnly?: boolean;         // fees/dues blocks: bill on cycle but never deliver service events
+  audience?: string;             // 'group' → shared 1:N session; no per-member service occurrences
   currency?: string;
   totalPrice?: number;
 }
@@ -191,6 +193,15 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
   for (const block of selectedBlocks) {
     const hasPricing = categoryHasPricing(block.categoryId || '');
     if (!hasPricing || block.unlimited) continue;
+    // Billing-only blocks (fees/dues like memberships) bill on their cycle but
+    // never generate service events/visits — parity with the UI derivation
+    // (contractnest-ui/.../contractEvents.ts).
+    if (block.billingOnly) continue;
+
+    // Group Sessions are shared 1:N — never materialised as per-member service
+    // occurrences on a member contract (they'd duplicate across every member).
+    // Parity with the UI derivation.
+    if (block.audience === 'group') continue;
 
     const qty = block.quantity || 1;
 

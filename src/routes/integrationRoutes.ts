@@ -16,4 +16,7 @@ router.post('/integrations', createIntegrationValidation, integrationController.
 // Toggle integration status
 router.put('/integrations/status/:id', toggleStatusValidation, integrationController.toggleIntegrationStatus);
 
+// Delete a tenant integration (remove the stored config)
+router.delete('/integrations/:id', integrationController.deleteIntegration);
+
 export default router;

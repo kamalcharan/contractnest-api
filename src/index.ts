@@ -408,6 +408,38 @@ try {
   }
 }
 
+// Load Group Sessions dashboard routes with error handling
+let groupSessionsDashboardRoutes;
+try {
+  groupSessionsDashboardRoutes = require('./routes/groupSessionsDashboardRoutes').default;
+  console.log('✅ Group Sessions dashboard routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Group Sessions dashboard routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Group Sessions dashboard routes...');
+    groupSessionsDashboardRoutes = null;
+  }
+}
+
+// Load Session Check-in routes (chair + public member QR) with error handling
+let sessionCheckinRoutes, sessionCheckinPublicRoutes;
+try {
+  sessionCheckinRoutes = require('./routes/sessionCheckinRoutes').default;
+  sessionCheckinPublicRoutes = require('./routes/sessionCheckinPublicRoutes').default;
+  console.log('✅ Session Check-in routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Session Check-in routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Session Check-in routes...');
+    sessionCheckinRoutes = null;
+    sessionCheckinPublicRoutes = null;
+  }
+}
+
 // Load VaNi Composer routes with error handling
 let vaniComposerRoutes;
 try {
@@ -886,6 +918,42 @@ try {
   console.error('\u274c Failed to register VaNi desk routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'vani' }
+  });
+}
+
+// Register Group Sessions dashboard routes with error handling
+try {
+  if (groupSessionsDashboardRoutes) {
+    app.use('/api/group-sessions', groupSessionsDashboardRoutes);
+    console.log('✅ Group Sessions dashboard routes registered at /api/group-sessions');
+  } else {
+    console.log('⚠️  Group Sessions dashboard routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register Group Sessions dashboard routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'group_sessions_dashboard' }
+  });
+}
+
+// Register Session Check-in routes (chair authenticated + public member QR)
+try {
+  if (sessionCheckinRoutes) {
+    app.use('/api/session-checkin', sessionCheckinRoutes);
+    console.log('✅ Session Check-in (chair) routes registered at /api/session-checkin');
+  } else {
+    console.log('⚠️  Session Check-in (chair) routes skipped (not loaded)');
+  }
+  if (sessionCheckinPublicRoutes) {
+    app.use('/api/checkin', sessionCheckinPublicRoutes);
+    console.log('✅ Session Check-in (public) routes registered at /api/checkin');
+  } else {
+    console.log('⚠️  Session Check-in (public) routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register Session Check-in routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'session_checkin' }
   });
 }
 

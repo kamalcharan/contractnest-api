@@ -39,6 +39,68 @@ class SessionCheckinController {
     sendSuccess(res, result.data);
   };
 
+  form = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    const result = await sessionCheckinService.checkinForm(token);
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load check-in form', 500); return; }
+    sendSuccess(res, result.data);
+  };
+
+  guest = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    const b = req.body || {};
+    if (!b.name) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'name is required', 400); return; }
+    const result = await sessionCheckinService.guestCheckin(token, {
+      name: b.name,
+      phone: b.phone ?? null,
+      company: b.company ?? null,
+      email: b.email ?? null,
+      status: b.status === 'apologies' ? 'apologies' : 'present',
+      responses: b.responses ?? null,
+      form_template_id: b.form_template_id ?? null,
+      form_template_version: b.form_template_version ?? null,
+    });
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Guest check-in failed', 500); return; }
+    if (result.data && result.data.ok === false) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, result.data.reason || 'Check-in not possible', 422);
+      return;
+    }
+    sendSuccess(res, result.data);
+  };
+
+  substitute = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    const b = req.body || {};
+    if (!b.member_id) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'member_id is required', 400); return; }
+    if (!b.sub_name) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'sub_name is required', 400); return; }
+    const result = await sessionCheckinService.substituteCheckin(token, {
+      member_id: b.member_id,
+      sub_name: b.sub_name,
+      sub_phone: b.sub_phone ?? null,
+      status: b.status === 'apologies' ? 'apologies' : 'present',
+      responses: b.responses ?? null,
+      form_template_id: b.form_template_id ?? null,
+      form_template_version: b.form_template_version ?? null,
+    });
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Substitute check-in failed', 500); return; }
+    if (result.data && result.data.ok === false) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, result.data.reason || 'Check-in not possible', 422);
+      return;
+    }
+    sendSuccess(res, result.data);
+  };
+
+  paymentConfig = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    const result = await sessionCheckinService.paymentConfig(token);
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load payment config', 500); return; }
+    sendSuccess(res, result.data);
+  };
+
   submit = async (req: Request, res: Response): Promise<void> => {
     const token = req.params.token;
     if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
@@ -49,6 +111,9 @@ class SessionCheckinController {
       member_phone: b.member_phone ?? null,
       status: b.status === 'apologies' ? 'apologies' : 'present',
       payment: b.payment ?? null,
+      responses: b.responses ?? null,
+      form_template_id: b.form_template_id ?? null,
+      form_template_version: b.form_template_version ?? null,
     });
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Check-in failed', 500); return; }
     // RPC-level failures (invalid token / no session today) come back as { ok:false, reason }
