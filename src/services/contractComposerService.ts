@@ -99,10 +99,11 @@ export interface CandidatePayload {
   form_template_id: string | null;
   equipment: string;
   icon: string;
-  /** Fees/dues blocks: bill on their cycle but never generate service events */
-  billing_only?: boolean;
-  /** 'group' → a group session (1:N roster); persisted so the calendar labels it */
-  audience?: string;
+  /** Full saved block config (template path) — carries billingOnly, cadence
+   *  pricing (rate card + seller final payment), etc. MUST ride through to the
+   *  draft block untouched: stripping it silently corrupts money (a cadence
+   *  block collapses to rate×qty instead of its term total). */
+  config?: Record<string, unknown>;
 }
 
 /** Step 3 result */
@@ -165,7 +166,31 @@ export interface PrefillBlock {
   taxRate?: number;
   taxInclusion?: 'inclusive' | 'exclusive';
   taxes: Array<{ id: string; name: string; rate: number }>;
-  config: { showDescription?: boolean; notes?: string; billingOnly?: boolean; audience?: string };
+  // Open config bag: showDescription/notes plus whatever the saved block
+  // carried (billingOnly, cadencePricing, cadenceFinalPayment, overrides…)
+  config: { showDescription?: boolean; notes?: string; [key: string]: unknown };
+}
+
+// ── Cadence (cyclical) pricing — server-side term math ──────────────
+// Mirrors contractnest-ui/src/utils/catalog-studio/cadencePricing.ts.
+// Leftover months become a SELLER-SET final payment; pro-rata is only the
+// default when the seller never set one (locked owner decision).
+const CADENCE_PERIOD_MONTHS: Record<string, number> = {
+  monthly: 1, quarterly: 3, halfyearly: 6, annual: 12,
+};
+
+function cadenceTermTotal(
+  rate: number,
+  durationMonths: number,
+  periodMonths: number,
+  sellerFinal?: unknown
+): { fullPayments: number; remMonths: number; finalPayment: number; termTotal: number } {
+  const fullPayments = Math.max(0, Math.floor(durationMonths / periodMonths));
+  const remMonths = Math.max(0, durationMonths - fullPayments * periodMonths);
+  const finalPayment = remMonths > 0
+    ? (typeof sellerFinal === 'number' ? sellerFinal : Math.round((rate * remMonths) / periodMonths))
+    : 0;
+  return { fullPayments, remMonths, finalPayment, termTotal: rate * fullPayments + finalPayment };
 }
 
 export interface PrefillEquipmentDetail {
@@ -723,8 +748,6 @@ class ContractComposerService {
       form_template_id: s.block.form_template_id || null,
       equipment: s.equipment,
       icon: s.block.icon || 'wrench',
-      billing_only: s.block.config?.billingOnly === true,
-      audience: s.block.config?.audience,
     }));
 
     return { candidates, scannedCount: allBlocks.length };
@@ -980,8 +1003,9 @@ class ContractComposerService {
         form_template_id: null,
         equipment: '',
         icon: b.icon || 'layout-template',
-        billing_only: b.config?.billingOnly === true,
-        audience: b.config?.audience,
+        // Carry the FULL saved config — billingOnly, cadencePricing (rate card),
+        // cadenceFinalPayment, overrides — so the draft block round-trips intact.
+        config: (b.config && typeof b.config === 'object') ? b.config : undefined,
       };
     });
 
@@ -1355,6 +1379,7 @@ class ContractComposerService {
     const isAssetGroup = !!nomenclature && ASSET_GROUPS.has(nomenclature.group);
 
     const durationDays = durationToDays(intent.duration.value, intent.duration.unit);
+    const durationMonths = Math.max(1, Math.round(durationDays / 30));
     const byId = new Map(candidates.map((c) => [c.block_id, c]));
 
     const perBlock = intent.billing.mode === 'per_block';
@@ -1370,10 +1395,21 @@ class ContractComposerService {
           : 1;
         const qty = Math.max(1, Math.min(Number(s.quantity) || cycleQty, Math.max(cycleQty, 1)));
 
+        // Cadence-priced blocks (cyclical pricing rate card in saved config):
+        // the payment cadence is intrinsic to the price — keep the saved cycle
+        // and compute the TERM total (payments × rate + seller final payment),
+        // never rate × qty (qty is the service-visit count).
+        const candConfig = (cand.config && typeof cand.config === 'object' ? cand.config : {}) as Record<string, any>;
+        const cadMonths = candConfig.cadencePricing ? CADENCE_PERIOD_MONTHS[String(cand.cycle || '')] : undefined;
+        const cadTerm = cadMonths ? cadenceTermTotal(cand.price, durationMonths, cadMonths, candConfig.cadenceFinalPayment) : null;
+
         // Template blocks carry their own saved cycle; LLM candidates fall back
         // to the request's cycle (or prepaid for non-per-block billing).
-        const cycle = perBlock ? (cand.cycle || intent.billing.cycle || 'monthly') : 'prepaid';
-        if (perBlock) perBlockPaymentType[cand.block_id] = 'postpaid';
+        const cycle = cadTerm
+          ? String(cand.cycle)
+          : (perBlock ? (cand.cycle || intent.billing.cycle || 'monthly') : 'prepaid');
+        // Cadence blocks always bill on their own recurring cadence
+        if (perBlock || cadTerm) perBlockPaymentType[cand.block_id] = 'postpaid';
         blockReasons[cand.block_id] = s.reason;
 
         return {
@@ -1387,7 +1423,9 @@ class ContractComposerService {
           unlimited: false,
           price: cand.price,
           currency: cand.currency,
-          totalPrice: Math.round(cand.price * qty * 100) / 100,
+          totalPrice: cadTerm
+            ? Math.round(cadTerm.termTotal * 100) / 100
+            : Math.round(cand.price * qty * 100) / 100,
           categoryName: 'Service',
           categoryColor: '#3B82F6',
           categoryId: 'service',
@@ -1395,7 +1433,9 @@ class ContractComposerService {
           taxRate: cand.tax_rate,
           taxInclusion: 'exclusive' as const,
           taxes: [],
-          config: { showDescription: false, notes: s.reason || undefined, billingOnly: cand.billing_only, audience: cand.audience },
+          // Saved config rides through untouched (billingOnly, cadence rate
+          // card, seller final payment); the instantiation reason wins on notes.
+          config: { showDescription: false, ...candConfig, notes: s.reason || candConfig.notes || undefined },
         };
       })
       .filter((b): b is NonNullable<typeof b> => b !== null);
@@ -1413,10 +1453,12 @@ class ContractComposerService {
     ));
 
     // Totals (server-side, so the canvas review can finalize without the
-    // wizard's billing step; taxInclusion is 'exclusive' for catalog prices)
-    const baseSubtotal = Math.round(selectedBlocks.reduce((s, b) => s + b.price * b.quantity, 0) * 100) / 100;
+    // wizard's billing step; taxInclusion is 'exclusive' for catalog prices).
+    // totalPrice is the pre-tax block base — for cadence-priced blocks it is
+    // the TERM total (payments × rate + final), for everything else price×qty.
+    const baseSubtotal = Math.round(selectedBlocks.reduce((s, b) => s + b.totalPrice, 0) * 100) / 100;
     const taxTotal = Math.round(selectedBlocks.reduce(
-      (s, b) => s + (b.price * b.quantity * (b.taxRate || 0)) / 100, 0
+      (s, b) => s + (b.totalPrice * (b.taxRate || 0)) / 100, 0
     ) * 100) / 100;
     const grandTotal = Math.round((baseSubtotal + taxTotal) * 100) / 100;
 
@@ -1461,15 +1503,19 @@ class ContractComposerService {
     const derivationBlocks: DerivationBlock[] = selectedBlocks.map((blk) => ({
       id: blk.id,
       name: blk.name,
-      categoryId: blk.categoryId || 'service',
+      categoryId: 'service',
       quantity: blk.quantity,
       cycle: blk.cycle,
       serviceCycleDays: blk.serviceCycleDays,
-      unlimited: blk.unlimited,
-      billingOnly: blk.config?.billingOnly,
-      audience: blk.config?.audience,
+      unlimited: false,
       currency: blk.currency,
       totalPrice: blk.totalPrice,
+      // Cadence pricing + billing-only ride through so the derivation splits
+      // payments correctly (term math + seller final) and skips service
+      // events for billing-only blocks. taxInclusion intentionally omitted —
+      // composer totals are pre-tax, so the derivation must not re-apply tax.
+      price: blk.price,
+      config: (blk.config as DerivationBlock['config']) || undefined,
     }));
 
     const events = deriveComputedEvents({

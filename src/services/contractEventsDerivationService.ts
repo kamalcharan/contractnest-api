@@ -33,14 +33,22 @@ export interface DerivationBlock {
   name: string;
   categoryId?: string;
   quantity: number;
-  cycle: string;                 // 'prepaid' | 'postpaid' | 'monthly' | 'fortnightly' | 'quarterly' | 'custom'
+  cycle: string;                 // 'prepaid' | 'postpaid' | 'monthly' | 'fortnightly' | 'quarterly' | 'halfyearly' | 'annual' | 'custom'
   customCycleDays?: number;      // for cycle === 'custom'
   serviceCycleDays?: number;     // days between recurring service visits
   unlimited: boolean;
-  billingOnly?: boolean;         // fees/dues blocks: bill on cycle but never deliver service events
-  audience?: string;             // 'group' → shared 1:N session; no per-member service occurrences
   currency?: string;
   totalPrice?: number;
+  price?: number;                // per-unit / per-period rate (cadence math)
+  taxRate?: number;
+  taxInclusion?: 'inclusive' | 'exclusive';
+  // Parity with ConfigurableBlock.config — billing-only skip + cadence pricing
+  config?: {
+    billingOnly?: boolean;
+    customPrice?: number;
+    cadenceFinalPayment?: number;
+    cadencePricing?: { baseAmount?: number; baseMonths?: number; rates?: unknown[]; defaultCadence?: string } | null;
+  } | null;
 }
 
 export interface DeriveEventsInput {
@@ -148,6 +156,9 @@ function cycleToPeriodDays(cycle: string, customDays?: number): number {
     case 'monthly': return 30;
     case 'fortnightly': return 14;
     case 'quarterly': return 90;
+    // Cadence-pricing cycles (cyclical pricing rate cards)
+    case 'halfyearly': return 182;
+    case 'annual': return 365;
     case 'custom': return customDays || 30;
     default: return 0; // prepaid/postpaid are one-time, not recurring
   }
@@ -161,6 +172,8 @@ function cycleLabel(cycle: string): string {
     case 'monthly': return 'Monthly';
     case 'fortnightly': return 'Fortnightly';
     case 'quarterly': return 'Quarterly';
+    case 'halfyearly': return '6-Monthly';
+    case 'annual': return 'Annual';
     case 'custom': return 'Custom Cycle';
     default: return cycle;
   }
@@ -193,15 +206,10 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
   for (const block of selectedBlocks) {
     const hasPricing = categoryHasPricing(block.categoryId || '');
     if (!hasPricing || block.unlimited) continue;
-    // Billing-only blocks (fees/dues like memberships) bill on their cycle but
-    // never generate service events/visits — parity with the UI derivation
-    // (contractnest-ui/.../contractEvents.ts).
-    if (block.billingOnly) continue;
 
-    // Group Sessions are shared 1:N — never materialised as per-member service
-    // occurrences on a member contract (they'd duplicate across every member).
-    // Parity with the UI derivation.
-    if (block.audience === 'group') continue;
+    // Billing-only blocks (fees/dues like memberships) bill on their cycle
+    // but never generate service events/visits (parity with UI)
+    if (block.config?.billingOnly) continue;
 
     const qty = block.quantity || 1;
 
@@ -329,6 +337,76 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
           currency: block.currency || currency,
           status: 'scheduled',
         });
+      } else if (block.config?.cadencePricing) {
+        // Cadence-priced (cyclical pricing): the payment count derives from
+        // (cadence, contract term) — NOT from quantity, which stays the
+        // service-visit count. Full payments at the per-period rate, plus a
+        // seller-set final payment when the term doesn't divide evenly.
+        // (1:1 port of the UI branch in contractEvents.ts)
+        const periodDays = cycleToPeriodDays(blockCycle, block.customCycleDays);
+        const durationMonths = Math.max(1, Math.round(totalDays / 30));
+        const periodMonths = Math.max(1, Math.round(periodDays / 30));
+        const fullPayments = Math.max(0, Math.floor(durationMonths / periodMonths));
+        const remMonths = durationMonths - fullPayments * periodMonths;
+        const cfg = block.config;
+        const effRate = cfg?.customPrice ?? block.price ?? 0;
+        const preTaxFinal = remMonths > 0
+          ? (typeof cfg?.cadenceFinalPayment === 'number' ? cfg.cadenceFinalPayment : Math.round((effRate * remMonths) / periodMonths))
+          : 0;
+        const taxFactor = (block.taxRate || 0) > 0 && block.taxInclusion === 'exclusive' ? 1 + (block.taxRate || 0) / 100 : 1;
+        const finalWithTax = Math.round(preTaxFinal * taxFactor * 100) / 100;
+        const count = fullPayments + (finalWithTax > 0 ? 1 : 0);
+        const perPeriodAmount = fullPayments > 0
+          ? Math.round(((blockTotal - finalWithTax) / fullPayments) * 100) / 100
+          : 0;
+
+        const startIdx = events.length;
+        for (let i = 0; i < fullPayments; i++) {
+          const date = addDays(startDate, i * periodDays);
+          if (date > endDate) break;
+          events.push({
+            id: makeEventId(block.id, 'billing', i + 1),
+            block_id: block.id,
+            block_name: block.name,
+            category_id: block.categoryId || '',
+            event_type: 'billing',
+            billing_sub_type: 'recurring',
+            billing_cycle_label: `${cycleLabel(blockCycle)} ${i + 1}/${count}`,
+            sequence_number: i + 1,
+            total_occurrences: count,
+            scheduled_date: date,
+            original_date: new Date(date),
+            amount: perPeriodAmount,
+            currency: block.currency || currency,
+            status: 'scheduled',
+          });
+        }
+        const emittedFull = events.length - startIdx;
+        // Last full payment absorbs rounding against the regular share
+        if (emittedFull === fullPayments && emittedFull > 0) {
+          events[events.length - 1].amount =
+            Math.round(((blockTotal - finalWithTax) - perPeriodAmount * (fullPayments - 1)) * 100) / 100;
+        }
+        // Seller-decided final payment for the leftover months
+        if (finalWithTax > 0) {
+          const date = addDays(startDate, fullPayments * periodDays);
+          events.push({
+            id: makeEventId(block.id, 'billing', fullPayments + 1),
+            block_id: block.id,
+            block_name: block.name,
+            category_id: block.categoryId || '',
+            event_type: 'billing',
+            billing_sub_type: 'recurring',
+            billing_cycle_label: `${cycleLabel(blockCycle)} final (${remMonths} mo)`,
+            sequence_number: fullPayments + 1,
+            total_occurrences: count,
+            scheduled_date: date > endDate ? new Date(endDate) : date,
+            original_date: date > endDate ? new Date(endDate) : new Date(date),
+            amount: finalWithTax,
+            currency: block.currency || currency,
+            status: 'scheduled',
+          });
+        }
       } else {
         // Recurring: monthly, fortnightly, quarterly, custom
         const periodDays = cycleToPeriodDays(blockCycle, block.customCycleDays);

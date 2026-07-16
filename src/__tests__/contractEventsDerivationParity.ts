@@ -25,9 +25,14 @@ type RefEventType = 'service' | 'billing';
 interface RefBlock {
   id: string; name: string; categoryId?: string; quantity: number; cycle: string;
   customCycleDays?: number; serviceCycleDays?: number; unlimited: boolean;
-  billingOnly?: boolean;
-  audience?: string;
   currency?: string; totalPrice?: number;
+  price?: number; taxRate?: number; taxInclusion?: 'inclusive' | 'exclusive';
+  config?: {
+    billingOnly?: boolean;
+    customPrice?: number;
+    cadenceFinalPayment?: number;
+    cadencePricing?: { baseAmount?: number; baseMonths?: number; rates?: unknown[]; defaultCadence?: string } | null;
+  } | null;
 }
 
 interface RefEvent {
@@ -74,6 +79,8 @@ function refCycleToPeriodDays(cycle: string, customDays?: number): number {
     case 'monthly': return 30;
     case 'fortnightly': return 14;
     case 'quarterly': return 90;
+    case 'halfyearly': return 182;
+    case 'annual': return 365;
     case 'custom': return customDays || 30;
     default: return 0;
   }
@@ -85,6 +92,8 @@ function refCycleLabel(cycle: string): string {
     case 'monthly': return 'Monthly';
     case 'fortnightly': return 'Fortnightly';
     case 'quarterly': return 'Quarterly';
+    case 'halfyearly': return '6-Monthly';
+    case 'annual': return 'Annual';
     case 'custom': return 'Custom Cycle';
     default: return cycle;
   }
@@ -110,8 +119,8 @@ function refComputeContractEvents(input: RefInput): RefEvent[] {
   for (const block of selectedBlocks) {
     const hasPricing = refCategoryHasPricing(block.categoryId || '');
     if (!hasPricing || block.unlimited) continue;
-    if (block.billingOnly) continue; // fees/dues: bill on cycle, no service events
-    if (block.audience === 'group') continue; // shared 1:N session, no per-member rows
+
+    if (block.config?.billingOnly) continue;
 
     const qty = block.quantity || 1;
 
@@ -188,6 +197,56 @@ function refComputeContractEvents(input: RefInput): RefEvent[] {
           scheduled_date: new Date(endDate), original_date: new Date(endDate),
           amount: blockTotal, currency: block.currency || currency, status: 'scheduled',
         });
+      } else if (block.config?.cadencePricing) {
+        const periodDays = refCycleToPeriodDays(blockCycle, block.customCycleDays);
+        const durationMonths = Math.max(1, Math.round(totalDays / 30));
+        const periodMonths = Math.max(1, Math.round(periodDays / 30));
+        const fullPayments = Math.max(0, Math.floor(durationMonths / periodMonths));
+        const remMonths = durationMonths - fullPayments * periodMonths;
+        const cfg = block.config;
+        const effRate = cfg?.customPrice ?? block.price ?? 0;
+        const preTaxFinal = remMonths > 0
+          ? (typeof cfg?.cadenceFinalPayment === 'number' ? cfg.cadenceFinalPayment : Math.round((effRate * remMonths) / periodMonths))
+          : 0;
+        const taxFactor = (block.taxRate || 0) > 0 && block.taxInclusion === 'exclusive' ? 1 + (block.taxRate || 0) / 100 : 1;
+        const finalWithTax = Math.round(preTaxFinal * taxFactor * 100) / 100;
+        const count = fullPayments + (finalWithTax > 0 ? 1 : 0);
+        const perPeriodAmount = fullPayments > 0
+          ? Math.round(((blockTotal - finalWithTax) / fullPayments) * 100) / 100
+          : 0;
+
+        const startIdx = events.length;
+        for (let i = 0; i < fullPayments; i++) {
+          const date = refAddDays(startDate, i * periodDays);
+          if (date > endDate) break;
+          events.push({
+            id: refMakeEventId(block.id, 'billing', i + 1),
+            block_id: block.id, block_name: block.name, category_id: block.categoryId || '',
+            event_type: 'billing', billing_sub_type: 'recurring',
+            billing_cycle_label: `${refCycleLabel(blockCycle)} ${i + 1}/${count}`,
+            sequence_number: i + 1, total_occurrences: count,
+            scheduled_date: date, original_date: new Date(date),
+            amount: perPeriodAmount, currency: block.currency || currency, status: 'scheduled',
+          });
+        }
+        const emittedFull = events.length - startIdx;
+        if (emittedFull === fullPayments && emittedFull > 0) {
+          events[events.length - 1].amount =
+            Math.round(((blockTotal - finalWithTax) - perPeriodAmount * (fullPayments - 1)) * 100) / 100;
+        }
+        if (finalWithTax > 0) {
+          const date = refAddDays(startDate, fullPayments * periodDays);
+          events.push({
+            id: refMakeEventId(block.id, 'billing', fullPayments + 1),
+            block_id: block.id, block_name: block.name, category_id: block.categoryId || '',
+            event_type: 'billing', billing_sub_type: 'recurring',
+            billing_cycle_label: `${refCycleLabel(blockCycle)} final (${remMonths} mo)`,
+            sequence_number: fullPayments + 1, total_occurrences: count,
+            scheduled_date: date > endDate ? new Date(endDate) : date,
+            original_date: date > endDate ? new Date(endDate) : new Date(date),
+            amount: finalWithTax, currency: block.currency || currency, status: 'scheduled',
+          });
+        }
       } else {
         const periodDays = refCycleToPeriodDays(blockCycle, block.customCycleDays);
         const count = refCountRecurringPeriods(totalDays, periodDays);
@@ -288,23 +347,36 @@ const termsText: RefBlock = {
   categoryId: 'text', quantity: 1, cycle: 'prepaid',
   unlimited: false, currency: 'INR', totalPrice: 0,
 };
+const cadenceQuarterly: RefBlock = {
+  id: '77777777-1111-2222-3333-444444444444', name: 'Multipay AMC (billing only)',
+  categoryId: 'service', quantity: 1, cycle: 'quarterly',
+  unlimited: false, currency: 'INR', totalPrice: 16800, price: 4200,
+  config: {
+    billingOnly: true,
+    cadencePricing: { baseAmount: 15000, baseMonths: 12, rates: [], defaultCadence: 'monthly' },
+  },
+};
+const cadenceWithFinal: RefBlock = {
+  id: '88888888-1111-2222-3333-444444444444', name: 'Cadence With Final Payment',
+  categoryId: 'service', quantity: 1, cycle: 'quarterly',
+  unlimited: false, currency: 'INR', totalPrice: 11000, price: 4200,
+  config: {
+    cadenceFinalPayment: 2600,
+    cadencePricing: { baseAmount: 15000, baseMonths: 12, rates: [], defaultCadence: 'quarterly' },
+  },
+};
+const cadenceAnnual: RefBlock = {
+  id: '66666666-1111-2222-3333-444444444444', name: 'Cadence Annual',
+  categoryId: 'service', quantity: 1, cycle: 'annual',
+  unlimited: false, currency: 'INR', totalPrice: 15000, price: 15000,
+  config: {
+    cadencePricing: { baseAmount: 15000, baseMonths: 12, rates: [], defaultCadence: 'annual' },
+  },
+};
 const customCycleBlock: RefBlock = {
   id: '99999999-1111-2222-3333-444444444444', name: 'Water Treatment (45-day cycle)',
   categoryId: 'service', quantity: 8, cycle: 'custom', customCycleDays: 45, serviceCycleDays: 45,
   unlimited: false, currency: 'INR', totalPrice: 56000,
-};
-// Billing-only block (membership dues): bills every cycle but delivers no
-// service visits — must yield billing events and ZERO service events.
-const membershipDues: RefBlock = {
-  id: '77777777-1111-2222-3333-444444444444', name: 'Monthly Membership Dues',
-  categoryId: 'service', quantity: 12, cycle: 'monthly', serviceCycleDays: 30,
-  unlimited: false, billingOnly: true, currency: 'INR', totalPrice: 18000,
-};
-// Group session (shared 1:N): must yield ZERO per-member service events.
-const groupSession: RefBlock = {
-  id: '66666666-1111-2222-3333-444444444444', name: 'Bi Weekly Meetings',
-  categoryId: 'service', quantity: 26, cycle: 'prepaid', serviceCycleDays: 14,
-  unlimited: false, audience: 'group', currency: 'INR', totalPrice: 0,
 };
 
 interface Scenario {
@@ -333,25 +405,6 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    name: 'billing-only membership dues: 12 monthly billing events, ZERO service events',
-    input: {
-      startDate: START, durationValue: 1, durationUnit: 'years',
-      selectedBlocks: [membershipDues],
-      paymentMode: 'defined', emiMonths: 0,
-      perBlockPaymentType: { [membershipDues.id]: 'postpaid' },
-      billingCycleType: 'mixed', grandTotal: 18000, currency: 'INR',
-    },
-  },
-  {
-    name: 'group session (audience=group): ZERO per-member service events',
-    input: {
-      startDate: START, durationValue: 1, durationUnit: 'years',
-      selectedBlocks: [groupSession],
-      paymentMode: 'prepaid', emiMonths: 0, perBlockPaymentType: {},
-      billingCycleType: 'unified', grandTotal: 0, currency: 'INR',
-    },
-  },
-  {
     name: 'defined per-block billing: prepaid spare + postpaid install + monthly PM + quarterly chiller + custom cycle',
     input: {
       startDate: START, durationValue: 1, durationUnit: 'years',
@@ -365,6 +418,36 @@ const SCENARIOS: Scenario[] = [
         [customCycleBlock.id]: 'postpaid',
       },
       billingCycleType: 'mixed', grandTotal: 299500, currency: 'INR',
+    },
+  },
+  {
+    name: 'cadence-priced billing-only block: 4 quarterly payments, no service events',
+    input: {
+      startDate: START, durationValue: 1, durationUnit: 'years',
+      selectedBlocks: [cadenceQuarterly],
+      paymentMode: 'defined', emiMonths: 0,
+      perBlockPaymentType: { [cadenceQuarterly.id]: 'postpaid' },
+      billingCycleType: 'mixed', grandTotal: 16800, currency: 'INR',
+    },
+  },
+  {
+    name: 'cadence with seller-set final payment (8-month term, quarterly)',
+    input: {
+      startDate: START, durationValue: 8, durationUnit: 'months',
+      selectedBlocks: [cadenceWithFinal],
+      paymentMode: 'defined', emiMonths: 0,
+      perBlockPaymentType: { [cadenceWithFinal.id]: 'postpaid' },
+      billingCycleType: 'mixed', grandTotal: 11000, currency: 'INR',
+    },
+  },
+  {
+    name: 'cadence annual: single payment for the whole term',
+    input: {
+      startDate: START, durationValue: 12, durationUnit: 'months',
+      selectedBlocks: [cadenceAnnual],
+      paymentMode: 'defined', emiMonths: 0,
+      perBlockPaymentType: { [cadenceAnnual.id]: 'postpaid' },
+      billingCycleType: 'mixed', grandTotal: 15000, currency: 'INR',
     },
   },
   {
