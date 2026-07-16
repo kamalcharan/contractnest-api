@@ -434,6 +434,9 @@ class ContractService {
     responder_name?: string;
     responder_email?: string;
     rejection_reason?: string;
+    // Cadence pricing 2c: buyer payment-plan picks. Choice only — the edge
+    // recomputes every amount from the stored rate card.
+    cadence_selections?: Array<{ block_id: string; cycle: string }>;
   }): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/public/respond`;
     return await this.makePublicRequest(url, data);

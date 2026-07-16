@@ -811,7 +811,7 @@ class ContractController {
    */
   respondToContract = async (req: any, res: Response): Promise<void> => {
     try {
-      const { cnak, secret_code, action, responded_by, responder_name, responder_email, rejection_reason } = req.body;
+      const { cnak, secret_code, action, responded_by, responder_name, responder_email, rejection_reason, cadence_selections } = req.body;
 
       if (!cnak || !secret_code || !action) {
         res.status(400).json({ success: false, error: 'CNAK, secret code, and action are required' });
@@ -823,6 +823,17 @@ class ContractController {
         return;
       }
 
+      // Cadence pricing 2c: buyer payment-plan picks ({block_id, cycle} only —
+      // amounts are recomputed by the edge from the stored rate card)
+      if (cadence_selections !== undefined) {
+        const validSelections = Array.isArray(cadence_selections) &&
+          cadence_selections.every((s: any) => s && typeof s.block_id === 'string' && typeof s.cycle === 'string');
+        if (!validSelections) {
+          res.status(400).json({ success: false, error: 'cadence_selections must be an array of {block_id, cycle}' });
+          return;
+        }
+      }
+
       const result = await this.contractService.respondToContract({
         cnak,
         secret_code,
@@ -830,7 +841,8 @@ class ContractController {
         responded_by,
         responder_name,
         responder_email,
-        rejection_reason
+        rejection_reason,
+        cadence_selections
       });
 
       res.status(result.success ? 200 : 400).json(result);
