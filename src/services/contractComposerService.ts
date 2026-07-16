@@ -84,6 +84,19 @@ export interface ParseStepResult {
 }
 
 /** Compact candidate payload carried between steps 3 → 4 → 5 */
+// Display names for block categories carried through template instantiation
+const CATEGORY_DISPLAY_NAMES: Record<string, string> = {
+  service: 'Service',
+  session: 'Group Session',
+  spare: 'Spare Part',
+  billing: 'Billing',
+  text: 'Text',
+  checklist: 'Checklist',
+  document: 'Document',
+  video: 'Video',
+  image: 'Image',
+};
+
 export interface CandidatePayload {
   key: string;             // 'B1'...
   block_id: string;
@@ -104,6 +117,10 @@ export interface CandidatePayload {
    *  draft block untouched: stripping it silently corrupts money (a cadence
    *  block collapses to rate×qty instead of its term total). */
   config?: Record<string, unknown>;
+  /** Block category ('service' | 'billing' | 'text' | 'spare' | …). Template
+   *  candidates carry the saved category — hardcoding 'service' gave ₹0 text
+   *  blocks billing events (null-amount tasks) and mislabeled headings. */
+  category_id?: string;
 }
 
 /** Step 3 result */
@@ -748,6 +765,8 @@ class ContractComposerService {
       form_template_id: s.block.form_template_id || null,
       equipment: s.equipment,
       icon: s.block.icon || 'wrench',
+      // The catalog-scan tier matches service blocks only
+      category_id: 'service',
     }));
 
     return { candidates, scannedCount: allBlocks.length };
@@ -1006,6 +1025,9 @@ class ContractComposerService {
         // Carry the FULL saved config — billingOnly, cadencePricing (rate card),
         // cadenceFinalPayment, overrides — so the draft block round-trips intact.
         config: (b.config && typeof b.config === 'object') ? b.config : undefined,
+        // Preserve the saved category: text/billing/spare blocks must not
+        // become "Service" (a ₹0 text block would get a billing event).
+        category_id: String(b.categoryId || 'service'),
       };
     });
 
@@ -1426,9 +1448,9 @@ class ContractComposerService {
           totalPrice: cadTerm
             ? Math.round(cadTerm.termTotal * 100) / 100
             : Math.round(cand.price * qty * 100) / 100,
-          categoryName: 'Service',
+          categoryName: CATEGORY_DISPLAY_NAMES[cand.category_id || 'service'] || 'Service',
           categoryColor: '#3B82F6',
-          categoryId: 'service',
+          categoryId: cand.category_id || 'service',
           isFlyBy: false,
           taxRate: cand.tax_rate,
           taxInclusion: 'exclusive' as const,
@@ -1503,7 +1525,9 @@ class ContractComposerService {
     const derivationBlocks: DerivationBlock[] = selectedBlocks.map((blk) => ({
       id: blk.id,
       name: blk.name,
-      categoryId: 'service',
+      // Real category: the derivation skips non-priced categories (a ₹0 text
+      // block must not emit a billing event)
+      categoryId: blk.categoryId || 'service',
       quantity: blk.quantity,
       cycle: blk.cycle,
       serviceCycleDays: blk.serviceCycleDays,
