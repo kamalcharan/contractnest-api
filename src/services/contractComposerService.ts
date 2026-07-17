@@ -22,6 +22,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { catBlocksService } from './catBlocksService';
 import { catTemplatesService } from './catTemplatesService';
@@ -988,7 +989,8 @@ class ContractComposerService {
     intent: ParsedIntent,
     buyer: { id: string; name: string } | null,
     ctx: ComposerCallContext,
-    defaultCurrency?: string
+    defaultCurrency?: string,
+    cadenceSelections?: Array<{ block_id: string; cycle: string }>
   ): Promise<ComposeResult> {
     const res = await catTemplatesService.getTemplate(this.toCatalogContext(ctx), templateId);
     const t: any = (res.data as any)?.template || res.data;
@@ -1083,7 +1085,8 @@ class ContractComposerService {
         summary: `Instantiated from your signed-off template "${t.name}" — no AI selection needed.`,
       },
       ctx,
-      defaultCurrency || t.currency
+      defaultCurrency || t.currency,
+      cadenceSelections
     );
 
     // Template-carried evidence policy wins over the generic proposal
@@ -1391,7 +1394,11 @@ class ContractComposerService {
     selection: Pick<SelectStepResult, 'selections' | 'gaps' | 'summary'>,
     ctx: ComposerCallContext,
     /** Tenant default currency (UI-supplied); contract currency unless blocks force otherwise */
-    defaultCurrency?: string
+    defaultCurrency?: string,
+    /** Author's chosen cadence per block (only applies to blocks with a
+     *  cadencePricing rate card) — UI-supplied, validated against the block's
+     *  own stored rate card below (never trusted as-is). */
+    cadenceSelections?: Array<{ block_id: string; cycle: string }>
   ): Promise<ComposeResult> {
     // Nomenclature: re-resolve server-side (source of truth)
     const nomenclatures = await this.fetchNomenclatures(ctx);
@@ -1403,6 +1410,7 @@ class ContractComposerService {
     const durationDays = durationToDays(intent.duration.value, intent.duration.unit);
     const durationMonths = Math.max(1, Math.round(durationDays / 30));
     const byId = new Map(candidates.map((c) => [c.block_id, c]));
+    const cadenceOverrideMap = new Map((cadenceSelections || []).map((s) => [s.block_id, s.cycle]));
 
     const perBlock = intent.billing.mode === 'per_block';
     const perBlockPaymentType: Record<string, 'prepaid' | 'postpaid'> = {};
@@ -1419,16 +1427,35 @@ class ContractComposerService {
 
         // Cadence-priced blocks (cyclical pricing rate card in saved config):
         // the payment cadence is intrinsic to the price — keep the saved cycle
-        // and compute the TERM total (payments × rate + seller final payment),
-        // never rate × qty (qty is the service-visit count).
+        // (or the author's chosen override, if one was made and is actually
+        // offered in the rate card) and compute the TERM total (payments ×
+        // rate + seller final payment), never rate × qty (qty is the
+        // service-visit count). Rate always comes from the STORED rate card —
+        // the client only ever sends a cycle choice, never an amount.
         const candConfig = (cand.config && typeof cand.config === 'object' ? cand.config : {}) as Record<string, any>;
-        const cadMonths = candConfig.cadencePricing ? CADENCE_PERIOD_MONTHS[String(cand.cycle || '')] : undefined;
-        const cadTerm = cadMonths ? cadenceTermTotal(cand.price, durationMonths, cadMonths, candConfig.cadenceFinalPayment) : null;
+        const cadenceCard = candConfig.cadencePricing;
+        const requestedCycle = cadenceOverrideMap.get(cand.block_id);
+        const overrideRateEntry = cadenceCard?.rates?.find(
+          (r: any) => r.cycle === requestedCycle && r.enabled !== false && Number(r.amount) > 0
+        );
+        const cadenceCycle = overrideRateEntry ? requestedCycle! : String(cand.cycle || '');
+        const cadMonths = cadenceCard ? CADENCE_PERIOD_MONTHS[cadenceCycle] : undefined;
+        // A per-cadence seller override rate wins over the card rate; the
+        // seller's hand-set final payment belongs to their PROPOSED cadence
+        // only — it does not carry to a cadence the author switched to.
+        const isOverridden = !!overrideRateEntry && cadenceCycle !== String(cand.cycle || '');
+        const cadenceOverrideRate = candConfig.cadenceOverrides?.[cadenceCycle];
+        const cadenceRate = typeof cadenceOverrideRate === 'number' && cadenceOverrideRate > 0
+          ? cadenceOverrideRate
+          : (overrideRateEntry ? Number(overrideRateEntry.amount) : cand.price);
+        const cadTerm = cadMonths
+          ? cadenceTermTotal(cadenceRate, durationMonths, cadMonths, isOverridden ? undefined : candConfig.cadenceFinalPayment)
+          : null;
 
         // Template blocks carry their own saved cycle; LLM candidates fall back
         // to the request's cycle (or prepaid for non-per-block billing).
         const cycle = cadTerm
-          ? String(cand.cycle)
+          ? cadenceCycle
           : (perBlock ? (cand.cycle || intent.billing.cycle || 'monthly') : 'prepaid');
         // Cadence blocks always bill on their own recurring cadence
         if (perBlock || cadTerm) perBlockPaymentType[cand.block_id] = 'postpaid';
@@ -1725,6 +1752,37 @@ class ContractComposerService {
       specifications: a.specifications || {},
       notes: '',
     }));
+
+    // Placeholder rows for coverage types with no attached real asset yet
+    // (declared count defaults to 1, same fallback the wizard's
+    // AssetSelectionStep.tsx reconciliation uses when unit_count isn't set).
+    // Same shape/marker (asset_registry_id: null + specifications.placeholder)
+    // so downstream per-asset tracking (t_contract_event_assets) has an actual
+    // row to react to — setting allowBuyerToAdd alone leaves nothing for it.
+    const attachedByCategory = new Map<string, number>();
+    for (const d of equipmentDetails) {
+      if (d.category_id) attachedByCategory.set(d.category_id, (attachedByCategory.get(d.category_id) || 0) + 1);
+    }
+    for (const ct of coverageMap.values()) {
+      if ((attachedByCategory.get(ct.resource_id) || 0) > 0) continue; // already covered
+      equipmentDetails.push({
+        id: crypto.randomUUID(),
+        asset_registry_id: null,
+        added_by_tenant_id: ctx.tenantId,
+        added_by_role: 'seller',
+        resource_type: isFacility ? 'entity' : 'equipment',
+        category_id: ct.resource_id,
+        category_name: ct.resource_name,
+        item_name: `${ct.resource_name} — to be attached`,
+        quantity: 1,
+        make: '', model: '', serial_number: '',
+        condition: '', criticality: '', location: '',
+        purchase_date: '', warranty_expiry: '',
+        area_sqft: '', dimensions: '', capacity: '',
+        specifications: { placeholder: true, coverage_resource_id: ct.resource_id },
+        notes: '',
+      });
+    }
 
     let allowBuyerToAdd = false;
     if (buyer && assets.length === 0) {

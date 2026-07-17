@@ -47,6 +47,18 @@ class VaniComposerController {
     return contractComposerService.normalizeIntent(raw);
   }
 
+  /** Re-validate per-block cadence choices arriving from the client — the
+   *  cycle name is all that's trusted here; the rate itself is always
+   *  re-derived server-side from the block's own stored rate card. */
+  private validCadenceSelections(raw: any): Array<{ block_id: string; cycle: string }> | undefined {
+    if (!Array.isArray(raw)) return undefined;
+    const cleaned = raw
+      .filter((s) => s && typeof s.block_id === 'string' && typeof s.cycle === 'string')
+      .map((s) => ({ block_id: s.block_id.slice(0, 100), cycle: s.cycle.slice(0, 30) }))
+      .slice(0, 50);
+    return cleaned.length ? cleaned : undefined;
+  }
+
   /** GET /health — reports whether the LLM endpoint is configured */
   health = async (_req: AuthRequest, res: Response): Promise<void> => {
     sendSuccess(res, {
@@ -173,13 +185,15 @@ class VaniComposerController {
       const buyerName = String(req.body?.buyer_name || '');
       const buyer = buyerId && buyerName ? { id: buyerId, name: buyerName } : null;
       const defaultCurrency = String(req.body?.default_currency || '').slice(0, 3);
+      const cadenceSelections = this.validCadenceSelections(req.body?.cadence_selections);
 
       const result = await contractComposerService.assembleFromTemplate(
         templateId,
         intent,
         buyer,
         this.getContext(req),
-        defaultCurrency || undefined
+        defaultCurrency || undefined,
+        cadenceSelections
       );
       sendSuccess(res, result);
     } catch (error: any) {
@@ -241,6 +255,7 @@ class VaniComposerController {
       const gaps = Array.isArray(req.body?.gaps) ? req.body.gaps : [];
       const summary = String(req.body?.summary || 'Draft composed from your catalog.').slice(0, 400);
       const defaultCurrency = String(req.body?.default_currency || '').slice(0, 3);
+      const cadenceSelections = this.validCadenceSelections(req.body?.cadence_selections);
 
       const result = await contractComposerService.assembleDraft(
         intent,
@@ -248,7 +263,8 @@ class VaniComposerController {
         candidates,
         { selections, gaps, summary },
         this.getContext(req),
-        defaultCurrency || undefined
+        defaultCurrency || undefined,
+        cadenceSelections
       );
       sendSuccess(res, result);
     } catch (error: any) {
