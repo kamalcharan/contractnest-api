@@ -64,6 +64,11 @@ export interface DeriveEventsInput {
   currency: string;
   /** Optional per-event date overrides keyed by deterministic event id */
   eventOverrides?: Record<string, string | Date>;
+  // Sprint 1: contract-level discount — loaded pro-rata into per-block
+  // billing amounts (paymentMode === 'defined'). prepaid/emi already net it
+  // via grandTotal, which is computed post-discount.
+  baseSubtotal?: number;
+  discountTotal?: number;
 }
 
 /** Internal computed event (dates as Date, mirrors UI ContractEvent) */
@@ -191,6 +196,8 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
     perBlockPaymentType,
     grandTotal,
     currency,
+    baseSubtotal,
+    discountTotal,
   } = input;
 
   const startDate = input.startDate instanceof Date
@@ -200,6 +207,11 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
   const events: DerivedEvent[] = [];
   const totalDays = durationToDays(durationValue, durationUnit);
   const endDate = addDays(startDate, totalDays);
+  // Contract-level discount loaded pro-rata into every block's billed total
+  // (1:1 port of the UI branch in contractEvents.ts)
+  const discountFactor = baseSubtotal && baseSubtotal > 0 && discountTotal
+    ? Math.max(0, (baseSubtotal - discountTotal) / baseSubtotal)
+    : 1;
 
   // ─── SERVICE EVENTS ───
   // For each priced, non-unlimited block
@@ -299,7 +311,7 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
 
       const blockCycle = block.cycle || 'prepaid';
       const blockPayType = perBlockPaymentType[block.id] || 'prepaid';
-      const blockTotal = block.totalPrice || 0;
+      const blockTotal = (block.totalPrice || 0) * discountFactor;
 
       if (blockCycle === 'prepaid' || blockPayType === 'prepaid') {
         // On acceptance — 1 event
@@ -354,7 +366,7 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
           ? (typeof cfg?.cadenceFinalPayment === 'number' ? cfg.cadenceFinalPayment : Math.round((effRate * remMonths) / periodMonths))
           : 0;
         const taxFactor = (block.taxRate || 0) > 0 && block.taxInclusion === 'exclusive' ? 1 + (block.taxRate || 0) / 100 : 1;
-        const finalWithTax = Math.round(preTaxFinal * taxFactor * 100) / 100;
+        const finalWithTax = Math.round(preTaxFinal * taxFactor * discountFactor * 100) / 100;
         const count = fullPayments + (finalWithTax > 0 ? 1 : 0);
         const perPeriodAmount = fullPayments > 0
           ? Math.round(((blockTotal - finalWithTax) / fullPayments) * 100) / 100

@@ -555,6 +555,36 @@ class ContractController {
     }
   };
 
+  /**
+   * GET /api/contracts/:id/event-assets
+   * Per-asset progress rows (Sprint 3), grouped by event_id
+   */
+  getContractEventAssets = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const result = await this.contractService.getContractEventAssets(
+        contractId,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in getContractEventAssets:', error);
+      internalError(res, 'Failed to fetch event assets');
+    }
+  };
+
   recordPayment = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const contractId = req.params.id;

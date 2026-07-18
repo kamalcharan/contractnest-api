@@ -104,17 +104,22 @@ interface RefInput {
   selectedBlocks: RefBlock[]; paymentMode: 'prepaid' | 'emi' | 'defined';
   emiMonths: number; perBlockPaymentType: Record<string, 'prepaid' | 'postpaid'>;
   billingCycleType: 'unified' | 'mixed' | null; grandTotal: number; currency: string;
+  baseSubtotal?: number; discountTotal?: number;
 }
 
 function refComputeContractEvents(input: RefInput): RefEvent[] {
   const {
     startDate, durationValue, durationUnit, selectedBlocks,
     paymentMode, emiMonths, perBlockPaymentType, grandTotal, currency,
+    baseSubtotal, discountTotal,
   } = input;
 
   const events: RefEvent[] = [];
   const totalDays = refDurationToDays(durationValue, durationUnit);
   const endDate = refAddDays(startDate, totalDays);
+  const discountFactor = baseSubtotal && baseSubtotal > 0 && discountTotal
+    ? Math.max(0, (baseSubtotal - discountTotal) / baseSubtotal)
+    : 1;
 
   for (const block of selectedBlocks) {
     const hasPricing = refCategoryHasPricing(block.categoryId || '');
@@ -177,7 +182,7 @@ function refComputeContractEvents(input: RefInput): RefEvent[] {
 
       const blockCycle = block.cycle || 'prepaid';
       const blockPayType = perBlockPaymentType[block.id] || 'prepaid';
-      const blockTotal = block.totalPrice || 0;
+      const blockTotal = (block.totalPrice || 0) * discountFactor;
 
       if (blockCycle === 'prepaid' || blockPayType === 'prepaid') {
         events.push({
@@ -209,7 +214,7 @@ function refComputeContractEvents(input: RefInput): RefEvent[] {
           ? (typeof cfg?.cadenceFinalPayment === 'number' ? cfg.cadenceFinalPayment : Math.round((effRate * remMonths) / periodMonths))
           : 0;
         const taxFactor = (block.taxRate || 0) > 0 && block.taxInclusion === 'exclusive' ? 1 + (block.taxRate || 0) / 100 : 1;
-        const finalWithTax = Math.round(preTaxFinal * taxFactor * 100) / 100;
+        const finalWithTax = Math.round(preTaxFinal * taxFactor * discountFactor * 100) / 100;
         const count = fullPayments + (finalWithTax > 0 ? 1 : 0);
         const perPeriodAmount = fullPayments > 0
           ? Math.round(((blockTotal - finalWithTax) / fullPayments) * 100) / 100
@@ -471,6 +476,27 @@ const SCENARIOS: Scenario[] = [
     overrides: {
       [`evt_service_${chillerDeep.id.slice(0, 8)}_2`]: new Date('2026-11-20T06:30:00.000Z'),
       [`evt_billing_contract_1`]: new Date('2026-08-05T06:30:00.000Z'),
+    },
+  },
+  {
+    name: 'discount + defined/per-block billing: 10% contract discount loaded pro-rata into each block (regression: previously ignored in this mode)',
+    input: {
+      startDate: START, durationValue: 1, durationUnit: 'years',
+      selectedBlocks: [hvacPM, chillerDeep],
+      paymentMode: 'defined', emiMonths: 0,
+      perBlockPaymentType: { [hvacPM.id]: 'postpaid', [chillerDeep.id]: 'postpaid' },
+      billingCycleType: 'mixed', grandTotal: 194400, currency: 'INR',
+      baseSubtotal: 216000, discountTotal: 21600,
+    },
+  },
+  {
+    name: 'discount + prepaid billing: grandTotal already nets the discount (no double-count)',
+    input: {
+      startDate: START, durationValue: 1, durationUnit: 'years',
+      selectedBlocks: [hvacPM, unlimitedCallout, termsText],
+      paymentMode: 'prepaid', emiMonths: 0, perBlockPaymentType: {},
+      billingCycleType: 'unified', grandTotal: 178416, currency: 'INR',
+      baseSubtotal: 198240, discountTotal: 19824,
     },
   },
   {

@@ -328,6 +328,17 @@ class ContractService {
     return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 
+  /** Per-asset progress rows (Sprint 3) — grouped by event_id */
+  async getContractEventAssets(
+    contractId: string,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/event-assets`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+  }
+
   async recordPayment(
     contractId: string,
     paymentData: any,

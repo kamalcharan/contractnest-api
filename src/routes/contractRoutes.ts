@@ -328,6 +328,16 @@ router.get(
 );
 
 /**
+ * @route GET /api/contracts/:id/event-assets
+ * @description Per-asset progress rows (Sprint 3), grouped by event_id
+ * @param {string} id - Contract UUID
+ */
+router.get(
+  '/:id/event-assets',
+  contractController.getContractEventAssets
+);
+
+/**
  * @route POST /api/contracts/:id/invoices/record-payment
  * @description Record a payment receipt against a contract invoice
  * @param {string} id - Contract UUID
