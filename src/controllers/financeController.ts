@@ -1,7 +1,7 @@
 // ============================================================================
 // FinanceController — Stage 1 Finance AR/AP
 // Tenant-level receivables/payables + invoice actions (approve / remind /
-// cancel). Mirrors contractEventController conventions.
+// cancel) + tax summary (Sprint 4). Mirrors contractEventController conventions.
 // ============================================================================
 
 import { Response } from 'express';
@@ -60,6 +60,31 @@ class FinanceController {
     } catch (error) {
       console.error('[FinanceController] Error in getPayables:', error);
       internalError(res, 'Failed to load payables');
+    }
+  };
+
+  /**
+   * GET /api/finance/tax-summary
+   * Sprint 4 — month-wise tax records (taxable value, tax invoiced,
+   * tax collected approx, tax component split e.g. CGST/SGST/IGST).
+   */
+  getTaxSummary = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = (req.headers['x-environment'] as string) || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      const result = await this.financeService.getTaxSummary(userJWT, tenantId, environment);
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[FinanceController] Error in getTaxSummary:', error);
+      internalError(res, 'Failed to load tax summary');
     }
   };
 

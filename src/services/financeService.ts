@@ -58,6 +58,19 @@ class FinanceService {
     return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 
+  /**
+   * GET /api/finance/tax-summary — Sprint 4. Month-wise tax records
+   * (taxable value, tax invoiced, tax collected approx, component split).
+   */
+  async getTaxSummary(
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<FinanceEdgeResponse> {
+    const url = `${this.edgeFunctionUrl}?view=tax-summary`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+  }
+
   async approveDraftInvoice(
     invoiceId: string,
     body: FinanceActionBody,

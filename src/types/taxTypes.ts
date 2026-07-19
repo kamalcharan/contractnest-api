@@ -7,7 +7,7 @@
 export interface TaxSettings {
   id: string;
   tenant_id: string;
-  display_mode: 'including_tax' | 'excluding_tax';
+  display_mode: 'including_tax' | 'excluding_tax' | 'no_tax';
   default_tax_rate_id: string | null;
   version: number;
   created_at: string;
@@ -43,7 +43,7 @@ export interface TaxSettingsResponse {
  * Request payload for creating/updating tax settings
  */
 export interface TaxSettingsRequest {
-  display_mode: 'including_tax' | 'excluding_tax';
+  display_mode: 'including_tax' | 'excluding_tax' | 'no_tax';
   default_tax_rate_id?: string | null;
 }
 
@@ -116,7 +116,7 @@ export interface TaxRateSummary {
  * Tax configuration summary
  */
 export interface TaxConfigSummary {
-  display_mode: 'including_tax' | 'excluding_tax';
+  display_mode: 'including_tax' | 'excluding_tax' | 'no_tax';
   default_rate_name: string | null;
   total_active_rates: number;
   has_default_rate: boolean;
@@ -174,7 +174,7 @@ export interface TaxCalculationContext {
   amount: number;
   tax_rate_id?: string;
   use_default_rate?: boolean;
-  display_mode?: 'including_tax' | 'excluding_tax';
+  display_mode?: 'including_tax' | 'excluding_tax' | 'no_tax';
 }
 
 /**
@@ -186,7 +186,7 @@ export interface TaxCalculationResult {
   total_amount: number;
   tax_rate: number;
   tax_rate_name: string;
-  display_mode: 'including_tax' | 'excluding_tax';
+  display_mode: 'including_tax' | 'excluding_tax' | 'no_tax';
 }
 
 /**
@@ -196,6 +196,7 @@ export const TAX_CONSTANTS = {
   DISPLAY_MODES: {
     INCLUDING_TAX: 'including_tax' as const,
     EXCLUDING_TAX: 'excluding_tax' as const,
+    NO_TAX: 'no_tax' as const,
   },
   VALIDATION: {
     MIN_RATE: 0,
@@ -251,7 +252,7 @@ export enum TaxErrorCode {
  * Tax error messages for user display
  */
 export const TAX_ERROR_MESSAGES: Record<TaxErrorCode, string> = {
-  [TaxErrorCode.INVALID_DISPLAY_MODE]: 'Display mode must be either "including_tax" or "excluding_tax"',
+  [TaxErrorCode.INVALID_DISPLAY_MODE]: 'Display mode must be "including_tax", "excluding_tax", or "no_tax"',
   [TaxErrorCode.INVALID_RATE_VALUE]: 'Tax rate must be between 0 and 100',
   [TaxErrorCode.INVALID_SEQUENCE_NUMBER]: 'Sequence number must be a positive integer',
   [TaxErrorCode.NAME_REQUIRED]: 'Tax rate name is required',
@@ -281,7 +282,7 @@ export const TaxTypeGuards = {
     return obj && 
            typeof obj.id === 'string' &&
            typeof obj.tenant_id === 'string' &&
-           ['including_tax', 'excluding_tax'].includes(obj.display_mode) &&
+           ['including_tax', 'excluding_tax', 'no_tax'].includes(obj.display_mode) &&
            typeof obj.version === 'number';
   },
   
@@ -295,8 +296,8 @@ export const TaxTypeGuards = {
            typeof obj.version === 'number';
   },
   
-  isValidDisplayMode: (mode: any): mode is 'including_tax' | 'excluding_tax' => {
-    return mode === 'including_tax' || mode === 'excluding_tax';
+  isValidDisplayMode: (mode: any): mode is 'including_tax' | 'excluding_tax' | 'no_tax' => {
+    return mode === 'including_tax' || mode === 'excluding_tax' || mode === 'no_tax';
   },
   
   isValidRate: (rate: any): rate is number => {

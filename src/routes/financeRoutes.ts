@@ -71,6 +71,14 @@ router.get('/receivables', financeController.getReceivables);
 router.get('/payables', financeController.getPayables);
 
 /**
+ * GET /api/finance/tax-summary
+ * Sprint 4 — month-wise tax records (taxable value, tax invoiced,
+ * tax collected approx, component split). Same view for both personas'
+ * own tenant tax data.
+ */
+router.get('/tax-summary', financeController.getTaxSummary);
+
+/**
  * POST /api/finance/invoices/:invoiceId/approve
  * Approve a scanner-created draft invoice (draft → unpaid).
  */
