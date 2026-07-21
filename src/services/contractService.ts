@@ -328,17 +328,6 @@ class ContractService {
     return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 
-  /** Per-asset progress rows (Sprint 3) — grouped by event_id */
-  async getContractEventAssets(
-    contractId: string,
-    userJWT: string,
-    tenantId: string,
-    environment: string = 'live'
-  ): Promise<EdgeFunctionResponse> {
-    const url = `${this.edgeFunctionUrl}/${contractId}/event-assets`;
-    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
-  }
-
   async recordPayment(
     contractId: string,
     paymentData: any,
@@ -371,6 +360,80 @@ class ContractService {
 
     const url = `${this.edgeFunctionUrl}/${contractId}/invoices/cancel`;
     return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
+  // =================================================================
+  // CONTRACT CREDIT / DEPOSIT METHODS
+  // =================================================================
+
+  async setContractCredit(
+    contractId: string,
+    data: { amount: number; reason: string },
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    performedByName: string | null,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const requestPayload = { ...data, performed_by: userId, performed_by_name: performedByName };
+    const url = `${this.edgeFunctionUrl}/${contractId}/credit`;
+    return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
+  async findBuyerPendingCredits(
+    buyerId: string,
+    excludeContractId: string | undefined,
+    userJWT: string,
+    tenantId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const params = new URLSearchParams({ buyer_id: buyerId });
+    if (excludeContractId) params.set('exclude_contract_id', excludeContractId);
+    const url = `${this.edgeFunctionUrl}/credit-pending?${params.toString()}`;
+    return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
+  }
+
+  async applyBuyerCredit(
+    targetContractId: string,
+    sourceContractId: string,
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    performedByName: string | null,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const requestPayload = {
+      source_contract_id: sourceContractId,
+      performed_by: userId,
+      performed_by_name: performedByName
+    };
+    const url = `${this.edgeFunctionUrl}/${targetContractId}/credit/apply`;
+    return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
+  async setContractDeposit(
+    contractId: string,
+    data: { amount: number },
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    performedByName: string | null,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const requestPayload = { ...data, performed_by: userId, performed_by_name: performedByName };
+    const url = `${this.edgeFunctionUrl}/${contractId}/deposit`;
+    return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
+  async reclaimContractDeposit(
+    contractId: string,
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const url = `${this.edgeFunctionUrl}/${contractId}/deposit/reclaim`;
+    return await this.makeRequest('POST', url, { performed_by: userId }, userJWT, tenantId, environment);
   }
 
   // =================================================================

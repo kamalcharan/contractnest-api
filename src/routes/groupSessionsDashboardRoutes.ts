@@ -24,6 +24,10 @@ router.post('/occurrences/:blockId/add', groupSessionsDashboardController.addOcc
 router.post('/occurrence/:id/move', groupSessionsDashboardController.moveOccurrence);
 // POST /api/group-sessions/occurrence/:id/status         → skip/cancel/restore/held
 router.post('/occurrence/:id/status', groupSessionsDashboardController.setOccurrenceStatus);
+// POST /api/group-sessions/occurrence/:id/assign          → assign (or clear) this occurrence's chair
+router.post('/occurrence/:id/assign', groupSessionsDashboardController.assignChair);
+// POST /api/group-sessions/occurrences/:blockId/assign-default → set the default chair for every future occurrence
+router.post('/occurrences/:blockId/assign-default', groupSessionsDashboardController.assignDefaultChair);
 // GET /api/group-sessions/roster/:blockId              → roster + dues for a block
 router.get('/roster/:blockId', groupSessionsDashboardController.dashRoster);
 // POST /api/group-sessions/token/:blockId              → mint/return the block QR token

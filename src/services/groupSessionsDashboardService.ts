@@ -59,17 +59,21 @@ class GroupSessionsDashboardService {
     });
   }
 
-  /** Move one occurrence to a new date (holiday reschedule). */
-  scheduleMove(tenantId: string, occurrenceId: string, newDate: string, note?: string | null) {
+  /** Move one occurrence to a new date (holiday reschedule). Refused once the
+   * occurrence is 'held' (gs_schedule_move returns {ok:false, reason:'occurrence_completed'}). */
+  scheduleMove(tenantId: string, occurrenceId: string, newDate: string, note?: string | null, changedBy?: string | null, changedByName?: string | null) {
     return this.call('gs_schedule_move', {
       p_tenant: tenantId, p_id: occurrenceId, p_new_date: newDate, p_note: note ?? null,
+      p_changed_by: changedBy ?? null, p_changed_by_name: changedByName ?? null,
     });
   }
 
-  /** Change one occurrence's status (scheduled/held/skipped/cancelled). */
-  scheduleStatus(tenantId: string, occurrenceId: string, status: string, note?: string | null) {
+  /** Change one occurrence's status (scheduled/held/skipped/cancelled). Refuses
+   * to transition away from 'held' once set. */
+  scheduleStatus(tenantId: string, occurrenceId: string, status: string, note?: string | null, changedBy?: string | null, changedByName?: string | null) {
     return this.call('gs_schedule_status', {
       p_tenant: tenantId, p_id: occurrenceId, p_status: status, p_note: note ?? null,
+      p_changed_by: changedBy ?? null, p_changed_by_name: changedByName ?? null,
     });
   }
 
@@ -77,6 +81,24 @@ class GroupSessionsDashboardService {
   scheduleAdd(tenantId: string, blockId: string, isLive: boolean, date: string, note?: string | null) {
     return this.call('gs_schedule_add', {
       p_tenant: tenantId, p_block: blockId, p_is_live: isLive, p_date: date, p_note: note ?? null,
+    });
+  }
+
+  /** Assign (or, with assignedTo=null, clear) one occurrence's chair — also
+   * upserts/soft-deletes the linked appointment (gs_schedule_assign). Refused
+   * once the occurrence is 'held'. */
+  assignChair(tenantId: string, occurrenceId: string, assignedTo: string | null, assignedToName: string | null, changedBy?: string | null, changedByName?: string | null) {
+    return this.call('gs_schedule_assign', {
+      p_tenant: tenantId, p_id: occurrenceId, p_assigned_to: assignedTo, p_assigned_to_name: assignedToName,
+      p_changed_by: changedBy ?? null, p_changed_by_name: changedByName ?? null,
+    });
+  }
+
+  /** Set the default chair for every future, non-cancelled, non-held occurrence of a block. */
+  assignDefaultChair(tenantId: string, blockId: string, isLive: boolean, assignedTo: string, assignedToName: string | null, changedBy?: string | null, changedByName?: string | null) {
+    return this.call('gs_schedule_assign_default', {
+      p_tenant: tenantId, p_block: blockId, p_is_live: isLive, p_assigned_to: assignedTo, p_assigned_to_name: assignedToName,
+      p_changed_by: changedBy ?? null, p_changed_by_name: changedByName ?? null,
     });
   }
 
@@ -101,10 +123,11 @@ class GroupSessionsDashboardService {
   }
 
   /** Chair marks a member present/absent for an occurrence. */
-  markAttendance(tenantId: string, occurrenceId: string, memberId: string, present: boolean, memberName?: string | null) {
+  markAttendance(tenantId: string, occurrenceId: string, memberId: string, present: boolean, memberName?: string | null, changedBy?: string | null, changedByName?: string | null) {
     return this.call('gs_mark_attendance', {
       p_tenant: tenantId, p_occurrence: occurrenceId, p_member: memberId,
       p_present: present, p_member_name: memberName ?? null,
+      p_changed_by: changedBy ?? null, p_changed_by_name: changedByName ?? null,
     });
   }
 

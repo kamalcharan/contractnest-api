@@ -31,6 +31,16 @@ class SessionCheckinController {
     sendSuccess(res, result.data);
   };
 
+  deviceLookup = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    const deviceToken = (req.body?.device_token as string) || '';
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    if (!deviceToken) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'device_token is required', 400); return; }
+    const result = await sessionCheckinService.deviceLookup(token, deviceToken);
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Device lookup failed', 500); return; }
+    sendSuccess(res, result.data);
+  };
+
   history = async (req: Request, res: Response): Promise<void> => {
     const { token, memberId } = req.params;
     if (!token || !memberId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token and memberId are required', 400); return; }
@@ -61,6 +71,7 @@ class SessionCheckinController {
       responses: b.responses ?? null,
       form_template_id: b.form_template_id ?? null,
       form_template_version: b.form_template_version ?? null,
+      device_token: b.device_token ?? null,
     });
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Guest check-in failed', 500); return; }
     if (result.data && result.data.ok === false) {
@@ -84,6 +95,7 @@ class SessionCheckinController {
       responses: b.responses ?? null,
       form_template_id: b.form_template_id ?? null,
       form_template_version: b.form_template_version ?? null,
+      device_token: b.device_token ?? null,
     });
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Substitute check-in failed', 500); return; }
     if (result.data && result.data.ok === false) {
@@ -114,6 +126,7 @@ class SessionCheckinController {
       responses: b.responses ?? null,
       form_template_id: b.form_template_id ?? null,
       form_template_version: b.form_template_version ?? null,
+      device_token: b.device_token ?? null,
     });
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Check-in failed', 500); return; }
     // RPC-level failures (invalid token / no session today) come back as { ok:false, reason }

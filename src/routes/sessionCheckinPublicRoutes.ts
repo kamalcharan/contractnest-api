@@ -18,6 +18,8 @@ router.get('/:token/form', sessionCheckinController.form);
 router.get('/:token/payment-config', sessionCheckinController.paymentConfig);
 // POST /api/checkin/:token/lookup   body:{ phone }  → match a roster member
 router.post('/:token/lookup', sessionCheckinController.lookup);
+// POST /api/checkin/:token/device-lookup  body:{ device_token }  → recognise a returning browser
+router.post('/:token/device-lookup', sessionCheckinController.deviceLookup);
 // POST /api/checkin/:token/guest      → save a guest contact + mark present
 router.post('/:token/guest', sessionCheckinController.guest);
 // POST /api/checkin/:token/substitute → save substitute as member's alt contact + mark member present

@@ -24,6 +24,11 @@ class GroupSessionsDashboardController {
     return ((req.headers['x-environment'] as string) || 'live') === 'live';
   }
 
+  /** Actor identity for audit trail writes, matching appointmentController's convention. */
+  private actor(req: AuthRequest): { id: string | null; name: string | null } {
+    return { id: req.user?.id || null, name: req.user?.name || req.user?.email || null };
+  }
+
   /** GET /api/group-sessions/sessions */
   dashSessions = async (req: AuthRequest, res: Response): Promise<void> => {
     const tenantId = this.tenantId(req);
@@ -89,7 +94,8 @@ class GroupSessionsDashboardController {
       sendError(res, ERROR_CODES.VALIDATION_ERROR, 'date is required', 400);
       return;
     }
-    const result = await groupSessionsDashboardService.scheduleMove(tenantId, id, date, note);
+    const { id: actorId, name: actorName } = this.actor(req);
+    const result = await groupSessionsDashboardService.scheduleMove(tenantId, id, date, note, actorId, actorName);
     if (!result.success) {
       sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to move occurrence', 500);
       return;
@@ -110,7 +116,8 @@ class GroupSessionsDashboardController {
       sendError(res, ERROR_CODES.VALIDATION_ERROR, 'status is required', 400);
       return;
     }
-    const result = await groupSessionsDashboardService.scheduleStatus(tenantId, id, status, note);
+    const { id: actorId, name: actorName } = this.actor(req);
+    const result = await groupSessionsDashboardService.scheduleStatus(tenantId, id, status, note, actorId, actorName);
     if (!result.success) {
       sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to update occurrence', 500);
       return;
@@ -134,6 +141,46 @@ class GroupSessionsDashboardController {
     const result = await groupSessionsDashboardService.scheduleAdd(tenantId, blockId, this.isLive(req), date, note);
     if (!result.success) {
       sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to add occurrence', 500);
+      return;
+    }
+    sendSuccess(res, result.data);
+  };
+
+  /** POST /api/group-sessions/occurrence/:id/assign  body:{ assigned_to, assigned_to_name? } — assigned_to=null clears the chair */
+  assignChair = async (req: AuthRequest, res: Response): Promise<void> => {
+    const tenantId = this.tenantId(req);
+    const id = req.params.id;
+    const { assigned_to, assigned_to_name } = req.body || {};
+    if (!tenantId || !id) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant and occurrence id are required', 400);
+      return;
+    }
+    const { id: actorId, name: actorName } = this.actor(req);
+    const result = await groupSessionsDashboardService.assignChair(tenantId, id, assigned_to ?? null, assigned_to_name ?? null, actorId, actorName);
+    if (!result.success) {
+      sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to assign chair', 500);
+      return;
+    }
+    sendSuccess(res, result.data);
+  };
+
+  /** POST /api/group-sessions/occurrences/:blockId/assign-default  body:{ assigned_to, assigned_to_name? } */
+  assignDefaultChair = async (req: AuthRequest, res: Response): Promise<void> => {
+    const tenantId = this.tenantId(req);
+    const blockId = req.params.blockId;
+    const { assigned_to, assigned_to_name } = req.body || {};
+    if (!tenantId || !blockId) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant and blockId are required', 400);
+      return;
+    }
+    if (!assigned_to) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'assigned_to is required', 400);
+      return;
+    }
+    const { id: actorId, name: actorName } = this.actor(req);
+    const result = await groupSessionsDashboardService.assignDefaultChair(tenantId, blockId, this.isLive(req), assigned_to, assigned_to_name ?? null, actorId, actorName);
+    if (!result.success) {
+      sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to set default chair', 500);
       return;
     }
     sendSuccess(res, result.data);
@@ -212,7 +259,8 @@ class GroupSessionsDashboardController {
     const { member_id, present, member_name } = req.body || {};
     if (!tenantId || !id) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant and occurrence id are required', 400); return; }
     if (!member_id) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'member_id is required', 400); return; }
-    const result = await groupSessionsDashboardService.markAttendance(tenantId, id, member_id, present !== false, member_name);
+    const { id: actorId, name: actorName } = this.actor(req);
+    const result = await groupSessionsDashboardService.markAttendance(tenantId, id, member_id, present !== false, member_name, actorId, actorName);
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to mark attendance', 500); return; }
     sendSuccess(res, result.data);
   };

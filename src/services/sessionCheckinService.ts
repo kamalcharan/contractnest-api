@@ -47,6 +47,9 @@ class SessionCheckinService {
   lookupMember(token: string, phone: string) {
     return this.call('gs_lookup_member', { p_token: token, p_phone: phone });
   }
+  deviceLookup(token: string, deviceToken: string) {
+    return this.call('gs_checkin_device_lookup', { p_token: token, p_device_token: deviceToken });
+  }
   memberHistory(token: string, memberId: string) {
     return this.call('gs_member_history', { p_token: token, p_member: memberId });
   }
@@ -60,6 +63,7 @@ class SessionCheckinService {
     name: string; phone?: string | null; company?: string | null; email?: string | null;
     status?: string; responses?: Record<string, unknown> | null;
     form_template_id?: string | null; form_template_version?: number | null;
+    device_token?: string | null;
   }) {
     return this.call('gs_checkin_guest', {
       p_token: token,
@@ -71,12 +75,14 @@ class SessionCheckinService {
       p_responses: payload.responses ?? null,
       p_form_template_id: payload.form_template_id ?? null,
       p_form_template_version: payload.form_template_version ?? null,
+      p_device_token: payload.device_token ?? null,
     });
   }
   substituteCheckin(token: string, payload: {
     member_id: string; sub_name: string; sub_phone?: string | null;
     status?: string; responses?: Record<string, unknown> | null;
     form_template_id?: string | null; form_template_version?: number | null;
+    device_token?: string | null;
   }) {
     return this.call('gs_checkin_substitute', {
       p_token: token,
@@ -87,6 +93,7 @@ class SessionCheckinService {
       p_responses: payload.responses ?? null,
       p_form_template_id: payload.form_template_id ?? null,
       p_form_template_version: payload.form_template_version ?? null,
+      p_device_token: payload.device_token ?? null,
     });
   }
   submit(token: string, payload: {
@@ -94,6 +101,7 @@ class SessionCheckinService {
     status?: string; payment?: Record<string, unknown> | null;
     responses?: Record<string, unknown> | null;
     form_template_id?: string | null; form_template_version?: number | null;
+    device_token?: string | null;
   }) {
     return this.call('gs_submit_checkin', {
       p_token: token,
@@ -105,6 +113,7 @@ class SessionCheckinService {
       p_responses: payload.responses ?? null,
       p_form_template_id: payload.form_template_id ?? null,
       p_form_template_version: payload.form_template_version ?? null,
+      p_device_token: payload.device_token ?? null,
     });
   }
 

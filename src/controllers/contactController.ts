@@ -355,6 +355,8 @@ class ContactController {
       const tenantId = req.headers['x-tenant-id'] as string;
       const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+      const userName = req.user?.name || req.user?.email || null;
 
       if (!tenantId) {
         res.status(400).json({
@@ -379,13 +381,17 @@ class ContactController {
         status,
         userJWT,
         tenantId,
+        userId,
+        userName,
         environment
       );
-      
+
       const transformedResult = this.contactService.transformForFrontend(result);
 
       if (!result.success) {
-        const statusCode = (result.code === 'NOT_FOUND' || result.code === 'CONTACT_NOT_FOUND') ? 404 : 400;
+        const statusCode = (result.code === 'NOT_FOUND' || result.code === 'RECORD_NOT_FOUND' || result.code === 'CONTACT_NOT_FOUND') ? 404
+          : (result.code === 'DEPENDENCY_EXISTS' || result.code === 'CONCURRENT_UPDATE') ? 409
+          : 400;
         res.status(statusCode).json(transformedResult);
         return;
       }

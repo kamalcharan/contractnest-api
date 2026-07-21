@@ -555,36 +555,6 @@ class ContractController {
     }
   };
 
-  /**
-   * GET /api/contracts/:id/event-assets
-   * Per-asset progress rows (Sprint 3), grouped by event_id
-   */
-  getContractEventAssets = async (req: AuthRequest, res: Response): Promise<void> => {
-    try {
-      const contractId = req.params.id;
-      const tenantId = req.headers['x-tenant-id'] as string;
-      const environment = req.headers['x-environment'] as string || 'live';
-      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
-
-      const result = await this.contractService.getContractEventAssets(
-        contractId,
-        userJWT,
-        tenantId,
-        environment
-      );
-
-      if (!result.success) {
-        this.mapEdgeErrorToResponse(res, result);
-        return;
-      }
-
-      res.status(200).json(result);
-    } catch (error) {
-      console.error('[ContractController] Error in getContractEventAssets:', error);
-      internalError(res, 'Failed to fetch event assets');
-    }
-  };
-
   recordPayment = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const contractId = req.params.id;
@@ -647,6 +617,185 @@ class ContractController {
     } catch (error) {
       console.error('[ContractController] Error in cancelInvoice:', error);
       internalError(res, 'Failed to process invoice action');
+    }
+  };
+
+  // =================================================================
+  // CONTRACT CREDIT / DEPOSIT ENDPOINTS
+  // =================================================================
+
+  setContractCredit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+      const userName = req.user?.name || req.user?.email || null;
+
+      const { amount, reason } = req.body;
+
+      if (amount === undefined || amount === null || !reason) {
+        res.status(400).json({ success: false, error: 'amount and reason are required' });
+        return;
+      }
+
+      const result = await this.contractService.setContractCredit(
+        contractId,
+        { amount, reason },
+        userJWT,
+        tenantId,
+        userId,
+        userName,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in setContractCredit:', error);
+      internalError(res, 'Failed to set contract credit');
+    }
+  };
+
+  findBuyerPendingCredits = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const buyerId = req.query.buyer_id as string;
+      const excludeContractId = req.query.exclude_contract_id as string | undefined;
+
+      if (!buyerId) {
+        res.status(400).json({ success: false, error: 'buyer_id is required' });
+        return;
+      }
+
+      const result = await this.contractService.findBuyerPendingCredits(
+        buyerId,
+        excludeContractId,
+        userJWT,
+        tenantId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in findBuyerPendingCredits:', error);
+      internalError(res, 'Failed to fetch pending credits');
+    }
+  };
+
+  applyBuyerCredit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+      const userName = req.user?.name || req.user?.email || null;
+
+      const { source_contract_id } = req.body;
+
+      if (!source_contract_id) {
+        res.status(400).json({ success: false, error: 'source_contract_id is required' });
+        return;
+      }
+
+      const result = await this.contractService.applyBuyerCredit(
+        contractId,
+        source_contract_id,
+        userJWT,
+        tenantId,
+        userId,
+        userName,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in applyBuyerCredit:', error);
+      internalError(res, 'Failed to apply credit');
+    }
+  };
+
+  setContractDeposit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+      const userName = req.user?.name || req.user?.email || null;
+
+      const { amount } = req.body;
+
+      if (amount === undefined || amount === null) {
+        res.status(400).json({ success: false, error: 'amount is required' });
+        return;
+      }
+
+      const result = await this.contractService.setContractDeposit(
+        contractId,
+        { amount },
+        userJWT,
+        tenantId,
+        userId,
+        userName,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in setContractDeposit:', error);
+      internalError(res, 'Failed to set contract deposit');
+    }
+  };
+
+  reclaimContractDeposit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      const result = await this.contractService.reclaimContractDeposit(
+        contractId,
+        userJWT,
+        tenantId,
+        userId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in reclaimContractDeposit:', error);
+      internalError(res, 'Failed to reclaim contract deposit');
     }
   };
 

@@ -162,9 +162,9 @@ class ContactService {
     return await this.makeRequest('PUT', url, requestPayload, userJWT, tenantId, environment);
   }
 
-  async updateContactStatus(contactId: string, status: string, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
+  async updateContactStatus(contactId: string, status: string, userJWT: string, tenantId: string, userId: string, userName: string | null, environment: string = 'live'): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contactId}`;
-    return await this.makeRequest('PATCH', url, { status }, userJWT, tenantId, environment);
+    return await this.makeRequest('PATCH', url, { status, performed_by: userId, performed_by_name: userName }, userJWT, tenantId, environment);
   }
 
   async deleteContact(contactId: string, force: boolean, userJWT: string, tenantId: string, environment: string = 'live'): Promise<EdgeFunctionResponse> {
@@ -273,7 +273,8 @@ class ContactService {
         success: false,
         error: edgeResponse.error,
         code: edgeResponse.code,
-        validation_errors: edgeResponse.validation_errors
+        validation_errors: edgeResponse.validation_errors,
+        dependencies: (edgeResponse as any).dependencies
       };
     }
 

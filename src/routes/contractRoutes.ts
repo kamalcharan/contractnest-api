@@ -155,6 +155,19 @@ router.get('/health', (_req, res) => {
 });
 
 /**
+ * @route GET /api/contracts/credit-pending
+ * @description List a buyer's pending credits (for the "Apply Credit" picker)
+ * @query buyer_id, exclude_contract_id?
+ * @returns { success, data: BuyerPendingCredit[] }
+ * NOTE: must be registered before GET /:id or Express would match
+ * "credit-pending" as the :id param.
+ */
+router.get(
+  '/credit-pending',
+  contractController.findBuyerPendingCredits
+);
+
+/**
  * @route GET /api/contracts/:id
  * @description Get single contract by ID with blocks, vendors, attachments, history
  * @param {string} id - Contract UUID
@@ -328,16 +341,6 @@ router.get(
 );
 
 /**
- * @route GET /api/contracts/:id/event-assets
- * @description Per-asset progress rows (Sprint 3), grouped by event_id
- * @param {string} id - Contract UUID
- */
-router.get(
-  '/:id/event-assets',
-  contractController.getContractEventAssets
-);
-
-/**
  * @route POST /api/contracts/:id/invoices/record-payment
  * @description Record a payment receipt against a contract invoice
  * @param {string} id - Contract UUID
@@ -359,6 +362,53 @@ router.post(
 router.post(
   '/:id/invoices/cancel',
   contractController.cancelInvoice
+);
+
+// =================================================================
+// CONTRACT CREDIT / DEPOSIT ENDPOINTS
+// =================================================================
+
+/**
+ * @route POST /api/contracts/:id/credit
+ * @description Set aside a credit (amount + reason) on this ending contract
+ * @param {string} id - Contract UUID
+ * @body { amount: number, reason: string }
+ */
+router.post(
+  '/:id/credit',
+  contractController.setContractCredit
+);
+
+/**
+ * @route POST /api/contracts/:id/credit/apply
+ * @description Apply a pending credit from another contract onto this one
+ * @param {string} id - Target contract UUID
+ * @body { source_contract_id: string }
+ */
+router.post(
+  '/:id/credit/apply',
+  contractController.applyBuyerCredit
+);
+
+/**
+ * @route POST /api/contracts/:id/deposit
+ * @description Record a security deposit the seller holds against this contract
+ * @param {string} id - Contract UUID
+ * @body { amount: number }
+ */
+router.post(
+  '/:id/deposit',
+  contractController.setContractDeposit
+);
+
+/**
+ * @route POST /api/contracts/:id/deposit/reclaim
+ * @description Reclaim a held deposit once the contract closes
+ * @param {string} id - Contract UUID
+ */
+router.post(
+  '/:id/deposit/reclaim',
+  contractController.reclaimContractDeposit
 );
 
 export default router;
