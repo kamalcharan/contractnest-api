@@ -84,12 +84,10 @@ class VaniDeskController {
     try {
       const tenantId = this.tenantId(req);
 
-      const entitled = await vaniEntitlementService.isEntitled(tenantId);
-      if (!entitled) {
-        sendError(res, ERROR_CODES.FORBIDDEN,
-          'Changing automation rules needs a VaNi trial or subscription', 403);
-        return;
-      }
+      // Owner decision (2026-07-22): automation rules are the tenant's own
+      // standing instructions — editing is NOT gated behind the VaNi
+      // entitlement (the system/VaNi merely executes them). The entitlement
+      // continues to gate VaNi's premium surfaces (briefing etc.).
 
       const ruleKey = String(req.params.ruleKey || '');
       const { config, is_enabled, expected_version } = req.body || {};
