@@ -8,7 +8,6 @@
 import express from 'express';
 import ContractController from '../controllers/contractController';
 import { authenticate } from '../middleware/auth';
-import rateLimit from 'express-rate-limit';
 import {
   listContractsValidation,
   getContractByIdValidation,
@@ -68,31 +67,6 @@ const ensureTenant = (req: express.Request, res: express.Response, next: express
 };
 
 router.use(ensureTenant);
-
-// Rate limiting
-const contractRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,           // 15 minutes
-  max: 100,                             // 100 requests per window
-  message: {
-    success: false,
-    error: 'Too many contract requests, please try again later',
-    code: 'RATE_LIMIT_EXCEEDED'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const createContractRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,           // 15 minutes
-  max: 30,                              // 30 creates per window
-  message: {
-    success: false,
-    error: 'Too many contract creation requests, please try again later',
-    code: 'CREATE_RATE_LIMIT_EXCEEDED'
-  }
-});
-
-router.use(contractRateLimit);
 
 // =================================================================
 // CNAK CLAIM ENDPOINT
@@ -192,7 +166,6 @@ router.get(
  */
 router.post(
   '/',
-  createContractRateLimit,
   createContractValidation,
   contractController.createContract
 );
@@ -209,7 +182,6 @@ router.post(
  */
 router.post(
   '/bulk-create',
-  createContractRateLimit,
   contractController.bulkCreateContracts
 );
 
