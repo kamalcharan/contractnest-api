@@ -118,6 +118,17 @@ export function categoryHasPricing(categoryId: string): boolean {
   return PRICED_CATEGORY_IDS.has(categoryId);
 }
 
+// ─── Categories needing an occurrence/attendance schedule ───
+// Broader than pricing: a complimentary Group Session (categoryId 'session',
+// price 0) still needs its scheduled occurrences generated for check-in /
+// attendance tracking — categoryHasPricing() wrongly skipped it below since
+// 'session' has no pricing step in the wizard (it's priced 0 on purpose).
+const SERVICE_TRACKED_CATEGORY_IDS = new Set(['service', 'session']);
+
+function categoryNeedsServiceEvents(categoryId: string): boolean {
+  return SERVICE_TRACKED_CATEGORY_IDS.has(categoryId);
+}
+
 // ─── Helpers (verbatim semantics from the UI implementation) ───
 
 /** Convert duration to total days */
@@ -216,8 +227,8 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
   // ─── SERVICE EVENTS ───
   // For each priced, non-unlimited block
   for (const block of selectedBlocks) {
-    const hasPricing = categoryHasPricing(block.categoryId || '');
-    if (!hasPricing || block.unlimited) continue;
+    const needsServiceEvents = categoryNeedsServiceEvents(block.categoryId || '');
+    if (!needsServiceEvents || block.unlimited) continue;
 
     // Billing-only blocks (fees/dues like memberships) bill on their cycle
     // but never generate service events/visits (parity with UI)
