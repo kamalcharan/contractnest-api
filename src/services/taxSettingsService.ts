@@ -357,7 +357,7 @@ private validateTaxSettingsResponse(data: any): TaxSettingsResponse {
       }
     }
 
-    if (!['including_tax', 'excluding_tax'].includes(data.display_mode)) {
+    if (!['including_tax', 'excluding_tax', 'no_tax'].includes(data.display_mode)) {
       throw new Error('Invalid display_mode value');
     }
 

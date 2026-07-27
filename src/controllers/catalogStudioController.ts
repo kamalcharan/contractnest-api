@@ -67,6 +67,7 @@ class CatalogStudioController {
       search: req.query.search as string,
       page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+      resource_template_id: req.query.resource_template_id as string,
     };
   }
 

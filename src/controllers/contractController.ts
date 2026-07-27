@@ -620,6 +620,42 @@ class ContractController {
     }
   };
 
+  cancelReceipt = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contractId = req.params.id;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      const { receipt_id, reason } = req.body;
+
+      if (!receipt_id) {
+        res.status(400).json({ success: false, error: 'receipt_id is required' });
+        return;
+      }
+
+      const result = await this.contractService.cancelReceipt(
+        contractId,
+        { receipt_id, reason },
+        userJWT,
+        tenantId,
+        userId,
+        environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in cancelReceipt:', error);
+      internalError(res, 'Failed to cancel receipt');
+    }
+  };
+
   // =================================================================
   // CONTRACT CREDIT / DEPOSIT ENDPOINTS
   // =================================================================

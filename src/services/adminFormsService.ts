@@ -19,6 +19,7 @@ import type {
   FormTemplateResponse,
   ValidateSchemaResponse,
   DeleteTemplateResponse,
+  EquipmentTagsResponse,
 } from '../types/adminForms.dto';
 
 const BASE_URL = `${SUPABASE_URL}/functions/v1/smart-forms`;
@@ -72,6 +73,29 @@ export class AdminFormsService {
       return response.data;
     } catch (error: any) {
       console.error('[adminFormsService] listTemplates error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * GET /smart-forms/equipment-tags
+   * Distinct equipment/facility facets for the Admin list filter dropdown
+   */
+  async getEquipmentTags(
+    authHeader: string,
+    tenantId: string,
+  ): Promise<EquipmentTagsResponse> {
+    try {
+      const url = `${BASE_URL}/equipment-tags`;
+      console.log(`[adminFormsService] Fetching equipment tags`);
+
+      const response = await axios.get<EquipmentTagsResponse>(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminFormsService] getEquipmentTags error:', error.message);
       throw error;
     }
   }

@@ -1567,7 +1567,10 @@ class ContractComposerService {
 
     const durText = `${intent.duration.value} ${intent.duration.unit === 'years' && intent.duration.value === 1 ? 'Year' : intent.duration.unit}`;
     const kindLabel = nomenclature?.name || intent.contract_kind;
-    const buyerLabel = buyer?.name || intent.buyer_text || 'New Client';
+    // Contact names are free-text (often ALL CAPS from bulk imports) — title-case
+    // for the generated heading only; buyer.name / buyerName below stay verbatim.
+    const toTitleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+    const buyerLabel = toTitleCase(buyer?.name || intent.buyer_text || 'New Client');
 
     return {
       draft: {

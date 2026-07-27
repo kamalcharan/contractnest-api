@@ -36,6 +36,16 @@ router.post('/generate-pricing', validateHeaders, knowledgeTreeController.genera
 // Option A — Generate service_name per section from existing checkpoints (patch, no wipe)
 router.post('/generate-service-names', validateHeaders, knowledgeTreeController.generateServiceNames);
 
+// Auto-compose + register one SmartForm per service group — no LLM call,
+// deterministic from already-generated master data. Called right after
+// generate-service-names persists (that's what makes grouping resolvable).
+router.post('/generate-forms', validateHeaders, knowledgeTreeController.generateForms);
+
+// Read-only per-service-group form status (platform-level, via
+// m_kt_service_form_map) — powers the admin KT tree page's "Per-Service
+// Forms" panel without tenant-block duplication.
+router.get('/service-forms', validateHeaders, knowledgeTreeController.getServiceFormStatus);
+
 // Patch — Variant applicability for existing checkpoints (receives variants[] + checkpoints[] from DB)
 router.post('/generate-variant-map', validateHeaders, knowledgeTreeController.generateVariantApplicability);
 

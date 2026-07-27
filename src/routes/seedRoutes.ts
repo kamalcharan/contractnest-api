@@ -302,6 +302,35 @@ router.post('/tenant/seed-equipment', async (req: Request, res: Response) => {
   }
 });
 
+// POST /tenant/sync-equipment — body { resourceTemplateId }
+// Seeding is a one-time snapshot, not a live reference, and "Re-seed with
+// VaNi" no-ops on already-seeded equipment (its idempotency check is
+// whole-template: any existing row -> skip entirely, regardless of what's
+// actually missing). This does the item-level reconciliation "Re-seed"
+// always implied but never did: adds any KT block missing from the
+// tenant's catalog by name (both test + live), and backfills base_price
+// on existing-but-still-unpriced blocks. Never touches a block the tenant
+// has already priced or customized.
+router.post('/tenant/sync-equipment', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+
+    const { resourceTemplateId } = req.body || {};
+    if (!resourceTemplateId) return res.status(400).json({ error: 'resourceTemplateId is required' });
+
+    const { ktCatBlockMapperService } = await import('../services/ktCatBlockMapperService');
+    const result = await ktCatBlockMapperService.syncBlocksForTemplate(tenantId, resourceTemplateId, authHeader);
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[SeedRoutes] sync-equipment error:', error.message);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET /tenant/seed-overview — what onboarding seeded + picks + recent logs
 router.get('/tenant/seed-overview', async (req: Request, res: Response) => {
   try {

@@ -17,6 +17,12 @@ const BLOCK_TYPE_SPARE   = '1221e2dd-a603-47fb-9063-c393193514b7';
 const PRICING_MODE_VARIANT_BASED = '1843511a-cc69-40bb-8d06-77cfc023a7f4';
 const PRICING_MODE_INDEPENDENT   = '718f839d-9d41-4212-b2b0-553a2198fb86';
 
+// Supabase numeric columns come back as strings over the JS client.
+const num = (v: unknown): number => {
+  const n = typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : 0;
+  return Number.isFinite(n) ? n : 0;
+};
+
 export interface CatBlockPayload {
   name:                 string;
   display_name:         string;
@@ -192,6 +198,33 @@ export class KtCatBlockMapperService {
     });
   }
 
+  // Same grouping key (catalog_name || service_name) as buildServiceBlocks
+  // below, but returns just the group → checkpoint-id-set shape needed to
+  // compose a SmartForm per service -- no pricing/tenant/config payload.
+  // Used by ktServiceFormGeneratorService right after the KT "Generate
+  // Service Names" step, before any tenant's m_cat_blocks rows exist.
+  async getServiceCheckpointGroups(resourceTemplateId: string, authToken?: string): Promise<{
+    serviceName: string;
+    checkpointIds: string[];
+  }[]> {
+    const sb = this.clientFor(authToken);
+    const rows = await this.fetchServiceCycleRows(sb, resourceTemplateId);
+
+    const groups = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const key = row.catalog_name || row.service_name;
+      if (!key) continue;
+      const existing = groups.get(key) || new Set<string>();
+      existing.add(row.checkpoint_id);
+      groups.set(key, existing);
+    }
+
+    return [...groups.entries()].map(([serviceName, checkpointIds]) => ({
+      serviceName,
+      checkpointIds: [...checkpointIds],
+    }));
+  }
+
   async buildBlocksForTemplate(resourceTemplateId: string, authToken?: string): Promise<{
     blocks:   CatBlockPayload[];
     skipped:  { serviceGroups: number; spareParts: number };
@@ -235,6 +268,155 @@ export class KtCatBlockMapperService {
       blocks:  [...serviceBlocks, ...spareBlocks],
       skipped: { serviceGroups: skippedServiceGroups, spareParts: skippedSpareParts },
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sync already-seeded catalog with current KT data (missing items + pricing)
+  // ---------------------------------------------------------------------------
+  // Seeding is a one-time snapshot copy, not a live reference. Two things can
+  // go stale for a tenant that seeded an equipment once and never came back:
+  //   1. Items the KT has now that didn't exist (or weren't priced) at seed
+  //      time never make it into the tenant's catalog.
+  //   2. "Re-seed with VaNi" LOOKS like it should fix this ("re-running is
+  //      safe"), but the bulk-seed idempotency check is whole-template, not
+  //      per-item (tenant+template+env already has ANY row -> skip entirely)
+  //      -- so it silently no-ops regardless of what's actually missing.
+  // This does the item-level reconciliation that "Re-seed" always implied but
+  // never did: for both environments (test + live), add any KT block missing
+  // by name, and backfill base_price on existing-but-still-unpriced blocks.
+  // Never touches a block the tenant has already priced or customized.
+  async syncBlocksForTemplate(
+    tenantId: string,
+    resourceTemplateId: string,
+    authToken?: string,
+  ): Promise<{ added: number; repriced: number }> {
+    const sb = this.clientFor(authToken);
+
+    const { blocks: freshBlocks } = await this.buildBlocksForTemplate(resourceTemplateId, authToken);
+    if (freshBlocks.length === 0) return { added: 0, repriced: 0 };
+    const freshByName = new Map(freshBlocks.map((b) => [b.name, b]));
+
+    const { rate: taxRate, inclusion: taxInclusion } = await this.fetchTaxDefaults(sb, tenantId);
+    const stampTax = (config: Record<string, any> | undefined) => {
+      if (!config) return config;
+      const stamp = (rec: any) => ({ ...rec, tax_inclusion: taxInclusion });
+      return {
+        ...config,
+        pricingRecords: Array.isArray(config.pricingRecords) ? config.pricingRecords.map(stamp) : config.pricingRecords,
+      };
+    };
+
+    let added = 0;
+    let repriced = 0;
+
+    for (const isLive of [false, true]) {
+      const { data: existing, error } = await sb
+        .from('m_cat_blocks')
+        .select('id, name, base_price, config')
+        .eq('tenant_id', tenantId)
+        .eq('resource_template_id', resourceTemplateId)
+        .eq('is_seed', true)
+        .eq('is_live', isLive);
+
+      if (error) {
+        console.error(`KtCatBlockMapper: syncBlocksForTemplate fetch error (is_live=${isLive})`, error.message);
+        continue;
+      }
+
+      const existingByName = new Map((existing || []).map((r: any) => [r.name, r]));
+
+      // Reprice existing-but-unpriced
+      for (const row of existing || []) {
+        if (num((row as any).base_price) > 0) continue; // tenant may have already priced/edited it
+        const fresh = freshByName.get((row as any).name);
+        const freshPrice = fresh ? num(fresh.base_price) : 0;
+        if (!fresh || freshPrice <= 0) continue;
+
+        const { error: updateError } = await sb
+          .from('m_cat_blocks')
+          .update({
+            base_price: fresh.base_price,
+            currency:   fresh.currency,
+            config:     { ...((row as any).config || {}), ...fresh.config },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', (row as any).id);
+
+        if (updateError) {
+          console.error(`KtCatBlockMapper: reprice failed for block ${(row as any).id}:`, updateError.message);
+          continue;
+        }
+        repriced++;
+      }
+
+      // Add whatever the KT has now that this tenant's catalog doesn't
+      const missing = freshBlocks.filter((b) => !existingByName.has(b.name));
+      if (missing.length === 0) continue;
+
+      const insertRows = missing.map((b) => ({
+        name:                 b.name,
+        display_name:         b.display_name,
+        description:          b.description ?? null,
+        block_type_id:        b.block_type_id,
+        pricing_mode_id:      b.pricing_mode_id,
+        base_price:           b.base_price,
+        currency:             b.currency,
+        config:               stampTax(b.config) || {},
+        knowledge_tree_ref:   b.knowledge_tree_ref || null,
+        resource_template_id: resourceTemplateId,
+        kt_checkpoint_ids:    (b as any).kt_checkpoint_ids || null,
+        tenant_id:            tenantId,
+        is_seed:              true,
+        is_active:            true,
+        visible:              true,
+        is_admin:             false,
+        is_deletable:         true,
+        is_live:              isLive,
+        tax_rate:             taxRate,
+      }));
+
+      const { data: inserted, error: insertError } = await sb
+        .from('m_cat_blocks')
+        .insert(insertRows)
+        .select('id');
+
+      if (insertError) {
+        console.error(`KtCatBlockMapper: sync insert failed (is_live=${isLive}):`, insertError.message);
+        continue;
+      }
+      added += inserted?.length || 0;
+    }
+
+    return { added, repriced };
+  }
+
+  // Tenant's configured tax default — same lookup the cat-blocks/bulk edge
+  // function uses at original seed time, so newly-synced blocks match.
+  private async fetchTaxDefaults(sb: SupabaseClient, tenantId: string): Promise<{ rate: number; inclusion: 'inclusive' | 'exclusive' }> {
+    let rate = 18.0;
+    let inclusion: 'inclusive' | 'exclusive' = 'exclusive';
+    try {
+      const { data: taxSettings } = await sb
+        .from('t_tax_settings')
+        .select('display_mode, default_tax_rate_id')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (taxSettings?.display_mode === 'including_tax') inclusion = 'inclusive';
+
+      let rateRow: any = null;
+      if (taxSettings?.default_tax_rate_id) {
+        const { data } = await sb.from('t_tax_rates').select('rate').eq('id', taxSettings.default_tax_rate_id).maybeSingle();
+        rateRow = data;
+      }
+      if (!rateRow) {
+        const { data } = await sb.from('t_tax_rates').select('rate').eq('tenant_id', tenantId).eq('is_default', true).eq('is_active', true).maybeSingle();
+        rateRow = data;
+      }
+      if (rateRow?.rate != null) rate = Number(rateRow.rate);
+    } catch (err) {
+      console.warn('KtCatBlockMapper: tax settings lookup failed, using defaults:', err);
+    }
+    return { rate, inclusion };
   }
 
   // ---------------------------------------------------------------------------

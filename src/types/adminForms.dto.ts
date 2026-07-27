@@ -21,6 +21,7 @@ export interface ListTemplatesRequest {
   category?: string;      // calibration | inspection | audit | maintenance | etc.
   form_type?: string;     // pre_service | post_service | during_service | standalone
   search?: string;        // Search name + description (max 200 chars)
+  resource_template_id?: string; // Filter to forms tagged for a specific equipment/facility
 }
 
 /**
@@ -34,6 +35,8 @@ export interface CreateTemplateRequest {
   form_type: string;
   tags?: string[];
   schema: Record<string, unknown>;
+  source?: string;
+  resource_template_id?: string;
 }
 
 /**
@@ -120,6 +123,21 @@ export interface ValidateSchemaResponse {
 export interface DeleteTemplateResponse {
   success: boolean;
   deleted: string;
+}
+
+/**
+ * GET /api/admin/forms/equipment-tags
+ * One row per distinct equipment/facility actually tagged on a form
+ */
+export interface EquipmentTag {
+  resource_template_id: string;
+  name: string;
+  resource_type_id: string;
+  form_count: number;
+}
+
+export interface EquipmentTagsResponse {
+  data: EquipmentTag[];
 }
 
 // ============================================================================

@@ -309,6 +309,7 @@ export interface BlockQueryParams {
   search?: string;
   page?: number;
   limit?: number;
+  resource_template_id?: string;
 }
 
 export interface TemplateQueryParams {

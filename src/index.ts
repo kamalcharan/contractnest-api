@@ -32,7 +32,6 @@ import productsRoutes from './routes/productsRoutes';
 
 import resourcesRoutes from './routes/resourcesRoutes';
 import onboardingRoutes from './routes/onboardingRoutes';
-import serviceCatalogRoutes from './routes/serviceCatalogRoutes';
 import fkauthProxyRoutes from './routes/fkauthProxy';
 import fkonboardingProxyRoutes from './routes/fkonboardingProxy';
 import productConfigRoutes from './routes/productConfigRoutes';
@@ -730,17 +729,6 @@ try {
   console.error('❌ Failed to register product master data routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'product_masterdata' }
-  });
-}
-
-// Register Service Catalog routes
-try {
-  app.use('/api/service-catalog', serviceCatalogRoutes);
-  console.log('✅ Service catalog routes registered at /api/service-catalog');
-} catch (error) {
-  console.error('❌ Failed to register service catalog routes:', error);
-  captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'service_catalog' }
   });
 }
 

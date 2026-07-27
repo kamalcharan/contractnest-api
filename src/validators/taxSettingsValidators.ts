@@ -37,8 +37,8 @@ export const validateTaxSettingsRequest: ValidationChain[] = [
   body('display_mode')
     .notEmpty()
     .withMessage('Display mode is required')
-    .isIn([TAX_CONSTANTS.DISPLAY_MODES.INCLUDING_TAX, TAX_CONSTANTS.DISPLAY_MODES.EXCLUDING_TAX])
-    .withMessage(`Display mode must be either "${TAX_CONSTANTS.DISPLAY_MODES.INCLUDING_TAX}" or "${TAX_CONSTANTS.DISPLAY_MODES.EXCLUDING_TAX}"`),
+    .isIn([TAX_CONSTANTS.DISPLAY_MODES.INCLUDING_TAX, TAX_CONSTANTS.DISPLAY_MODES.EXCLUDING_TAX, TAX_CONSTANTS.DISPLAY_MODES.NO_TAX])
+    .withMessage(`Display mode must be one of "${TAX_CONSTANTS.DISPLAY_MODES.INCLUDING_TAX}", "${TAX_CONSTANTS.DISPLAY_MODES.EXCLUDING_TAX}", or "${TAX_CONSTANTS.DISPLAY_MODES.NO_TAX}"`),
     
   body('default_tax_rate_id')
     .optional({ nullable: true })
@@ -373,7 +373,7 @@ export const getValidation = [
  */
 export const VALIDATION_RULES = {
   taxSettings: {
-    display_mode: 'Required. Must be "including_tax" or "excluding_tax"',
+    display_mode: 'Required. Must be "including_tax", "excluding_tax", or "no_tax"',
     default_tax_rate_id: 'Optional. Must be a valid UUID if provided'
   },
   taxRate: {

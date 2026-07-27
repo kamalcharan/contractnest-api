@@ -362,6 +362,23 @@ class ContractService {
     return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
   }
 
+  async cancelReceipt(
+    contractId: string,
+    data: { receipt_id: string; reason?: string },
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    environment: string = 'live'
+  ): Promise<EdgeFunctionResponse> {
+    const requestPayload = {
+      ...data,
+      performed_by: userId
+    };
+
+    const url = `${this.edgeFunctionUrl}/${contractId}/invoices/receipts/cancel`;
+    return await this.makeRequest('POST', url, requestPayload, userJWT, tenantId, environment);
+  }
+
   // =================================================================
   // CONTRACT CREDIT / DEPOSIT METHODS
   // =================================================================

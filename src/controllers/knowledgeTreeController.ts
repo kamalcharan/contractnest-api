@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { knowledgeTreeGeneratorService } from '../services/knowledgeTreeGeneratorService';
 import { complianceTaggerService } from '../services/complianceTaggerService';
 import { overlaysGeneratorService } from '../services/overlaysGeneratorService';
+import { ktServiceFormGeneratorService } from '../services/ktServiceFormGeneratorService';
 
 interface AuthRequest extends Request {
   user?: { id: string; email?: string };
@@ -257,6 +258,51 @@ class KnowledgeTreeController {
     } catch (error: any) {
       console.error('❌ Generate service names error:', error.message);
       res.status(500).json({ success: false, error: { code: 'GENERATE_SERVICE_NAMES_FAILED', message: error.message } });
+    }
+  };
+
+  // POST /api/knowledge-tree/generate-forms — auto-compose + register one
+  // SmartForm per service group (catalog_name || service_name), skipping
+  // groups already registered in m_kt_service_form_map. Called by the KT
+  // page right after "Generate Service Names" persists — no LLM call here,
+  // purely deterministic composition from already-generated master data.
+  // Body: { resourceTemplateId }
+  generateForms = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
+    const { resourceTemplateId } = req.body;
+    if (!resourceTemplateId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'resourceTemplateId required' } }); return;
+    }
+    try {
+      const { results } = await ktServiceFormGeneratorService.generateFormsForTemplate(resourceTemplateId, context.accessToken);
+      const created = results.filter(r => r.status === 'created').length;
+      console.log(`✅ KT service forms — ${created} created, ${results.length - created} skipped for template ${resourceTemplateId}`);
+      res.status(200).json({ success: true, data: { resource_template_id: resourceTemplateId, results } });
+    } catch (error: any) {
+      console.error('❌ Generate KT service forms error:', error.message);
+      res.status(500).json({ success: false, error: { code: 'GENERATE_FORMS_FAILED', message: error.message } });
+    }
+  };
+
+  // GET /api/knowledge-tree/service-forms — read-only status per service
+  // group (platform-level, via m_kt_service_form_map). Powers the admin KT
+  // tree page's "Per-Service Forms" panel without the one-row-per-tenant
+  // duplication that querying m_cat_blocks directly produced.
+  // Query: ?resourceTemplateId=
+  getServiceFormStatus = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) { res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Missing authorization or x-tenant-id header' } }); return; }
+    const resourceTemplateId = req.query.resourceTemplateId as string;
+    if (!resourceTemplateId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'resourceTemplateId required' } }); return;
+    }
+    try {
+      const results = await ktServiceFormGeneratorService.getFormStatusForTemplate(resourceTemplateId);
+      res.status(200).json({ success: true, data: { resource_template_id: resourceTemplateId, results } });
+    } catch (error: any) {
+      console.error('❌ Get service form status error:', error.message);
+      res.status(500).json({ success: false, error: { code: 'GET_SERVICE_FORM_STATUS_FAILED', message: error.message } });
     }
   };
 

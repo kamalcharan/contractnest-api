@@ -46,7 +46,11 @@ export const listTemplatesValidation: ValidationChain[] = [
     .optional()
     .isString().withMessage('search must be a string')
     .isLength({ max: 200 }).withMessage('search cannot exceed 200 characters')
-    .trim()
+    .trim(),
+
+  query('resource_template_id')
+    .optional()
+    .isUUID().withMessage('resource_template_id must be a valid UUID')
 ];
 
 // ============================================================================

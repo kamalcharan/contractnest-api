@@ -71,6 +71,7 @@ router.get(
         category: (req.query.category as string) || undefined,
         form_type: (req.query.form_type as string) || undefined,
         search: (req.query.search as string) || undefined,
+        resource_template_id: (req.query.resource_template_id as string) || undefined,
       };
 
       const result = await adminFormsService.listTemplates(authHeader, tenantId, filters);
@@ -78,6 +79,36 @@ router.get(
       res.json(result);
     } catch (error: any) {
       console.error(`[AdminFormsRoutes] GET / error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+// ============================================================================
+// GET /api/admin/forms/equipment-tags — Distinct equipment/facility facets
+// ============================================================================
+// Registered before /:id so Express matches this literal path first.
+
+/**
+ * @route   GET /api/admin/forms/equipment-tags
+ * @desc    List distinct equipment/facility tags present on any form
+ *          template, for the Admin list's equipment filter dropdown
+ * @access  Admin only
+ * @returns {EquipmentTagsResponse}
+ */
+router.get(
+  '/equipment-tags',
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+      const result = await adminFormsService.getEquipmentTags(authHeader, tenantId);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminFormsRoutes] GET /equipment-tags error [${requestId}]:`, error.message);
       return handleEdgeError(res, error, requestId);
     }
   }
@@ -148,6 +179,8 @@ router.post(
         form_type: req.body.form_type,
         tags: req.body.tags,
         schema: req.body.schema,
+        source: req.body.source,
+        resource_template_id: req.body.resource_template_id,
       };
 
       const result = await adminFormsService.createTemplate(authHeader, tenantId, body);

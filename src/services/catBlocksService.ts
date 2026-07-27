@@ -282,6 +282,9 @@ export class CatBlocksService {
     if (params.limit) {
       searchParams.append('limit', String(params.limit));
     }
+    if (params.resource_template_id) {
+      searchParams.append('resource_template_id', params.resource_template_id);
+    }
 
     return searchParams.toString();
   }

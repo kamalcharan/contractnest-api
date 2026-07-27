@@ -10,6 +10,19 @@ import sessionCheckinController from '../controllers/sessionCheckinController';
 
 const router = express.Router();
 
+// Every response on this router must be fresh — the same QR/link is scanned
+// repeatedly by many different members on many different phones, and a
+// cached resolve/history response would show one member someone else's
+// attendance/dues state. Mobile browsers and carrier proxies (aggressive
+// caching is common on Indian telecom networks) will cache a GET response
+// with no explicit directive, so this can't rely on defaults.
+router.use((_req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 // GET  /api/checkin/:token                          → resolve today's occurrence
 router.get('/:token', sessionCheckinController.resolve);
 // GET  /api/checkin/:token/form                     → check-in Smart Form schema
