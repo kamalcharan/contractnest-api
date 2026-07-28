@@ -35,6 +35,10 @@ router.post('/:token/lookup', sessionCheckinController.lookup);
 router.post('/:token/device-lookup', sessionCheckinController.deviceLookup);
 // POST /api/checkin/:token/guest      → save a guest contact + mark present
 router.post('/:token/guest', sessionCheckinController.guest);
+// GET  /api/checkin/:token/guest-services           → tenant-flagged guest-payable catalog services
+router.get('/:token/guest-services', sessionCheckinController.guestServices);
+// GET  /api/checkin/:token/members?q=              → search roster members by name (guest "Referred by")
+router.get('/:token/members', sessionCheckinController.searchMembers);
 // POST /api/checkin/:token/substitute → save substitute as member's alt contact + mark member present
 router.post('/:token/substitute', sessionCheckinController.substitute);
 // GET  /api/checkin/:token/member/:memberId/history → attendance + BAU billing

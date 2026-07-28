@@ -64,6 +64,8 @@ class SessionCheckinService {
     status?: string; responses?: Record<string, unknown> | null;
     form_template_id?: string | null; form_template_version?: number | null;
     device_token?: string | null;
+    referred_by?: string | null;
+    payment?: { cat_block_id: string; amount?: number; currency?: string; upi_reference?: string } | null;
   }) {
     return this.call('gs_checkin_guest', {
       p_token: token,
@@ -76,7 +78,15 @@ class SessionCheckinService {
       p_form_template_id: payload.form_template_id ?? null,
       p_form_template_version: payload.form_template_version ?? null,
       p_device_token: payload.device_token ?? null,
+      p_referred_by: payload.referred_by ?? null,
+      p_payment: payload.payment ?? null,
     });
+  }
+  guestServices(token: string) {
+    return this.call('gs_checkin_guest_services', { p_token: token });
+  }
+  searchMembers(token: string, query: string) {
+    return this.call('gs_checkin_search_members', { p_token: token, p_query: query });
   }
   substituteCheckin(token: string, payload: {
     member_id: string; sub_name: string; sub_phone?: string | null;

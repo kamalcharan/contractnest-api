@@ -72,12 +72,31 @@ class SessionCheckinController {
       form_template_id: b.form_template_id ?? null,
       form_template_version: b.form_template_version ?? null,
       device_token: b.device_token ?? null,
+      referred_by: b.referred_by ?? null,
+      payment: b.payment ?? null,
     });
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Guest check-in failed', 500); return; }
     if (result.data && result.data.ok === false) {
       sendError(res, ERROR_CODES.VALIDATION_ERROR, result.data.reason || 'Check-in not possible', 422);
       return;
     }
+    sendSuccess(res, result.data);
+  };
+
+  guestServices = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    const result = await sessionCheckinService.guestServices(token);
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load services', 500); return; }
+    sendSuccess(res, result.data);
+  };
+
+  searchMembers = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    const q = (req.query.q as string) || '';
+    if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
+    const result = await sessionCheckinService.searchMembers(token, q);
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Search failed', 500); return; }
     sendSuccess(res, result.data);
   };
 
