@@ -439,6 +439,23 @@ try {
   }
 }
 
+// Load RFQ public (vendor quote) routes with error handling — mirrors the
+// Session Check-in public-route pattern directly above: NO authenticate,
+// gated by the (cnak, secret) pair in the URL instead of a tenant session.
+let rfqPublicRoutes;
+try {
+  rfqPublicRoutes = require('./routes/rfqPublicRoutes').default;
+  console.log('✅ RFQ public (vendor quote) routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load RFQ public routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without RFQ public routes...');
+    rfqPublicRoutes = null;
+  }
+}
+
 // Load VaNi Composer routes with error handling
 let vaniComposerRoutes;
 try {
@@ -942,6 +959,23 @@ try {
   console.error('❌ Failed to register Session Check-in routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'session_checkin' }
+  });
+}
+
+// Register RFQ public (vendor quote) routes with error handling — must NOT
+// sit behind any global authenticate; a vendor answering a quote has no
+// tenant account, only the (cnak, secret) pair in the URL.
+try {
+  if (rfqPublicRoutes) {
+    app.use('/api/quote', rfqPublicRoutes);
+    console.log('✅ RFQ public (vendor quote) routes registered at /api/quote');
+  } else {
+    console.log('⚠️  RFQ public (vendor quote) routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register RFQ public routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'rfq_public' }
   });
 }
 
