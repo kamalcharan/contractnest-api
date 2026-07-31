@@ -306,6 +306,68 @@ export interface DlqListResponse {
 }
 
 // ============================================================================
+// TEMPLATE MAPPING (n_jtd_templates) — mandatory-tenant model
+// ============================================================================
+
+export interface JtdTemplateRecord {
+  id: string;
+  tenant_id: string;
+  template_key: string;
+  name: string;
+  description: string | null;
+  channel_code: string;
+  source_type_code: string;
+  content: string;
+  provider_template_id: string | null;
+  is_live: boolean;
+  is_active: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListTemplatesRequest {
+  tenant_id?: string;
+  source_type_code?: string;
+  channel_code?: string;
+}
+
+export interface TemplatesListResponse {
+  success: true;
+  data: JtdTemplateRecord[];
+}
+
+export interface TemplateOptionsResponse {
+  success: true;
+  data: {
+    sourceTypes: Array<{ code: string; name: string }>;
+    channels: Array<{ code: string; name: string }>;
+  };
+}
+
+export interface CreateTemplateRequest {
+  tenant_id: string;
+  source_type_code: string;
+  channel_code: string;
+  provider_template_id: string;
+  content: string;
+  name?: string;
+  description?: string;
+  is_live?: boolean;
+  is_active?: boolean;
+}
+
+export interface UpdateTemplateRequest {
+  provider_template_id?: string;
+  is_active?: boolean;
+}
+
+export interface TemplateResponse {
+  success: true;
+  data: JtdTemplateRecord;
+}
+
+// ============================================================================
 // SHARED
 // ============================================================================
 

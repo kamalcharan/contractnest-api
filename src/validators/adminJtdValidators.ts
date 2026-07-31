@@ -204,3 +204,65 @@ export const requeueDlqValidation: ValidationChain[] = [
   body('msg_id')
     .isInt({ min: 1 }).withMessage('msg_id must be a positive integer')
 ];
+
+// ============================================================================
+// GET /api/admin/jtd/templates
+// ============================================================================
+export const listTemplatesValidation: ValidationChain[] = [
+  query('tenant_id')
+    .optional()
+    .isUUID().withMessage('tenant_id must be a valid UUID'),
+  query('source_type_code')
+    .optional()
+    .isString().withMessage('source_type_code must be a string'),
+  query('channel_code')
+    .optional()
+    .isIn(CHANNELS).withMessage(`channel_code must be one of: ${CHANNELS.join(', ')}`)
+];
+
+// ============================================================================
+// POST /api/admin/jtd/templates
+// ============================================================================
+export const createTemplateValidation: ValidationChain[] = [
+  body('tenant_id')
+    .isUUID().withMessage('tenant_id is required and must be a valid UUID — every template mapping must belong to exactly one tenant'),
+  body('source_type_code')
+    .isString().withMessage('source_type_code is required')
+    .notEmpty(),
+  body('channel_code')
+    .isIn(CHANNELS).withMessage(`channel_code must be one of: ${CHANNELS.join(', ')}`),
+  body('provider_template_id')
+    .isString().withMessage('provider_template_id (the approved MSG91 template name) is required')
+    .notEmpty()
+    .isLength({ max: 100 }).withMessage('provider_template_id cannot exceed 100 characters')
+    .trim(),
+  body('content')
+    .isString().withMessage('content is required')
+    .notEmpty(),
+  body('name')
+    .optional()
+    .isString().isLength({ max: 200 }).trim(),
+  body('description')
+    .optional()
+    .isString().trim(),
+  body('is_live')
+    .optional()
+    .isBoolean().withMessage('is_live must be a boolean'),
+  body('is_active')
+    .optional()
+    .isBoolean().withMessage('is_active must be a boolean')
+];
+
+// ============================================================================
+// PATCH /api/admin/jtd/templates/:id
+// ============================================================================
+export const updateTemplateValidation: ValidationChain[] = [
+  param('id')
+    .isUUID().withMessage('id must be a valid UUID'),
+  body('provider_template_id')
+    .optional()
+    .isString().notEmpty().isLength({ max: 100 }).trim(),
+  body('is_active')
+    .optional()
+    .isBoolean().withMessage('is_active must be a boolean')
+];

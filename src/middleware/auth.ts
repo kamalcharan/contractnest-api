@@ -253,6 +253,21 @@ export const requireRole = (roles: string[]) => {
   };
 };
 
+// Middleware to require a genuine platform-admin user. Must run after
+// `authenticate` (needs req.user populated). Checks the same t_user_profiles
+// .is_admin signal already trusted by auditMiddleware.ts, rather than a
+// client-suppliable header — used to gate cross-tenant admin surfaces like
+// /api/admin/jtd/*.
+export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!req.user.is_admin) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
 // Optional: Middleware for optional authentication (some endpoints may work with or without auth)
 export const optionalAuthenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
