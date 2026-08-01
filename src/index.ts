@@ -25,6 +25,7 @@ import { initializeFirebase, checkFirebaseStatus } from './utils/firebaseConfig'
 // Import routes
 import masterDataRoutes from './routes/masterDataRoutes';
 import integrationRoutes from './routes/integrationRoutes';
+import jtdTenantSettingsRoutes from './routes/jtdTenantSettingsRoutes';
 import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
 import jtdRoutes from './routes/jtd';
@@ -669,6 +670,13 @@ try {
   console.log('✅ Integration routes registered at /api');
 } catch (error) {
   console.error('❌ Failed to register integration routes:', error);
+}
+
+try {
+  app.use('/api', jtdTenantSettingsRoutes);
+  console.log('✅ JTD tenant settings routes registered at /api');
+} catch (error) {
+  console.error('❌ Failed to register JTD tenant settings routes:', error);
 }
 
 try {
