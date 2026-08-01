@@ -23,17 +23,26 @@ import type {
   ListDlqRequest,
   ActionResponse,
   DlqListResponse,
+  ListTemplatesRequest,
+  TemplatesListResponse,
+  TemplateOptionsResponse,
+  CreateTemplateRequest,
+  UpdateTemplateRequest,
+  TemplateResponse,
 } from '../types/adminJtd.dto';
 
 const BASE_URL = `${SUPABASE_URL}/functions/v1/admin-jtd-management`;
 
 export class AdminJtdService {
 
+  // admin-jtd-management now verifies the caller's admin status itself from
+  // the JWT (t_user_profiles.is_admin) rather than trusting a client-set
+  // header, so x-is-admin is no longer sent — adminJtdRoutes.ts's own
+  // requireAdmin middleware is what actually gates access to this service.
   private getHeaders(authHeader: string, tenantId: string) {
     return {
       Authorization: authHeader,
       'x-tenant-id': tenantId,
-      'x-is-admin': 'true',
       'Content-Type': 'application/json',
     };
   }
@@ -319,6 +328,103 @@ export class AdminJtdService {
       return response.data;
     } catch (error: any) {
       console.error('[adminJtdService] purgeDlq error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * GET /templates
+   * List n_jtd_templates rows — the tenant-scoped MSG91 mapping table
+   */
+  async listTemplates(
+    authHeader: string,
+    tenantId: string,
+    filters: ListTemplatesRequest
+  ): Promise<TemplatesListResponse> {
+    try {
+      const url = `${BASE_URL}/templates${this.buildParams(filters as Record<string, string | number | undefined>)}`;
+      console.log(`[adminJtdService] Fetching templates from: ${url}`);
+
+      const response = await axios.get<TemplatesListResponse>(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] listTemplates error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * GET /template-options
+   * Active source types + channels for the tenant-mapping picker
+   */
+  async getTemplateOptions(authHeader: string, tenantId: string): Promise<TemplateOptionsResponse> {
+    try {
+      const url = `${BASE_URL}/template-options`;
+      console.log(`[adminJtdService] Fetching template options from: ${url}`);
+
+      const response = await axios.get<TemplateOptionsResponse>(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] getTemplateOptions error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * POST /templates
+   * Create a tenant-scoped template mapping — tenant_id is always required,
+   * there is no path to an open/system row through this service.
+   */
+  async createTemplate(
+    authHeader: string,
+    tenantId: string,
+    adminName: string,
+    body: CreateTemplateRequest
+  ): Promise<TemplateResponse> {
+    try {
+      const url = `${BASE_URL}/templates`;
+      console.log(`[adminJtdService] Creating template for tenant: ${body.tenant_id}, source: ${body.source_type_code}`);
+
+      const response = await axios.post<TemplateResponse>(url, body, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] createTemplate error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * PATCH /templates?id=xxx
+   * Remap to a different MSG91 template, or toggle active — content is
+   * intentionally not editable through this method.
+   */
+  async updateTemplate(
+    authHeader: string,
+    tenantId: string,
+    adminName: string,
+    templateId: string,
+    body: UpdateTemplateRequest
+  ): Promise<TemplateResponse> {
+    try {
+      const url = `${BASE_URL}/templates?id=${encodeURIComponent(templateId)}`;
+      console.log(`[adminJtdService] Updating template: ${templateId}`);
+
+      const response = await axios.patch<TemplateResponse>(url, body, {
+        headers: this.getHeadersWithAdmin(authHeader, tenantId, adminName),
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[adminJtdService] updateTemplate error:', error.message);
       throw error;
     }
   }

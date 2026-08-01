@@ -10,6 +10,7 @@
 import { Router, Request, Response } from 'express';
 import { adminJtdService } from '../services/adminJtdService';
 import { validateRequest } from '../middleware/validateRequest';
+import { authenticate, requireAdmin } from '../middleware/auth';
 import {
   listTenantStatsValidation,
   listEventsValidation,
@@ -19,6 +20,9 @@ import {
   forceCompleteValidation,
   listDlqValidation,
   requeueDlqValidation,
+  listTemplatesValidation,
+  createTemplateValidation,
+  updateTemplateValidation,
 } from '../validators/adminJtdValidators';
 import {
   handleEdgeError,
@@ -33,9 +37,19 @@ import type {
   ForceCompleteRequest,
   RequeueDlqRequest,
   ListDlqRequest,
+  ListTemplatesRequest,
+  CreateTemplateRequest,
+  UpdateTemplateRequest,
 } from '../types/adminJtd.dto';
 
 const router = Router();
+
+// Every route on this router is a cross-tenant admin surface — previously
+// gated only by a client-suppliable x-is-admin header the service layer set
+// unconditionally. Real auth: verify the caller, then require a genuine
+// admin profile before any handler runs.
+router.use(authenticate);
+router.use(requireAdmin);
 
 // ============================================================================
 // GET /api/admin/jtd/queue/metrics
@@ -413,5 +427,143 @@ router.post('/actions/purge-dlq', async (req: Request, res: Response) => {
     return handleEdgeError(res, error, requestId);
   }
 });
+
+// ============================================================================
+// TENANT TEMPLATE MAPPING (n_jtd_templates)
+// ============================================================================
+// Maps a (tenant, source_type, channel) to an approved MSG91 template.
+// Deliberately no route to create a tenant_id=NULL "open" system template —
+// every mapping created through this admin surface belongs to exactly one
+// tenant (see 008_seed_group_session_source_types.sql for why).
+
+/**
+ * @route   GET /api/admin/jtd/templates
+ * @desc    List template mappings, optionally filtered by tenant/source/channel
+ * @access  Admin only
+ * @query   {string} tenant_id
+ * @query   {string} source_type_code
+ * @query   {string} channel_code
+ */
+router.get(
+  '/templates',
+  listTemplatesValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+      const filters: ListTemplatesRequest = {
+        tenant_id: (req.query.tenant_id as string) || undefined,
+        source_type_code: (req.query.source_type_code as string) || undefined,
+        channel_code: (req.query.channel_code as string) || undefined,
+      };
+
+      const result = await adminJtdService.listTemplates(authHeader, tenantId, filters);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] GET /templates error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   GET /api/admin/jtd/templates/options
+ * @desc    Active source types + channels for the tenant-mapping picker
+ * @access  Admin only
+ */
+router.get('/templates/options', async (req: Request, res: Response) => {
+  const requestId = generateRequestId();
+  try {
+    const authHeader = req.headers.authorization || '';
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+    const result = await adminJtdService.getTemplateOptions(authHeader, tenantId);
+
+    res.json(result);
+  } catch (error: any) {
+    console.error(`[AdminJtdRoutes] GET /templates/options error [${requestId}]:`, error.message);
+    return handleEdgeError(res, error, requestId);
+  }
+});
+
+/**
+ * @route   POST /api/admin/jtd/templates
+ * @desc    Create a tenant-scoped template mapping (maps to an MSG91 template)
+ * @access  Admin only
+ * @body    {string} tenant_id - required, UUID
+ * @body    {string} source_type_code - required
+ * @body    {string} channel_code - required
+ * @body    {string} provider_template_id - required, the approved MSG91 template name
+ * @body    {string} content - required, documents what the MSG91 template says
+ */
+router.post(
+  '/templates',
+  createTemplateValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+      const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+      const body: CreateTemplateRequest = {
+        tenant_id: req.body.tenant_id,
+        source_type_code: req.body.source_type_code,
+        channel_code: req.body.channel_code,
+        provider_template_id: req.body.provider_template_id,
+        content: req.body.content,
+        name: req.body.name,
+        description: req.body.description,
+        is_live: req.body.is_live,
+        is_active: req.body.is_active,
+      };
+
+      const result = await adminJtdService.createTemplate(authHeader, tenantId, adminName, body);
+
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] POST /templates error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
+
+/**
+ * @route   PATCH /api/admin/jtd/templates/:id
+ * @desc    Remap to a different MSG91 template, or toggle active
+ * @access  Admin only
+ * @body    {string} [provider_template_id]
+ * @body    {boolean} [is_active]
+ */
+router.patch(
+  '/templates/:id',
+  updateTemplateValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+      const adminName = (req.headers['x-admin-name'] as string) || 'Admin';
+
+      const body: UpdateTemplateRequest = {
+        provider_template_id: req.body.provider_template_id,
+        is_active: req.body.is_active,
+      };
+
+      const result = await adminJtdService.updateTemplate(authHeader, tenantId, adminName, req.params.id, body);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[AdminJtdRoutes] PATCH /templates/:id error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
 
 export default router;
