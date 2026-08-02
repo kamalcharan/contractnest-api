@@ -285,6 +285,43 @@ export async function seedSingleEquipment(input: {
   return { success: status === 'success' || status === 'already_seeded', status, blocksCreated, alreadySeeded, errors };
 }
 
+// Sequences are SIDE-NEUTRAL infrastructure (contract/invoice/contact/job
+// numbering) — a tenant needs them regardless of catalog coverage. This used
+// to run as "Step 4" AFTER the industry-resolution and no-coverage early
+// returns, so exactly the tenants whose catalog seed bailed also silently
+// lost their sequences — and every record created afterwards got a NULL
+// number (get_next_formatted_sequence_v2 raises when no counter row exists;
+// its callers, e.g. auto_generate_contact_number, swallow the error).
+// Verified live 2026-08-01: 84 of 119 tenants had zero counter rows.
+// Hoisted so it runs FIRST, on every path. Still non-fatal here — a
+// sequences hiccup must not block the catalog seed — because the UI now
+// verifies and explicitly retries (VaniWorkingStep → /api/seeds/tenant/
+// sequences) instead of painting an unverified green tick.
+async function seedSequencesBothEnvs(tenantId: string, authToken: string): Promise<boolean> {
+  try {
+    for (const environment of ['live', 'test']) {
+      await axios.post(
+        `${SUPABASE_EDGE()}/functions/v1/sequences/seed`,
+        { seedData: SEQUENCE_SEED_DATA },
+        {
+          headers: {
+            Authorization:  authToken,
+            'x-tenant-id':  tenantId,
+            'x-environment': environment,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        },
+      );
+    }
+    console.log('[seedTenantTemplates] Sequences seeded for live + test');
+    return true;
+  } catch (seqErr: any) {
+    console.warn('[seedTenantTemplates] Sequences seed failed (non-fatal):', seqErr?.message);
+    return false;
+  }
+}
+
 export async function seedTenantTemplates(
   input: SeedTemplatesInput,
 ): Promise<SeedTemplatesResult> {
@@ -313,6 +350,9 @@ export async function seedTenantTemplates(
   console.log('[seedTenantTemplates] Starting', {
     tenantId, equipmentTemplateIds, facilityTemplateIds, serviceTemplateIds, businessType, allIndustryIds,
   });
+
+  // ── Step -2: Sequences (both envs) — BEFORE any early return ────────────────
+  const sequencesSeeded = await seedSequencesBothEnvs(tenantId, authToken);
 
   // ── Step -1: Seed services (no KT — always runs before coverage check) ───────
   if (serviceTemplateIds.length > 0) {
@@ -365,7 +405,7 @@ export async function seedTenantTemplates(
       registryAssetsSeeded: 0,
       facilityNodesSeeded: 0,
       sampleContactsSeeded: 0,
-      sequencesSeeded: false,
+      sequencesSeeded,
       perTemplate: [],
       droppedTemplateIds: [],
       errors: [...errors, err?.message || 'resolution error'],
@@ -386,7 +426,7 @@ export async function seedTenantTemplates(
       registryAssetsSeeded: 0,
       facilityNodesSeeded: 0,
       sampleContactsSeeded: 0,
-      sequencesSeeded: false,
+      sequencesSeeded,
       perTemplate: [],
       droppedTemplateIds: [],
       errors,
@@ -501,7 +541,10 @@ export async function seedTenantTemplates(
   // ── Step 3: Sample contacts (non-fatal) ──────────────────────────────────────
   let sampleContactsSeeded = 0;
   if (industryId) {
-    const contactResult = await seedSampleContacts({ tenantId, industryId });
+    // businessType decides which side the samples sit on: a buyer's samples
+    // are vendor-classified (so the RFQ builder's vendor filter finds them),
+    // a seller's are client-classified, 'both' gets both tags.
+    const contactResult = await seedSampleContacts({ tenantId, industryId, businessType });
     if (!contactResult.success) {
       errors.push(...contactResult.errors.map((e: string) => `Contacts: ${e}`));
     } else {
@@ -509,29 +552,9 @@ export async function seedTenantTemplates(
     }
   }
 
-  // ── Step 4: Sequences (both environments, non-fatal) ─────────────────────────
-  let sequencesSeeded = false;
-  try {
-    for (const environment of ['live', 'test']) {
-      await axios.post(
-        `${SUPABASE_EDGE()}/functions/v1/sequences/seed`,
-        { seedData: SEQUENCE_SEED_DATA },
-        {
-          headers: {
-            Authorization:  authToken,
-            'x-tenant-id':  tenantId,
-            'x-environment': environment,
-            'Content-Type': 'application/json',
-          },
-          timeout: 15000,
-        },
-      );
-    }
-    sequencesSeeded = true;
-    console.log('[seedTenantTemplates] Sequences seeded for live + test');
-  } catch (seqErr: any) {
-    console.warn('[seedTenantTemplates] Sequences seed skipped (non-fatal):', seqErr?.message);
-  }
+  // (Sequences used to be "Step 4" here — hoisted to Step -2 at the top of
+  // this function so the no-coverage and resolution-error early returns can
+  // no longer skip them. See seedSequencesBothEnvs.)
 
   // ── Status: a covered industry that produced nothing (and skipped/errored
   // nothing) is an ERROR, not success (probe break-point 2 kill-switch). ───────
