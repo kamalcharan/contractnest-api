@@ -10,6 +10,7 @@ import { Response } from 'express';
 import { validationResult } from 'express-validator';
 import { AuthRequest } from '../middleware/auth';
 import ContractService from '../services/contractService';
+import { getSupabaseClientFromRequest } from '../utils/supabaseConfig';
 import {
   sendSuccess,
   sendError,
@@ -113,6 +114,61 @@ class ContractController {
     } catch (error) {
       console.error('[ContractController] Error in listContracts:', error);
       internalError(res, 'Failed to list contracts');
+    }
+  };
+
+  /**
+   * GET /api/contracts/my-access/:cnak
+   * The calling tenant's OWN access grant for a CNAK it has claimed
+   * (secret_code included) — lets an authenticated accessor open the public
+   * quote/review surfaces for a record it claimed, from inside the app.
+   * Scoped hard to accessor_tenant_id = caller: never returns another
+   * tenant's grant, and returns 404 for CNAKs the caller hasn't claimed.
+   */
+  getMyContractAccess = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const cnak = (req.params.cnak || '').trim();
+
+      if (!tenantId) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'x-tenant-id header is required', 400);
+        return;
+      }
+      if (!/^CNAK-[A-Za-z0-9]+$/.test(cnak)) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Invalid CNAK format', 400);
+        return;
+      }
+
+      const supabase = getSupabaseClientFromRequest(req as any);
+      if (!supabase) {
+        internalError(res, 'Supabase client unavailable');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('t_contract_access')
+        .select('global_access_id, secret_code, status, contract_id, accessor_role')
+        .eq('global_access_id', cnak)
+        .eq('accessor_tenant_id', tenantId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[ContractController] Error in getMyContractAccess:', error.message);
+        internalError(res, 'Failed to resolve access grant');
+        return;
+      }
+      if (!data) {
+        sendError(res, ERROR_CODES.NOT_FOUND, 'No access grant for this CNAK', 404);
+        return;
+      }
+
+      sendSuccess(res, data);
+    } catch (error) {
+      console.error('[ContractController] Error in getMyContractAccess:', error);
+      internalError(res, 'Failed to resolve access grant');
     }
   };
 

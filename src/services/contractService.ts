@@ -541,10 +541,19 @@ class ContractService {
     cnak: string,
     userJWT: string,
     tenantId: string,
-    userId: string
+    userId: string,
+    secret?: string,
+    mobile?: string
   ): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/claim`;
-    const payload = { cnak, user_id: userId };
+    // CNAK-lite v2: secret (auto-claim from review link) or mobile (manual
+    // verification) rides along — the RPC rejects bare-CNAK claims.
+    const payload = {
+      cnak,
+      user_id: userId,
+      ...(secret ? { secret } : {}),
+      ...(mobile ? { mobile } : {})
+    };
     return await this.makeRequest('POST', url, payload, userJWT, tenantId, 'live');
   }
 

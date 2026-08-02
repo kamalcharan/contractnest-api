@@ -123,7 +123,10 @@ export const register = async (req: Request, res: Response) => {
       });
     }
 
-    const { email, password, firstName, lastName, workspaceName, countryCode, mobileNumber } = req.body;
+    // cnakRef/cnakSecret: CNAK-lite signup (buyer arriving from a contract
+    // review link) — forwarded to the edge so the tenant is flagged
+    // onboarding_type='cnak' and the contract is auto-claimed.
+    const { email, password, firstName, lastName, workspaceName, countryCode, mobileNumber, cnakRef, cnakSecret } = req.body;
 
     // Validate required fields
     if (!email || !password) {
@@ -148,7 +151,8 @@ export const register = async (req: Request, res: Response) => {
         lastName,
         workspaceName,
         countryCode,
-        mobileNumber
+        mobileNumber,
+        ...(cnakRef ? { cnakRef, cnakSecret } : {})
       },
       {
         headers: {

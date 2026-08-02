@@ -142,6 +142,19 @@ router.get(
 );
 
 /**
+ * @route GET /api/contracts/my-access/:cnak
+ * @description The calling tenant's own access grant (incl. secret_code) for
+ *              a CNAK it claimed — powers the hub's "requests received" view
+ *              opening the vendor quote page from inside the app.
+ * NOTE: must be registered before GET /:id or Express would match
+ * "my-access" as the :id param.
+ */
+router.get(
+  '/my-access/:cnak',
+  contractController.getMyContractAccess
+);
+
+/**
  * @route GET /api/contracts/:id
  * @description Get single contract by ID with blocks, vendors, attachments, history
  * @param {string} id - Contract UUID
