@@ -135,6 +135,20 @@ class GroupSessionsDashboardService {
   memberBlock(tenantId: string, blockId: string, memberId: string, isLive: boolean) {
     return this.call('gs_member_block', { p_tenant: tenantId, p_block: blockId, p_member: memberId, p_is_live: isLive });
   }
+
+  /**
+   * Dues matrix: one row per member, one column per month of the April–March
+   * financial year (bbb-foundation/060_gs_dues_matrix).
+   *
+   * fyStart is optional — omitted, the RPC derives the window from the earliest
+   * billing event across the roster, so the grid follows the data rather than
+   * the wall clock. Pass it only to look at a different year.
+   */
+  duesMatrix(tenantId: string, blockId: string, isLive: boolean, fyStart?: string | null) {
+    return this.call('gs_dues_matrix', {
+      p_tenant: tenantId, p_block: blockId, p_is_live: isLive, p_fy_start: fyStart ?? null,
+    });
+  }
 }
 
 export const groupSessionsDashboardService = new GroupSessionsDashboardService();
