@@ -285,6 +285,32 @@ class CatalogStudioController {
     res.json(result);
   };
 
+  /**
+   * GET /api/catalog-studio/templates/plans
+   * The plan catalogue a tenant can subscribe to — published templates owned
+   * by the platform tenant. Takes no query params: a buyer sees the whole
+   * published catalogue for their environment, nothing to filter.
+   */
+  getPlanTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Missing required headers' },
+      });
+      return;
+    }
+
+    const result = await catTemplatesService.listPlanTemplates(context);
+
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
+
+    res.json(result);
+  };
+
   getPublicTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {

@@ -145,6 +145,17 @@ router.get(
   catalogStudioController.getTemplateCoverage
 );
 
+// GET /templates/plans - The plan catalogue a tenant can subscribe to.
+// Published templates owned by the platform tenant. MUST stay above
+// /templates/:id or Express matches "plans" as a template id.
+// No query validation: a buyer gets the whole published catalogue for their
+// environment, there is nothing to filter.
+router.get(
+  '/templates/plans',
+  validateHeaders,
+  catalogStudioController.getPlanTemplates
+);
+
 // GET /templates/system - List system templates
 router.get(
   '/templates/system',

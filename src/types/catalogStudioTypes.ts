@@ -271,6 +271,33 @@ export interface TemplateListResponse {
   total: number;
 }
 
+/**
+ * A plan as a buying tenant sees it. Derived by the edge from the platform
+ * tenant's template — limits, grants and flags are read out of the template's
+ * metering blocks so the buyer never touches the platform tenant's catalog.
+ */
+export interface PlanTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  currency: string;
+  /** Plan price. 0 is a real value — the Free tier. */
+  price: number;
+  term: { value: number | null; unit: string | null };
+  /** What the plan may CREATE, e.g. { contracts: 3, rfqs: 0 }. 0 is a cap, not "unlimited". */
+  limits: Record<string, number>;
+  /** Notification credits granted per creation event, keyed by channel. */
+  grants: Record<string, number>;
+  /** Add-on flags the plan switches on, e.g. addon_vani_ai. */
+  flags: string[];
+  updated_at: string | null;
+}
+
+export interface PlanTemplateListResponse {
+  plans: PlanTemplate[];
+  count: number;
+}
+
 export interface IndustryCoverage {
   id: string;
   name: string;

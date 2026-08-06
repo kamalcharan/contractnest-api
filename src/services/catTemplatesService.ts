@@ -138,6 +138,16 @@ export class CatTemplatesService {
     return this.makeRequest<TemplateListResponse>('GET', `/system${qs ? `?${qs}` : ''}`, context);
   }
 
+  /**
+   * The plan catalogue — published templates owned by the platform tenant,
+   * which every other tenant buys from. Read-only and cross-tenant by design;
+   * the edge resolves the platform tenant by its is_admin flag.
+   */
+  async listPlanTemplates(context: RequestContext): Promise<ApiResponse<PlanTemplateListResponse>> {
+    if (!this.edgeFunctionUrl) return { success: true, data: { plans: [], count: 0 } };
+    return this.makeRequest<PlanTemplateListResponse>('GET', '/plans', context);
+  }
+
   async listPublicTemplates(context: RequestContext, params?: TemplateQueryParams): Promise<ApiResponse<TemplateListResponse>> {
     if (!this.edgeFunctionUrl) return { success: true, data: { templates: [], total: 0 } };
     const qs = params ? this.buildQueryString(params) : '';
