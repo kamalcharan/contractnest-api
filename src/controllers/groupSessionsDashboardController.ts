@@ -274,6 +274,29 @@ class GroupSessionsDashboardController {
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load member', 500); return; }
     sendSuccess(res, result.data);
   };
+
+  /** GET /api/group-sessions/dues/:blockId?fy=YYYY-MM-DD → member × month dues matrix */
+  duesMatrix = async (req: AuthRequest, res: Response): Promise<void> => {
+    const tenantId = this.tenantId(req);
+    const blockId = req.params.blockId;
+    if (!tenantId || !blockId) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant and blockId are required', 400);
+      return;
+    }
+    // Optional ?fy=YYYY-MM-DD pins the financial year. Anything else is
+    // rejected rather than passed through to the RPC as a bad date.
+    const fyRaw = (req.query.fy as string) || '';
+    if (fyRaw && !/^\d{4}-\d{2}-\d{2}$/.test(fyRaw)) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'fy must be YYYY-MM-DD', 400);
+      return;
+    }
+    const result = await groupSessionsDashboardService.duesMatrix(tenantId, blockId, this.isLive(req), fyRaw || null);
+    if (!result.success) {
+      sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load dues', 500);
+      return;
+    }
+    sendSuccess(res, result.data);
+  };
 }
 
 export default new GroupSessionsDashboardController();

@@ -28,6 +28,8 @@ router.post('/occurrence/:id/status', groupSessionsDashboardController.setOccurr
 router.post('/occurrence/:id/assign', groupSessionsDashboardController.assignChair);
 // POST /api/group-sessions/occurrences/:blockId/assign-default → set the default chair for every future occurrence
 router.post('/occurrences/:blockId/assign-default', groupSessionsDashboardController.assignDefaultChair);
+// GET /api/group-sessions/dues/:blockId                → member × month dues matrix
+router.get('/dues/:blockId', groupSessionsDashboardController.duesMatrix);
 // GET /api/group-sessions/roster/:blockId              → roster + dues for a block
 router.get('/roster/:blockId', groupSessionsDashboardController.dashRoster);
 // POST /api/group-sessions/token/:blockId              → mint/return the block QR token
