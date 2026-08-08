@@ -311,6 +311,43 @@ class CatalogStudioController {
     res.json(result);
   };
 
+  /**
+   * POST /api/catalog-studio/templates/subscribe
+   * Subscribe the calling tenant to a plan. The tenant is resolved from the
+   * request context downstream, so the body carries only the plan id.
+   */
+  subscribeToPlan = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Missing required headers' },
+      });
+      return;
+    }
+
+    const templateId = req.body?.template_id;
+    if (!templateId || !this.isValidUUID(templateId)) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'template_id is required' },
+      });
+      return;
+    }
+
+    const result = await catTemplatesService.subscribeToPlan(context, templateId);
+
+    if (!result.success) {
+      // 409 when the tenant already has a plan — a state conflict, not a
+      // malformed request, and the page renders it differently.
+      const status = result.error?.code === 'ALREADY_SUBSCRIBED' ? 409 : 400;
+      res.status(status).json(result);
+      return;
+    }
+
+    res.status(201).json(result);
+  };
+
   getPublicTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {

@@ -29,7 +29,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Mr.',
+      salutation: 'mr',
       name: 'Arjun Mehta',
       designation: 'Lift Maintenance Technician',
       department: 'Field Service',
@@ -37,7 +37,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Priya Sharma',
       designation: 'Key Account Manager',
       department: 'Sales & Service',
@@ -55,7 +55,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Mr.',
+      salutation: 'mr',
       name: 'Suresh Nair',
       designation: 'HVAC Systems Engineer',
       department: 'Technical Services',
@@ -63,7 +63,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Deepa Krishnan',
       designation: 'Service Coordinator',
       department: 'Customer Support',
@@ -81,7 +81,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Dr.',
+      salutation: 'dr',
       name: 'Anil Verma',
       designation: 'Biomedical Equipment Specialist',
       department: 'Clinical Engineering',
@@ -89,7 +89,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Meera Pillai',
       designation: 'Procurement Lead',
       department: 'Procurement',
@@ -107,7 +107,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Mr.',
+      salutation: 'mr',
       name: 'Rahul Gupta',
       designation: 'Facilities Manager',
       department: 'Operations',
@@ -115,7 +115,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Sunita Rao',
       designation: 'Account Director',
       department: 'Client Services',
@@ -133,7 +133,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Mr.',
+      salutation: 'mr',
       name: 'Vikram Singh',
       designation: 'Plant Maintenance Engineer',
       department: 'Maintenance',
@@ -141,7 +141,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Ananya Desai',
       designation: 'Technical Sales Manager',
       department: 'Sales',
@@ -159,7 +159,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Kavita Reddy',
       designation: 'Property Manager',
       department: 'Asset Management',
@@ -167,7 +167,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Mr.',
+      salutation: 'mr',
       name: 'Rohan Joshi',
       designation: 'Asset Manager',
       department: 'Portfolio Management',
@@ -185,7 +185,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'individual',
-      salutation: 'Mr.',
+      salutation: 'mr',
       name: 'Sanjay Patel',
       designation: 'Hotel Operations Manager',
       department: 'Operations',
@@ -193,7 +193,7 @@ export const SAMPLE_CONTACTS_BY_INDUSTRY: Record<string, SampleContactTemplate[]
     },
     {
       type: 'contact_person',
-      salutation: 'Ms.',
+      salutation: 'ms',
       name: 'Nisha Kumar',
       designation: 'Procurement Head',
       department: 'Procurement',

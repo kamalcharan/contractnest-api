@@ -66,7 +66,18 @@ function extractAuth(req: Request): {
   return {
     authToken: req.headers.authorization || null,
     tenantId: req.headers['x-tenant-id'] as string || null,
-    productCode: req.headers['x-product-code'] as string || null
+    // Accept BOTH spellings. The UI's axios client sends `x-product` (see
+    // services/api.ts) and the rest of the API reads that same header
+    // (utils/supabaseConfig.ts) — this controller alone demanded
+    // `x-product-code`, so every browser call to /api/tenant-context 400'd
+    // with "x-product-code header required". That is why this route had no
+    // callers. x-product-code is kept first for any server-to-server caller
+    // already sending it.
+    productCode:
+      (req.headers['x-product-code'] as string) ||
+      (req.headers['x-product'] as string) ||
+      ((req as any).productCode as string) ||
+      null
   };
 }
 

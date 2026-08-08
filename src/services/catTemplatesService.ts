@@ -8,6 +8,8 @@ import {
   TemplateQueryParams,
   ApiResponse,
   TemplateListResponse,
+  PlanTemplateListResponse,
+  PlanSubscriptionResult,
   TemplateCoverageResponse,
   RequestContext,
 } from '../types/catalogStudioTypes';
@@ -146,6 +148,18 @@ export class CatTemplatesService {
   async listPlanTemplates(context: RequestContext): Promise<ApiResponse<PlanTemplateListResponse>> {
     if (!this.edgeFunctionUrl) return { success: true, data: { plans: [], count: 0 } };
     return this.makeRequest<PlanTemplateListResponse>('GET', '/plans', context);
+  }
+
+  /**
+   * Subscribe the CALLING tenant to a plan. The subscriber is taken from the
+   * request context inside the edge function, never from the body, so a tenant
+   * cannot subscribe someone else by posting their id.
+   */
+  async subscribeToPlan(context: RequestContext, templateId: string): Promise<ApiResponse<PlanSubscriptionResult>> {
+    if (!this.edgeFunctionUrl) {
+      return { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Subscriptions unavailable' } };
+    }
+    return this.makeRequest<PlanSubscriptionResult>('POST', '/subscribe', context, { template_id: templateId });
   }
 
   async listPublicTemplates(context: RequestContext, params?: TemplateQueryParams): Promise<ApiResponse<TemplateListResponse>> {

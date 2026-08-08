@@ -298,6 +298,17 @@ export interface PlanTemplateListResponse {
   count: number;
 }
 
+/** What subscribe_tenant_to_plan returns once a tenant is on a plan. */
+export interface PlanSubscriptionResult {
+  contract_id: string;
+  contract_number: string;
+  contact_id: string;
+  plan_name: string;
+  limits: Record<string, number>;
+  grants: Record<string, number>;
+  flags: string[];
+}
+
 export interface IndustryCoverage {
   id: string;
   name: string;

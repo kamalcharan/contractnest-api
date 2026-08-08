@@ -145,6 +145,14 @@ router.get(
   catalogStudioController.getTemplateCoverage
 );
 
+// POST /templates/subscribe - Subscribe the calling tenant to a plan.
+// Above /templates/:id so "subscribe" is never read as a template id.
+router.post(
+  '/templates/subscribe',
+  validateHeaders,
+  catalogStudioController.subscribeToPlan
+);
+
 // GET /templates/plans - The plan catalogue a tenant can subscribe to.
 // Published templates owned by the platform tenant. MUST stay above
 // /templates/:id or Express matches "plans" as a template id.
