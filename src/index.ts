@@ -422,6 +422,21 @@ try {
   }
 }
 
+// Load Invoice routes (standalone, non-contract-scoped) with error handling
+let invoiceRoutes;
+try {
+  invoiceRoutes = require('./routes/invoiceRoutes').default;
+  console.log('✅ Invoice routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Invoice routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Invoice routes...');
+    invoiceRoutes = null;
+  }
+}
+
 // Load Session Check-in routes (chair + public member QR) with error handling
 let sessionCheckinRoutes, sessionCheckinPublicRoutes;
 try {
@@ -938,6 +953,21 @@ try {
   console.error('❌ Failed to register Group Sessions dashboard routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'group_sessions_dashboard' }
+  });
+}
+
+// Register Invoice routes (standalone, non-contract-scoped) with error handling
+try {
+  if (invoiceRoutes) {
+    app.use('/api/invoices', invoiceRoutes);
+    console.log('✅ Invoice routes registered at /api/invoices');
+  } else {
+    console.log('⚠️  Invoice routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register Invoice routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'invoice' }
   });
 }
 
