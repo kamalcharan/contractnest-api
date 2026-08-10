@@ -126,7 +126,16 @@ export const getContext = async (req: Request, res: Response) => {
       useCache
     );
 
-    return res.status(result.success ? 200 : 500).json(result);
+    // result.success is BUSINESS state, not a transport failure — a tenant
+    // that has never subscribed to anything gets success:false with
+    // "Tenant context not found" from get_tenant_context, which is a
+    // completely normal state (133 of 135 tenants are in it today), not a
+    // server error. Mapping it to 500 here made every one of those tenants'
+    // Subscription page fail with "Request failed with status code 500"
+    // instead of rendering the page's own "No plan yet" state. A genuine
+    // failure (network, RPC exception) never reaches this line — it is
+    // already caught below and returns 500 from the catch block.
+    return res.status(200).json(result);
   } catch (error) {
     return handleError(res, error, 'getContext');
   }

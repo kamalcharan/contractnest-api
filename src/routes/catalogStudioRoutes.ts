@@ -164,6 +164,22 @@ router.get(
   catalogStudioController.getPlanTemplates
 );
 
+// POST /templates/packs/purchase - Buy the calling tenant a credit pack.
+// Above /templates/:id for the same reason as /subscribe.
+router.post(
+  '/templates/packs/purchase',
+  validateHeaders,
+  catalogStudioController.purchasePack
+);
+
+// GET /templates/packs - The credit-pack catalogue a tenant can buy from.
+// MUST stay above /templates/:id or Express matches "packs" as a template id.
+router.get(
+  '/templates/packs',
+  validateHeaders,
+  catalogStudioController.getPackTemplates
+);
+
 // GET /templates/system - List system templates
 router.get(
   '/templates/system',

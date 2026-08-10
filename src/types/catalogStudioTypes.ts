@@ -309,6 +309,39 @@ export interface PlanSubscriptionResult {
   flags: string[];
 }
 
+/**
+ * A credit pack as a buying tenant sees it. Same derivation as PlanTemplate —
+ * read out of the platform tenant's template blocks, never touched directly.
+ */
+export interface PackTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  currency: string;
+  price: number;
+  /** Credits granted once, on payment, keyed by channel. */
+  grants: Record<string, number>;
+  updated_at: string | null;
+}
+
+export interface PackTemplateListResponse {
+  packs: PackTemplate[];
+  count: number;
+}
+
+/** What purchase_topup_template returns once the pack contract is raised. */
+export interface PackPurchaseResult {
+  contract_id: string;
+  contract_number: string;
+  contact_id: string;
+  pack_name: string;
+  amount: number;
+  currency: string;
+  grants: Record<string, number>;
+  /** true for a paid pack — credits land once the invoice is paid, not now. */
+  credits_pending: boolean;
+}
+
 export interface IndustryCoverage {
   id: string;
   name: string;

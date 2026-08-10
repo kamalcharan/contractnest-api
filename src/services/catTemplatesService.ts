@@ -10,6 +10,8 @@ import {
   TemplateListResponse,
   PlanTemplateListResponse,
   PlanSubscriptionResult,
+  PackTemplateListResponse,
+  PackPurchaseResult,
   TemplateCoverageResponse,
   RequestContext,
 } from '../types/catalogStudioTypes';
@@ -160,6 +162,27 @@ export class CatTemplatesService {
       return { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Subscriptions unavailable' } };
     }
     return this.makeRequest<PlanSubscriptionResult>('POST', '/subscribe', context, { template_id: templateId });
+  }
+
+  /**
+   * The credit-pack catalogue — published templates owned by the platform
+   * tenant, filtered server-side to category='topup_pack' so it never mixes
+   * with /plans.
+   */
+  async listPackTemplates(context: RequestContext): Promise<ApiResponse<PackTemplateListResponse>> {
+    if (!this.edgeFunctionUrl) return { success: true, data: { packs: [], count: 0 } };
+    return this.makeRequest<PackTemplateListResponse>('GET', '/packs', context);
+  }
+
+  /**
+   * Buy the CALLING tenant a credit pack. Same subscriber-from-context rule
+   * as subscribeToPlan — the body carries only the pack's template id.
+   */
+  async purchasePack(context: RequestContext, templateId: string): Promise<ApiResponse<PackPurchaseResult>> {
+    if (!this.edgeFunctionUrl) {
+      return { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Purchases unavailable' } };
+    }
+    return this.makeRequest<PackPurchaseResult>('POST', '/packs/purchase', context, { template_id: templateId });
   }
 
   async listPublicTemplates(context: RequestContext, params?: TemplateQueryParams): Promise<ApiResponse<TemplateListResponse>> {

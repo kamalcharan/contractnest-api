@@ -197,6 +197,21 @@ try {
   }
 }
 
+// Load Cadence Settings routes with error handling
+let cadenceSettingsRoutes;
+try {
+  cadenceSettingsRoutes = require('./routes/cadenceSettingsRoutes').default;
+  console.log('✅ Cadence settings routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load cadence settings routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without cadence settings routes...');
+    cadenceSettingsRoutes = null;
+  }
+}
+
 // Load Block routes with error handling
 let blockRoutes;
 try {
@@ -419,21 +434,6 @@ try {
   } else {
     console.warn('⚠️  Continuing without Group Sessions dashboard routes...');
     groupSessionsDashboardRoutes = null;
-  }
-}
-
-// Load Invoice routes (standalone, non-contract-scoped) with error handling
-let invoiceRoutes;
-try {
-  invoiceRoutes = require('./routes/invoiceRoutes').default;
-  console.log('✅ Invoice routes loaded');
-} catch (error) {
-  console.error('❌ Failed to load Invoice routes:', error);
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  } else {
-    console.warn('⚠️  Continuing without Invoice routes...');
-    invoiceRoutes = null;
   }
 }
 
@@ -734,6 +734,21 @@ try {
   });
 }
 
+// Register Cadence Settings routes with error handling
+try {
+  if (cadenceSettingsRoutes) {
+    app.use('/api/settings/cadence', cadenceSettingsRoutes);
+    console.log('✅ Cadence settings routes registered at /api/settings/cadence');
+  } else {
+    console.log('⚠️  Cadence settings routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register cadence settings routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'cadence_settings' }
+  });
+}
+
 // Register Block routes with error handling
 try {
   if (blockRoutes) {
@@ -953,21 +968,6 @@ try {
   console.error('❌ Failed to register Group Sessions dashboard routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'group_sessions_dashboard' }
-  });
-}
-
-// Register Invoice routes (standalone, non-contract-scoped) with error handling
-try {
-  if (invoiceRoutes) {
-    app.use('/api/invoices', invoiceRoutes);
-    console.log('✅ Invoice routes registered at /api/invoices');
-  } else {
-    console.log('⚠️  Invoice routes skipped (not loaded)');
-  }
-} catch (error) {
-  console.error('❌ Failed to register Invoice routes:', error);
-  captureException(error instanceof Error ? error : new Error(String(error)), {
-    tags: { source: 'route_registration', route_type: 'invoice' }
   });
 }
 

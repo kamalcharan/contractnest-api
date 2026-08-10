@@ -348,6 +348,65 @@ class CatalogStudioController {
     res.status(201).json(result);
   };
 
+  /**
+   * GET /api/catalog-studio/templates/packs
+   * The credit-pack catalogue a tenant can buy from. No query params, same
+   * reasoning as getPlanTemplates.
+   */
+  getPackTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Missing required headers' },
+      });
+      return;
+    }
+
+    const result = await catTemplatesService.listPackTemplates(context);
+
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
+
+    res.json(result);
+  };
+
+  /**
+   * POST /api/catalog-studio/templates/packs/purchase
+   * Buy the calling tenant a credit pack. The tenant is resolved from the
+   * request context downstream, so the body carries only the pack id.
+   */
+  purchasePack = async (req: AuthRequest, res: Response): Promise<void> => {
+    const context = this.getContext(req);
+    if (!context) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Missing required headers' },
+      });
+      return;
+    }
+
+    const templateId = req.body?.template_id;
+    if (!templateId || !this.isValidUUID(templateId)) {
+      res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'template_id is required' },
+      });
+      return;
+    }
+
+    const result = await catTemplatesService.purchasePack(context, templateId);
+
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
+
+    res.status(201).json(result);
+  };
+
   getPublicTemplates = async (req: AuthRequest, res: Response): Promise<void> => {
     const context = this.getContext(req);
     if (!context) {
