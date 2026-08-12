@@ -44,6 +44,38 @@ router.post(
   contractController.respondToContract
 );
 
+/**
+ * @route POST /api/contracts/public/payment-context
+ * @description Resolve CNAK → payable invoice + which payment surfaces are
+ * configured. The CNAK page must check can_collect_payment before showing
+ * any Pay button — if false, show "the seller has been notified" instead.
+ */
+router.post('/public/payment-context', contractController.getPublicPaymentContext);
+
+/**
+ * @route POST /api/contracts/public/create-order
+ * @description Create a Razorpay order for the CNAK-scoped buyer (public)
+ */
+router.post('/public/create-order', contractController.createPublicOrder);
+
+/**
+ * @route POST /api/contracts/public/verify-payment
+ * @description Verify a Razorpay checkout callback for the CNAK-scoped buyer (public)
+ */
+router.post('/public/verify-payment', contractController.verifyPublicPayment);
+
+/**
+ * @route POST /api/contracts/public/offline-upi-config
+ * @description Fetch the issuing tenant's UPI VPA/QR for the CNAK-scoped buyer (public)
+ */
+router.post('/public/offline-upi-config', contractController.getPublicOfflineUpiConfig);
+
+/**
+ * @route POST /api/contracts/public/declare-payment
+ * @description Buyer declares an offline UPI payment reference (public)
+ */
+router.post('/public/declare-payment', contractController.declarePublicPayment);
+
 // =================================================================
 // MIDDLEWARE (all routes below require authentication)
 // =================================================================

@@ -203,6 +203,33 @@ export const toggleIntegrationStatus = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Upload a QR code image for a config-only integration (e.g. offline_upi).
+ * Returns the download URL only; the frontend saves it into the provider's
+ * credentials via the normal POST /api/integrations flow.
+ */
+export const uploadQrImage = async (req: Request, res: Response) => {
+  try {
+    const tenantId = req.headers['x-tenant-id'] as string;
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'x-tenant-id header is required' });
+    }
+    if (!(req as any).file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const qrImageUrl = await integrationService.uploadQrImage(tenantId, (req as any).file);
+    return res.status(200).json({ success: true, qr_image_url: qrImageUrl });
+  } catch (error: any) {
+    console.error('Error in uploadQrImage controller:', error.message);
+    captureException(error instanceof Error ? error : new Error(String(error)), {
+      tags: { source: 'api_integrations', action: 'uploadQrImage' }
+    });
+    return res.status(400).json({ error: error.message || 'Failed to upload QR image' });
+  }
+};
+
 export const deleteIntegration = async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
