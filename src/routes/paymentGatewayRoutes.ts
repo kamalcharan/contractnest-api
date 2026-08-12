@@ -39,8 +39,4 @@ router.post('/verify-payment', controller.verifyPayment);
 // Get payment requests & events for an invoice or contract
 router.post('/status', controller.getPaymentStatus);
 
-// Offline-UPI declarations from the CNAK public payment flow — tenant reviews & confirms
-router.get('/declarations', controller.listDeclarations);
-router.post('/declarations/:id/confirm', controller.confirmDeclaration);
-
 export default router;

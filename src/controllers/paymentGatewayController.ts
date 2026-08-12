@@ -4,7 +4,6 @@
 
 import { Request, Response } from 'express';
 import PaymentGatewayService from '../services/paymentGatewayService';
-import publicPaymentService from '../services/publicPaymentService';
 
 class PaymentGatewayController {
   private paymentGatewayService: PaymentGatewayService;
@@ -166,46 +165,6 @@ class PaymentGatewayController {
       res.status(200).json(result);
     } catch (error: any) {
       console.error('[PaymentGatewayController] getPaymentStatus error:', error);
-      res.status(500).json({ success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' });
-    }
-  };
-
-  // ═══════════════════════════════════════════════════════════
-  // GET /api/payments/declarations — pending offline-UPI declarations
-  // for the CNAK public payment flow (tenant reviews & confirms)
-  // ═══════════════════════════════════════════════════════════
-  listDeclarations = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { tenantId } = this.extractContext(req);
-      if (!tenantId) {
-        res.status(400).json({ success: false, error: 'x-tenant-id header is required', code: 'MISSING_TENANT_ID' });
-        return;
-      }
-      const status = (req.query.status as string) ?? 'pending';
-      const result = await publicPaymentService.listDeclarations(tenantId, status || null);
-      res.status(result.success ? 200 : 500).json(result);
-    } catch (error: any) {
-      console.error('[PaymentGatewayController] listDeclarations error:', error);
-      res.status(500).json({ success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' });
-    }
-  };
-
-  // ═══════════════════════════════════════════════════════════
-  // POST /api/payments/declarations/:id/confirm
-  // ═══════════════════════════════════════════════════════════
-  confirmDeclaration = async (req: Request, res: Response): Promise<void> => {
-    try {
-      const { tenantId, userId } = this.extractContext(req);
-      if (!tenantId) {
-        res.status(400).json({ success: false, error: 'x-tenant-id header is required', code: 'MISSING_TENANT_ID' });
-        return;
-      }
-      const { id } = req.params;
-      const confirm = req.body?.confirm !== false; // default true (confirm); pass confirm:false to reject
-      const result = await publicPaymentService.confirmDeclaration(id, tenantId, userId, confirm);
-      res.status(result.success ? 200 : 400).json(result);
-    } catch (error: any) {
-      console.error('[PaymentGatewayController] confirmDeclaration error:', error);
       res.status(500).json({ success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' });
     }
   };

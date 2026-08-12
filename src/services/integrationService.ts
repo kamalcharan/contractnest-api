@@ -1,57 +1,7 @@
 // src/services/integrationService.ts
 import axios from 'axios';
-import { initializeApp, FirebaseApp } from 'firebase/app';
-import { getStorage, ref, uploadBytes, getDownloadURL, FirebaseStorage } from 'firebase/storage';
-import { getAuth, signInAnonymously, Auth, User, onAuthStateChanged } from 'firebase/auth';
-import { v4 as uuidv4 } from 'uuid';
 import { captureException } from '../utils/sentry';
 import { SUPABASE_URL } from '../utils/supabaseConfig';
-
-// Firebase configuration (same env vars as tenantProfileService/storageService)
-const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID
-};
-
-let firebaseApp: FirebaseApp | null = null;
-let firebaseAuth: Auth | null = null;
-let firebaseStorage: FirebaseStorage | null = null;
-let authInitializationPromise: Promise<User> | null = null;
-
-// Own named Firebase app instance — tenantProfileService/storageService each
-// initialize their own too, so this avoids a duplicate-app-name collision.
-const initializeIntegrationFirebase = async (): Promise<{ storage: FirebaseStorage }> => {
-  if (authInitializationPromise && firebaseApp && firebaseAuth && firebaseStorage) {
-    await authInitializationPromise;
-    return { storage: firebaseStorage };
-  }
-  if (!firebaseApp) {
-    firebaseApp = initializeApp(firebaseConfig, 'integration-service');
-  }
-  if (!firebaseAuth) {
-    firebaseAuth = getAuth(firebaseApp);
-  }
-  if (!firebaseStorage) {
-    firebaseStorage = getStorage(firebaseApp);
-  }
-  if (!authInitializationPromise) {
-    authInitializationPromise = new Promise<User>((resolve, reject) => {
-      const unsubscribe = onAuthStateChanged(firebaseAuth!, (user) => {
-        if (user) {
-          unsubscribe();
-          resolve(user);
-        }
-      });
-      signInAnonymously(firebaseAuth!).catch(reject);
-    });
-  }
-  await authInitializationPromise;
-  return { storage: firebaseStorage };
-};
 
 // Type definitions - Updated to include display fields
 export interface IntegrationType {
@@ -653,51 +603,6 @@ export const integrationService = {
         tags: { source: 'service_integrations', action: 'getIntegrationTypesWithStatus' },
         tenantId,
         isLive
-      });
-      throw error;
-    }
-  },
-
-  /**
-   * Upload a QR code image for a config-only integration (e.g. offline_upi).
-   * Returns the download URL only — the caller still has to save it into the
-   * provider's credentials via the normal saveIntegration call so the
-   * qr_image_url field takes effect.
-   */
-  async uploadQrImage(tenantId: string, file: Express.Multer.File): Promise<string> {
-    if (!file || !file.buffer) {
-      throw new Error('No file provided');
-    }
-
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg'];
-    if (!allowedTypes.includes(file.mimetype)) {
-      throw new Error('Invalid file type. Allowed: PNG, JPG');
-    }
-
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
-      throw new Error('File size exceeds 5MB limit');
-    }
-
-    try {
-      const { storage } = await initializeIntegrationFirebase();
-
-      const fileId = uuidv4();
-      const fileExtension = file.originalname.split('.').pop() || 'png';
-      const filePath = `tenant_integration_assets/${tenantId}/qr_${fileId}.${fileExtension}`;
-
-      const storageRef = ref(storage, filePath);
-      await uploadBytes(storageRef, file.buffer, {
-        contentType: file.mimetype,
-        customMetadata: { tenantId, originalName: file.originalname, uploadedAt: new Date().toISOString() }
-      });
-
-      return await getDownloadURL(storageRef);
-    } catch (error) {
-      console.error('Error in uploadQrImage service:', error);
-      captureException(error instanceof Error ? error : new Error(String(error)), {
-        tags: { source: 'service_integrations', action: 'uploadQrImage' },
-        tenantId
       });
       throw error;
     }
