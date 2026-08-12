@@ -290,6 +290,8 @@ export interface PlanTemplate {
   grants: Record<string, number>;
   /** Add-on flags the plan switches on, e.g. addon_vani_ai. */
   flags: string[];
+  /** The template's wizard_state snapshot, used to derive the real billing schedule on subscribe. */
+  wizard_state?: Record<string, any> | null;
   updated_at: string | null;
 }
 
