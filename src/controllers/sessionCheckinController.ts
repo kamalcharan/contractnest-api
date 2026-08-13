@@ -173,8 +173,9 @@ class SessionCheckinController {
 
   pendingDeclarations = async (req: AuthRequest, res: Response): Promise<void> => {
     const tenantId = this.tenantId(req);
+    const isLive = ((req.headers['x-environment'] as string) || 'live') === 'live';
     if (!tenantId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant is required', 400); return; }
-    const result = await sessionCheckinService.pendingDeclarations(tenantId);
+    const result = await sessionCheckinService.pendingDeclarations(tenantId, isLive);
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load declarations', 500); return; }
     sendSuccess(res, result.data);
   };

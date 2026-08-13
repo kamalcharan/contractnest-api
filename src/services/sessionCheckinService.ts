@@ -131,8 +131,11 @@ class SessionCheckinService {
   ensureToken(tenantId: string, contractId: string) {
     return this.call('gs_ensure_token', { p_tenant: tenantId, p_contract: contractId });
   }
-  pendingDeclarations(tenantId: string) {
-    return this.call('gs_pending_declarations', { p_tenant: tenantId });
+  pendingDeclarations(tenantId: string, isLive: boolean) {
+    // Environment-aware overload (bbb-foundation/068): declarations derive
+    // their environment from the occurrence's schedule row (guest check-ins
+    // always have one) or the membership contract, defaulting live.
+    return this.call('gs_pending_declarations', { p_tenant: tenantId, p_is_live: isLive });
   }
   confirmDeclaration(tenantId: string, declarationId: string, confirm: boolean, userId: string) {
     return this.call('gs_confirm_declaration', {

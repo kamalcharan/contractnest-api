@@ -472,6 +472,25 @@ try {
   }
 }
 
+// Load Invoice routes (standalone, non-contract-scoped) with error handling.
+// ⚠ Restored 2026-08-13: originally registered on 2026-08-09 (2cc04a1) and
+// silently DELETED on 2026-08-10 (e3900b2) by a whole-file index.ts copy
+// built from a stale baseline — every /api/invoices call 404'd since. If you
+// replace this file wholesale, verify this block survives.
+let invoiceRoutes;
+try {
+  invoiceRoutes = require('./routes/invoiceRoutes').default;
+  console.log('✅ Invoice routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Invoice routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Invoice routes...');
+    invoiceRoutes = null;
+  }
+}
+
 // Load RFQ public (vendor quote) routes with error handling — mirrors the
 // Session Check-in public-route pattern directly above: NO authenticate,
 // gated by the (cnak, secret) pair in the URL instead of a tenant session.
@@ -1008,6 +1027,18 @@ try {
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'group_sessions_dashboard' }
   });
+}
+
+// Register Invoice routes (standalone, non-contract-scoped)
+try {
+  if (invoiceRoutes) {
+    app.use('/api/invoices', invoiceRoutes);
+    console.log('✅ Invoice routes registered at /api/invoices');
+  } else {
+    console.log('⚠️  Invoice routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register Invoice routes:', error);
 }
 
 // Register Session Check-in routes (chair authenticated + public member QR)
