@@ -10,6 +10,8 @@ import { Response } from 'express';
 import { validationResult } from 'express-validator';
 import { AuthRequest } from '../middleware/auth';
 import ContractService from '../services/contractService';
+import PaymentGatewayService from '../services/paymentGatewayService';
+import publicPaymentService from '../services/publicPaymentService';
 import { getSupabaseClientFromRequest } from '../utils/supabaseConfig';
 import {
   sendSuccess,
@@ -20,9 +22,11 @@ import {
 
 class ContractController {
   private contractService: ContractService;
+  private paymentGatewayService: PaymentGatewayService;
 
   constructor() {
     this.contractService = new ContractService();
+    this.paymentGatewayService = new PaymentGatewayService();
   }
 
   /**
@@ -1122,6 +1126,187 @@ class ContractController {
       internalError(res, 'Failed to respond to contract');
     }
   };
+
+  /**
+   * POST /api/contracts/public/payment-context
+   * Resolve CNAK → tenant/invoice + generate the pending invoice idempotently.
+   * Also the single source of truth for whether the CNAK page may attempt
+   * payment collection at all — the caller must check gateway_configured /
+   * offline_upi_configured before showing any Pay button; if neither is
+   * configured, the page must show "the seller has been notified and will
+   * connect with you" instead of a payment flow.
+   */
+  getPublicPaymentContext = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code } = req.body;
+      if (!cnak || !secret_code) {
+        res.status(400).json({ success: false, error: 'CNAK and secret code are required' });
+        return;
+      }
+
+      const context = await publicPaymentService.getPaymentContext(cnak, secret_code);
+      if (!context.success) {
+        res.status(400).json(context);
+        return;
+      }
+
+      // Gateway configured? Scoped to the CNAK-resolved tenant_id — never a
+      // client-supplied one.
+      const gatewayConfigured = await publicPaymentService.checkGatewayConfigured(context.tenant_id);
+
+      const offlineUpi = await publicPaymentService.getOfflineUpiConfig(cnak, secret_code);
+      const offlineConfigured = !!offlineUpi?.configured;
+
+      res.status(200).json({
+        ...context,
+        gateway_configured: gatewayConfigured,
+        offline_upi_configured: offlineConfigured,
+        can_collect_payment: gatewayConfigured || offlineConfigured,
+      });
+    } catch (error) {
+      console.error('[ContractController] Error in getPublicPaymentContext:', error);
+      internalError(res, 'Failed to load payment context');
+    }
+  };
+
+  /**
+   * POST /api/contracts/public/create-order
+   * Razorpay order creation for the CNAK-scoped buyer. Resolves tenant_id
+   * from CNAK server-side (never from the client) then reuses the same
+   * paymentGatewayService the authenticated flow uses — the edge function
+   * validates via HMAC + x-tenant-id, not the caller's JWT, so this is safe.
+   */
+  createPublicOrder = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code } = req.body;
+      if (!cnak || !secret_code) {
+        res.status(400).json({ success: false, error: 'CNAK and secret code are required' });
+        return;
+      }
+
+      const context = await publicPaymentService.getPaymentContext(cnak, secret_code);
+      if (!context.success) {
+        res.status(400).json(context);
+        return;
+      }
+      if (!context.invoice_id || !context.amount) {
+        res.status(400).json({ success: false, error: 'No payable invoice for this contract' });
+        return;
+      }
+
+      const result = await this.paymentGatewayService.createOrder(
+        { invoice_id: context.invoice_id, amount: context.amount, currency: context.currency, notes: { cnak } },
+        '', context.tenant_id, '', 'live'
+      );
+
+      if (!result.success) {
+        res.status(this.mapErrorCodeToStatus(result.code)).json(result);
+        return;
+      }
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in createPublicOrder:', error);
+      internalError(res, 'Failed to create payment order');
+    }
+  };
+
+  /**
+   * POST /api/contracts/public/verify-payment
+   * Razorpay checkout callback verification for the CNAK-scoped buyer.
+   * Records the payment via the same RPC chain as the authenticated flow —
+   * record_invoice_payment then auto-activates the contract once fully paid.
+   */
+  verifyPublicPayment = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code, request_id, gateway_order_id, gateway_payment_id, gateway_signature } = req.body;
+      if (!cnak || !secret_code || !request_id || !gateway_payment_id) {
+        res.status(400).json({ success: false, error: 'cnak, secret_code, request_id and gateway_payment_id are required' });
+        return;
+      }
+
+      const context = await publicPaymentService.getPaymentContext(cnak, secret_code);
+      if (!context.success) {
+        res.status(400).json(context);
+        return;
+      }
+
+      const result = await this.paymentGatewayService.verifyPayment(
+        { request_id, gateway_order_id, gateway_payment_id, gateway_signature },
+        '', context.tenant_id, 'live'
+      );
+
+      if (!result.success) {
+        res.status(this.mapErrorCodeToStatus(result.code)).json(result);
+        return;
+      }
+      res.status(200).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in verifyPublicPayment:', error);
+      internalError(res, 'Failed to verify payment');
+    }
+  };
+
+  /**
+   * GET-style POST /api/contracts/public/offline-upi-config
+   * Returns the issuing tenant's UPI VPA + QR (if configured) for the buyer
+   * to pay directly and declare a reference number.
+   */
+  getPublicOfflineUpiConfig = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code } = req.body;
+      if (!cnak || !secret_code) {
+        res.status(400).json({ success: false, error: 'CNAK and secret code are required' });
+        return;
+      }
+      const result = await publicPaymentService.getOfflineUpiConfig(cnak, secret_code);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in getPublicOfflineUpiConfig:', error);
+      internalError(res, 'Failed to load offline payment config');
+    }
+  };
+
+  /**
+   * POST /api/contracts/public/declare-payment
+   * Buyer declares they paid via offline UPI (reference number). Stays
+   * 'pending' until the tenant confirms via confirmPaymentDeclaration.
+   */
+  declarePublicPayment = async (req: any, res: Response): Promise<void> => {
+    try {
+      const { cnak, secret_code, reference, amount, declarer_name, declarer_contact } = req.body;
+      if (!cnak || !secret_code || !reference) {
+        res.status(400).json({ success: false, error: 'cnak, secret_code and reference are required' });
+        return;
+      }
+      const result = await publicPaymentService.declarePayment(cnak, secret_code, {
+        reference, amount, declarer_name, declarer_contact,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      console.error('[ContractController] Error in declarePublicPayment:', error);
+      internalError(res, 'Failed to declare payment');
+    }
+  };
+
+  private mapErrorCodeToStatus(code?: string): number {
+    switch (code) {
+      case 'VALIDATION_ERROR':
+      case 'NO_GATEWAY':
+      case 'UNSUPPORTED_PROVIDER':
+        return 400;
+      case 'MISSING_SIGNATURE':
+      case 'INVALID_SIGNATURE':
+        return 401;
+      case 'NOT_FOUND':
+      case 'VERIFICATION_FAILED':
+        return 404;
+      case 'GATEWAY_ERROR':
+      case 'EDGE_FUNCTION_ERROR':
+        return 502;
+      default:
+        return 500;
+    }
+  }
 
   /**
    * POST /api/contracts/claim

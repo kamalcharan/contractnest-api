@@ -212,6 +212,24 @@ try {
   }
 }
 
+// Load Extend (touchpoints) routes with error handling — public storefront
+// checkout (no auth, key-gated) + authenticated touchpoint management
+let extendRoutes, storefrontPublicRoutes;
+try {
+  extendRoutes = require('./routes/extendRoutes').default;
+  storefrontPublicRoutes = require('./routes/storefrontPublicRoutes').default;
+  console.log('✅ Extend (touchpoints) routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Extend routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Extend routes...');
+    extendRoutes = null;
+    storefrontPublicRoutes = null;
+  }
+}
+
 // Load Block routes with error handling
 let blockRoutes;
 try {
@@ -746,6 +764,27 @@ try {
   console.error('❌ Failed to register cadence settings routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'cadence_settings' }
+  });
+}
+
+// Register Extend (touchpoints) routes with error handling
+try {
+  if (storefrontPublicRoutes) {
+    app.use('/api/storefront', storefrontPublicRoutes);
+    console.log('✅ Storefront (public) routes registered at /api/storefront');
+  } else {
+    console.log('⚠️  Storefront (public) routes skipped (not loaded)');
+  }
+  if (extendRoutes) {
+    app.use('/api/extend', extendRoutes);
+    console.log('✅ Extend routes registered at /api/extend');
+  } else {
+    console.log('⚠️  Extend routes skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register Extend routes:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'extend' }
   });
 }
 

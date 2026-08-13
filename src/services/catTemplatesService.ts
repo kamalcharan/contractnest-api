@@ -157,11 +157,19 @@ export class CatTemplatesService {
    * request context inside the edge function, never from the body, so a tenant
    * cannot subscribe someone else by posting their id.
    */
-  async subscribeToPlan(context: RequestContext, templateId: string): Promise<ApiResponse<PlanSubscriptionResult>> {
+  async subscribeToPlan(
+    context: RequestContext,
+    templateId: string,
+    computedEvents?: unknown[] | null
+  ): Promise<ApiResponse<PlanSubscriptionResult>> {
     if (!this.edgeFunctionUrl) {
       return { success: false, error: { code: 'SERVICE_UNAVAILABLE', message: 'Subscriptions unavailable' } };
     }
-    return this.makeRequest<PlanSubscriptionResult>('POST', '/subscribe', context, { template_id: templateId });
+    const body: Record<string, unknown> = { template_id: templateId };
+    if (Array.isArray(computedEvents) && computedEvents.length > 0) {
+      body.computed_events = computedEvents;
+    }
+    return this.makeRequest<PlanSubscriptionResult>('POST', '/subscribe', context, body);
   }
 
   /**

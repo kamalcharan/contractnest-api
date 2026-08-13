@@ -111,6 +111,19 @@ router.get(
   billingController.getTopupPacks
 );
 
+/**
+ * @route GET /api/billing/overview
+ * @description Plan state, instalment rhythm, outstanding balance, payment
+ *              attempts, purchase history and the plan-succession chain —
+ *              one read behind both the Subscription and Billing pages.
+ *              Tenant comes from the x-tenant-id header, so no param to validate.
+ * @returns {BillingOverviewResponse}
+ */
+router.get(
+  '/billing/overview',
+  billingController.getBillingOverview
+);
+
 // ============================================================================
 // POST ENDPOINTS - Write Operations
 // ============================================================================

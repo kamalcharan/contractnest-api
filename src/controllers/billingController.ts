@@ -11,6 +11,7 @@ import { validationResult } from 'express-validator';
 import { captureException } from '../utils/sentry';
 import { validateSupabaseConfig } from '../utils/supabaseConfig';
 import { billingService } from '../services/billingService';
+import { billingOverviewService } from '../services/billingOverviewService';
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -434,5 +435,46 @@ export const checkCreditAvailability = async (req: Request, res: Response) => {
     return res.status(200).json(result);
   } catch (error) {
     return handleError(res, error, 'checkCreditAvailability');
+  }
+};
+
+// ============================================================================
+// PLAN & BILLING OVERVIEW
+// ============================================================================
+
+/**
+ * GET /api/billing/overview
+ *
+ * One read behind both the Subscription page and the Billing page. Returns
+ * the plan in force (and crucially whether it is actually RUNNING or merely
+ * awaiting its first payment), the instalment rhythm, what is outstanding,
+ * payment attempts, purchase history and the plan-succession chain.
+ *
+ * The tenant is taken from the authenticated x-tenant-id header only — never
+ * from a query or body param, so this cannot be pointed at another tenant.
+ */
+export const getBillingOverview = async (req: Request, res: Response) => {
+  try {
+    if (!validateSupabaseConfig('api_billing', 'getBillingOverview')) {
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error: Missing Supabase configuration',
+        code: 'CONFIG'
+      });
+    }
+
+    const { authToken, tenantId } = extractAuth(req);
+
+    if (!authToken) {
+      return res.status(401).json({ success: false, error: 'Authorization header required' });
+    }
+    if (!tenantId) {
+      return res.status(400).json({ success: false, error: 'x-tenant-id header is required' });
+    }
+
+    const result = await billingOverviewService.getOverview(tenantId);
+    return res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    return handleError(res, error, 'getBillingOverview');
   }
 };

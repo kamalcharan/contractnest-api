@@ -13,6 +13,7 @@ import {
   BlockQueryParams,
   TemplateQueryParams,
 } from '../types/catalogStudioTypes';
+import { deriveComputedEvents, DeriveEventsInput } from '../services/contractEventsDerivationService';
 
 // Extended Request with auth context
 interface AuthRequest extends Request {
@@ -335,7 +336,41 @@ class CatalogStudioController {
       return;
     }
 
-    const result = await catTemplatesService.subscribeToPlan(context, templateId);
+    // Derive the REAL billing schedule from the plan's authored wizard_state
+    // using the same engine every contract uses — this is what makes a
+    // quarterly plan bill 4 × 5,999 instead of the whole term upfront.
+    // Best-effort: on any failure the RPC falls back to its single-upfront-
+    // event shape, so a derivation problem can never block a subscription.
+    let computedEvents: unknown[] | undefined;
+    try {
+      const plansResult = await catTemplatesService.listPlanTemplates(context);
+      const plan = plansResult.success
+        ? plansResult.data?.plans?.find((p) => p.id === templateId)
+        : undefined;
+      const ws = plan?.wizard_state as Record<string, any> | null | undefined;
+      if (ws && Array.isArray(ws.selectedBlocks) && ws.selectedBlocks.length > 0) {
+        const input: DeriveEventsInput = {
+          startDate: new Date(),
+          durationValue: Number(ws.durationValue) || 1,
+          durationUnit: String(ws.durationUnit || 'months'),
+          selectedBlocks: ws.selectedBlocks,
+          paymentMode: (ws.paymentMode as DeriveEventsInput['paymentMode']) || 'defined',
+          emiMonths: Number(ws.emiMonths) || 0,
+          perBlockPaymentType: ws.perBlockPaymentType || {},
+          billingCycleType: ws.billingCycleType ?? 'unified',
+          grandTotal: Number(ws.grandTotal) || 0,
+          currency: String(ws.currency || plan?.currency || 'INR'),
+          baseSubtotal: Number(ws.baseSubtotal) || undefined,
+          discountTotal: Number(ws.discountTotal) || undefined,
+        };
+        computedEvents = deriveComputedEvents(input);
+      }
+    } catch (err) {
+      console.warn('[catalogStudio] subscribe event derivation failed, falling back:', err);
+      computedEvents = undefined;
+    }
+
+    const result = await catTemplatesService.subscribeToPlan(context, templateId, computedEvents);
 
     if (!result.success) {
       // 409 when the tenant already has a plan — a state conflict, not a

@@ -14,7 +14,10 @@ const CONTRACT_STATUSES = [
   'draft', 'pending_review', 'pending_acceptance', 'active', 'completed', 'cancelled', 'expired',
   'sent', 'quotes_received', 'awarded', 'converted_to_contract'
 ];
-const ACCEPTANCE_METHODS = ['manual', 'auto', 'digital_signature'];
+// 'payment' = gated on payment (activates once invoices clear). It was missing
+// here while the UI translated payment → 'manual', so sending the real value
+// would have been rejected with a 400. The DB CHECK constraint allows it.
+const ACCEPTANCE_METHODS = ['manual', 'auto', 'digital_signature', 'payment'];
 const SORT_ORDERS = ['asc', 'desc'];
 const SORT_FIELDS = ['created_at', 'updated_at', 'title', 'contract_number', 'total_value', 'start_date', 'end_date', 'status', 'health_score', 'completion'];
 

@@ -41,7 +41,13 @@ export const CONTRACT_TYPES = {
 export const ACCEPTANCE_METHODS = {
   MANUAL: 'manual',
   AUTO: 'auto',
-  DIGITAL_SIGNATURE: 'digital_signature'
+  DIGITAL_SIGNATURE: 'digital_signature',
+  // Gated on payment: the contract activates only once its invoices clear.
+  // Previously the UI squashed this into MANUAL, which made it
+  // indistinguishable from "handled offline by hand" and left every
+  // payment-gating branch in the DB unreachable. The t_contracts CHECK
+  // constraint has always allowed it.
+  PAYMENT: 'payment'
 } as const;
 
 export type RecordType = typeof CONTRACT_RECORD_TYPES[keyof typeof CONTRACT_RECORD_TYPES];

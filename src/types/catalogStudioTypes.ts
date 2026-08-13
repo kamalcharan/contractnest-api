@@ -290,6 +290,8 @@ export interface PlanTemplate {
   grants: Record<string, number>;
   /** Add-on flags the plan switches on, e.g. addon_vani_ai. */
   flags: string[];
+  /** The template's wizard_state snapshot, used to derive the real billing schedule on subscribe. */
+  wizard_state?: Record<string, any> | null;
   updated_at: string | null;
 }
 
@@ -307,6 +309,14 @@ export interface PlanSubscriptionResult {
   limits: Record<string, number>;
   grants: Record<string, number>;
   flags: string[];
+  was_switch: boolean;
+  previous_contract_id: string | null;
+  /** Null for a free plan — nothing to pay, entitlements already applied. */
+  invoice_id: string | null;
+  invoice_amount: number | null;
+  invoice_currency: string | null;
+  /** true for any priced plan — limits/credits land once invoice_id is paid, not now. */
+  requires_payment: boolean;
 }
 
 /**
@@ -338,8 +348,14 @@ export interface PackPurchaseResult {
   amount: number;
   currency: string;
   grants: Record<string, number>;
-  /** true for a paid pack — credits land once the invoice is paid, not now. */
+  /** Addon flags this pack grants (e.g. addon_extend_website) — empty for a plain credit/wallet pack. */
+  flags: string[];
+  /** true for a paid pack — credits/flags land once the invoice is paid, not now. */
   credits_pending: boolean;
+  /** Null for a free pack — nothing to pay, grants already applied. */
+  invoice_id: string | null;
+  invoice_amount: number | null;
+  invoice_currency: string | null;
 }
 
 export interface IndustryCoverage {
