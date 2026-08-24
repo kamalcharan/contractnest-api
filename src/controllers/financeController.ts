@@ -74,7 +74,8 @@ class FinanceController {
       const environment = (req.headers['x-environment'] as string) || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
-      const result = await this.financeService.getTaxSummary(userJWT, tenantId, environment);
+      const invoiceType = typeof req.query.invoice_type === 'string' ? req.query.invoice_type : undefined;
+      const result = await this.financeService.getTaxSummary(userJWT, tenantId, environment, invoiceType);
 
       if (!result.success) {
         this.mapEdgeErrorToResponse(res, result);

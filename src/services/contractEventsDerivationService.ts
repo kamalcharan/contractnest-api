@@ -436,11 +436,46 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
           });
         }
       } else {
-        // Recurring: monthly, fortnightly, quarterly, custom
+        // Recurring: monthly, fortnightly, quarterly, custom.
+        //
+        // THE RULE (owner-confirmed 2026-08-16): quantity is the COUNT and the
+        // cycle is the SPACING — "qty 1, cycle 15d" = 1 occurrence; "qty 3,
+        // cycle 15d" = 3 occurrences 15 days apart. Price follows the same
+        // rule (totalPrice = unitPrice × quantity), so count and money always
+        // come from the SAME source and can never disagree.
+        //
+        // Previously the count was date-derived whenever qty ≤ 1
+        // (ceil(term ÷ period)) while the PRICE still came from quantity —
+        // two different sources — so a ₹600 block with a 30-day cycle over a
+        // year was DIVIDED into 13 × ₹46.15 instead of billed once. That
+        // divide-instead-of-multiply mismatch is the same class of bug as
+        // CN-1002 (pricing and scheduling disagreeing).
+        //
+        // ONE exception, and only one: a visit-generating block whose BILLING
+        // cycle differs from its SERVICE cycle carries two genuinely different
+        // schedules that a single quantity field cannot express — there
+        // quantity means VISITS (it pairs with the service cycle) and the bill
+        // count derives from the term ("18 visits every 18 days, billed
+        // monthly, 1-year term" = 18 visits but 12 monthly bills). When the
+        // two cycles MATCH they are one schedule, so bills = visits = qty.
+        // 1:1 with the UI branch in contractEvents.ts — change together.
         const periodDays = cycleToPeriodDays(blockCycle, block.customCycleDays);
-        const count = countRecurringPeriods(totalDays, periodDays);
+        const qty = block.quantity || 0;
+        const serviceCycleDays = block.serviceCycleDays || 0;
+        const blockGeneratesVisits = categoryNeedsServiceEvents(block.categoryId || '')
+          && !block.config?.billingOnly
+          && serviceCycleDays > 0
+          && qty > 1;
+        // Two distinct schedules only when the cadences actually differ.
+        // ROUND, not ceil — "monthly over 1 year" must mean 12 bills
+        // (365/30 ceils to 13; quarterly would ceil to 5).
+        const billsAreSeparateFromVisits = blockGeneratesVisits && periodDays !== serviceCycleDays;
+        const count = billsAreSeparateFromVisits
+          ? Math.max(1, Math.round(totalDays / periodDays))
+          : Math.max(1, qty);
         const perPeriodAmount = Math.round((blockTotal / count) * 100) / 100;
 
+        const startIdx = events.length;
         for (let i = 0; i < count; i++) {
           const date = addDays(startDate, i * periodDays);
           // Don't generate events past the contract end
@@ -462,6 +497,14 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
             currency: block.currency || currency,
             status: 'scheduled',
           });
+        }
+        // When every period fit, the last installment absorbs rounding so the
+        // block's recurring billing sums EXACTLY to its total (parity with the
+        // UI branch — this absorb was also missing from this copy).
+        const emitted = events.length - startIdx;
+        if (emitted === count && emitted > 0) {
+          events[events.length - 1].amount =
+            Math.round((blockTotal - perPeriodAmount * (count - 1)) * 100) / 100;
         }
       }
     }
@@ -509,7 +552,12 @@ export function deriveComputedEvents(input: DeriveEventsInput): ComputedEventPay
       scheduled_date: scheduledDate instanceof Date
         ? scheduledDate.toISOString()
         : new Date(scheduledDate).toISOString(),
-      amount: event.amount || undefined,
+      // ?? not || — a ₹0 block (complimentary / included-at-no-charge) has a
+      // GENUINE amount of 0, and `0 || undefined` silently dropped it, storing
+      // NULL. A billing event with no amount reads as "unpriced" downstream
+      // instead of "free", so zero-price blocks must persist an explicit 0.
+      // Mirrors ContractWizard/logic/mapper.ts — change together (parity).
+      amount: event.amount ?? undefined,
       currency: event.currency || input.currency,
       assigned_to: event.assigned_to || undefined,
       assigned_to_name: event.assigned_to_name || undefined,

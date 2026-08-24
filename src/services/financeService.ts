@@ -65,9 +65,15 @@ class FinanceService {
   async getTaxSummary(
     userJWT: string,
     tenantId: string,
-    environment: string = 'live'
+    environment: string = 'live',
+    invoiceType?: string
   ): Promise<FinanceEdgeResponse> {
-    const url = `${this.edgeFunctionUrl}?view=tax-summary`;
+    // invoice_type: 'receivable' | 'payable' — optional split for the
+    // Money In / To Pay GST cards; absent = both sides (V1 behavior).
+    const typeParam = invoiceType && ['receivable', 'payable'].includes(invoiceType)
+      ? `&invoice_type=${invoiceType}`
+      : '';
+    const url = `${this.edgeFunctionUrl}?view=tax-summary${typeParam}`;
     return await this.makeRequest('GET', url, null, userJWT, tenantId, environment);
   }
 

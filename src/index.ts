@@ -380,6 +380,18 @@ try {
   }
 }
 
+// Load Contract routes V2 (JTD Nucleus initiative, Milestone 1) — new,
+// versioned, alongside contractCrudRoutes above. That block is untouched.
+let contractCrudRoutesV2;
+try {
+  contractCrudRoutesV2 = require('./routes/contractRoutesV2').default;
+  console.log('✅ Contract routes V2 loaded');
+} catch (error) {
+  console.error('❌ Failed to load contract routes V2:', error);
+  console.warn('⚠️  Continuing without contract routes V2...');
+  contractCrudRoutesV2 = null;
+}
+
 // Load Contract Event routes with error handling
 let contractEventRoutes;
 try {
@@ -951,6 +963,22 @@ try {
   console.error('❌ Failed to register contract routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
     tags: { source: 'route_registration', route_type: 'contracts' }
+  });
+}
+
+// Register Contract CRUD routes V2 with error handling — additive only,
+// the block above (mounting the real /api/contracts) is untouched.
+try {
+  if (contractCrudRoutesV2) {
+    app.use('/api/v2/contracts', contractCrudRoutesV2);
+    console.log('✅ Contract routes V2 registered at /api/v2/contracts');
+  } else {
+    console.log('⚠️  Contract routes V2 skipped (not loaded)');
+  }
+} catch (error) {
+  console.error('❌ Failed to register contract routes V2:', error);
+  captureException(error instanceof Error ? error : new Error(String(error)), {
+    tags: { source: 'route_registration', route_type: 'contracts_v2' }
   });
 }
 
