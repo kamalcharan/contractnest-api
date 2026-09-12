@@ -27,6 +27,67 @@ export class TenantFormsService {
     };
   }
 
+  // ---- TEMPLATES (B2.4: real block picker reads approved forms) ----
+
+  async listTemplates(
+    authHeader: string,
+    tenantId: string,
+    params: { status?: string; category?: string; form_type?: string; search?: string; limit?: number } = {}
+  ): Promise<any> {
+    try {
+      const qs = new URLSearchParams();
+      qs.set('status', params.status || 'approved');
+      if (params.category) qs.set('category', params.category);
+      if (params.form_type) qs.set('form_type', params.form_type);
+      if (params.search) qs.set('search', params.search);
+      qs.set('limit', String(Math.min(params.limit || 100, 100)));
+      const url = `${BASE_URL}?${qs.toString()}`;
+      const response = await axios.get(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('[TenantFormsService] listTemplates error:', error.message);
+      throw error;
+    }
+  }
+
+  async getTemplate(
+    authHeader: string,
+    tenantId: string,
+    templateId: string
+  ): Promise<any> {
+    try {
+      const url = `${BASE_URL}/${encodeURIComponent(templateId)}`;
+      const response = await axios.get(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('[TenantFormsService] getTemplate error:', error.message);
+      throw error;
+    }
+  }
+
+  // ---- MAPPINGS (B2.5: resolved form mappings for a contract) ----
+
+  async listMappings(
+    authHeader: string,
+    tenantId: string,
+    contractId: string
+  ): Promise<any> {
+    try {
+      const url = `${BASE_URL}/mappings?contract_id=${encodeURIComponent(contractId)}`;
+      const response = await axios.get(url, {
+        headers: this.getHeaders(authHeader, tenantId),
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('[TenantFormsService] listMappings error:', error.message);
+      throw error;
+    }
+  }
+
   // ---- SELECTIONS ----
 
   async listSelections(

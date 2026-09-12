@@ -41,6 +41,10 @@ export interface CreateSubmissionRequest {
   service_event_id: string;
   contract_id: string;
   mapping_id?: string;
+  // B2.5: binds the submission to exactly one t_contract_event_assets row.
+  // Server-side gate (trg_zz_submission_asset_gate) enforces presence when the
+  // visit has per-asset rows and rejects placeholder/cross-visit bindings.
+  event_asset_id?: string;
   responses?: Record<string, unknown>;
   computed_values?: Record<string, unknown>;
   device_info?: Record<string, unknown>;

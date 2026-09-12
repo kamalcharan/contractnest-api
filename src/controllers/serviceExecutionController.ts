@@ -125,6 +125,36 @@ class ServiceExecutionController {
     }
   };
 
+  // B3.5 — beyond-scope invoice for a ticket
+  createBeyondScopeInvoice = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const { ticketId } = req.params;
+      const tenantId = req.headers['x-tenant-id'] as string;
+      const environment = req.headers['x-environment'] as string || 'live';
+      const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+      const userId = req.user?.id || '';
+
+      if (!req.body?.contract_id || !Array.isArray(req.body?.line_items) || req.body.line_items.length === 0) {
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'contract_id and non-empty line_items are required', 400);
+        return;
+      }
+
+      const result = await this.service.createBeyondScopeInvoice(
+        ticketId, req.body, userJWT, tenantId, userId, environment
+      );
+
+      if (!result.success) {
+        this.mapEdgeErrorToResponse(res, result);
+        return;
+      }
+
+      res.status(201).json(result);
+    } catch (error) {
+      console.error('[ServiceExecutionController] Error in createBeyondScopeInvoice:', error);
+      internalError(res, 'Failed to create beyond-scope invoice');
+    }
+  };
+
   updateTicket = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const errors = validationResult(req);

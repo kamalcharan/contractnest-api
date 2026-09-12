@@ -910,7 +910,7 @@ class ContractController {
       const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
-      const { equipment_item } = req.body;
+      const { equipment_item, replaces_item_id } = req.body;
 
       if (!equipment_item) {
         sendError(res, ERROR_CODES.VALIDATION_ERROR, 'equipment_item is required', 400);
@@ -922,7 +922,8 @@ class ContractController {
         equipment_item,
         userJWT,
         tenantId,
-        environment
+        environment,
+        replaces_item_id ?? null
       );
 
       if (!result.success) {
@@ -990,7 +991,7 @@ class ContractController {
       const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
 
-      const { equipment_item } = req.body;
+      const { equipment_item, replaces_item_id } = req.body;
 
       if (!equipment_item) {
         sendError(res, ERROR_CODES.VALIDATION_ERROR, 'equipment_item is required', 400);
@@ -1002,7 +1003,8 @@ class ContractController {
         equipment_item,
         userJWT,
         tenantId,
-        environment
+        environment,
+        replaces_item_id ?? null
       );
 
       if (!result.success) {

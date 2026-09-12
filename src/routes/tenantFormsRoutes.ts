@@ -12,10 +12,79 @@ import {
   getSubmissionValidation,
   createSubmissionValidation,
   updateSubmissionValidation,
+  listMappingsValidation,
 } from '../validators/tenantFormsValidators';
 import { handleEdgeError, generateRequestId } from '../utils/apiErrors';
 
 const router = Router();
+
+// ============================================================================
+// TEMPLATES — Approved form templates (B2.4 block picker)
+// ============================================================================
+
+// GET /api/forms/templates — List form templates (approved by default)
+router.get('/templates', async (req: Request, res: Response) => {
+  const requestId = generateRequestId();
+  try {
+    const authHeader = req.headers.authorization || '';
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+    const result = await tenantFormsService.listTemplates(authHeader, tenantId, {
+      status: (req.query.status as string) || 'approved',
+      category: req.query.category as string | undefined,
+      form_type: req.query.form_type as string | undefined,
+      search: req.query.search as string | undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json(result);
+  } catch (error: any) {
+    console.error(`[TenantFormsRoutes] GET /templates error [${requestId}]:`, error.message);
+    return handleEdgeError(res, error, requestId);
+  }
+});
+
+// GET /api/forms/templates/:id — Single template with schema (B3.4 form-fill)
+router.get('/templates/:id', getSubmissionValidation, validateRequest, async (req: Request, res: Response) => {
+  const requestId = generateRequestId();
+  try {
+    const authHeader = req.headers.authorization || '';
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+    const result = await tenantFormsService.getTemplate(authHeader, tenantId, req.params.id);
+    res.json(result);
+  } catch (error: any) {
+    console.error(`[TenantFormsRoutes] GET /templates/:id error [${requestId}]:`, error.message);
+    return handleEdgeError(res, error, requestId);
+  }
+});
+
+// ============================================================================
+// MAPPINGS — Resolved form mappings for a contract (B2.5 read path)
+// ============================================================================
+
+// GET /api/forms/mappings?contract_id=... — Active resolved mappings + template names
+router.get(
+  '/mappings',
+  listMappingsValidation,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    const requestId = generateRequestId();
+    try {
+      const authHeader = req.headers.authorization || '';
+      const tenantId = (req.headers['x-tenant-id'] as string) || '';
+
+      const result = await tenantFormsService.listMappings(
+        authHeader,
+        tenantId,
+        req.query.contract_id as string
+      );
+      res.json(result);
+    } catch (error: any) {
+      console.error(`[TenantFormsRoutes] GET /mappings error [${requestId}]:`, error.message);
+      return handleEdgeError(res, error, requestId);
+    }
+  }
+);
 
 // ============================================================================
 // SELECTIONS — Tenant bookmarks for approved templates
@@ -127,6 +196,7 @@ router.post(
         service_event_id: req.body.service_event_id,
         contract_id: req.body.contract_id,
         mapping_id: req.body.mapping_id,
+        event_asset_id: req.body.event_asset_id,
         responses: req.body.responses,
         computed_values: req.body.computed_values,
         device_info: req.body.device_info,

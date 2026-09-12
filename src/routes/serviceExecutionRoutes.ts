@@ -87,6 +87,8 @@ router.get('/', listTicketsValidation, controller.listTickets);
 router.get('/:ticketId', getTicketDetailValidation, controller.getTicketDetail);
 router.post('/', writeRateLimit, createTicketValidation, controller.createTicket);
 router.patch('/:ticketId', writeRateLimit, updateTicketValidation, controller.updateTicket);
+// B3.5 — beyond-scope invoice raised from a ticket (unpaid, no billing event)
+router.post('/:ticketId/invoice', writeRateLimit, controller.createBeyondScopeInvoice);
 
 // =================================================================
 // EVIDENCE (ticket-scoped)

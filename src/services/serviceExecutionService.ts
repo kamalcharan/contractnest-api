@@ -84,6 +84,22 @@ class ServiceExecutionService {
     return await this.makeRequest('PATCH', url, payload, userJWT, tenantId, environment);
   }
 
+  // B3.5 — beyond-scope invoice from a ticket. POST /:ticketId/invoice
+  // → create_beyond_scope_invoice (unpaid, contract+ticket provenance,
+  // no billing event, tax from tenant settings).
+  async createBeyondScopeInvoice(
+    ticketId: string,
+    data: any,
+    userJWT: string,
+    tenantId: string,
+    userId: string,
+    environment: string = 'live'
+  ) {
+    const payload = { ...data, created_by: userId };
+    const url = `${this.edgeFunctionUrl}/${ticketId}/invoice`;
+    return await this.makeRequest('POST', url, payload, userJWT, tenantId, environment);
+  }
+
   // ==========================================================
   // EVIDENCE METHODS
   // ==========================================================

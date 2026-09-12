@@ -462,10 +462,11 @@ class ContractService {
     equipmentItem: any,
     userJWT: string,
     tenantId: string,
-    environment: string = 'live'
+    environment: string = 'live',
+    replacesItemId?: string | null
   ): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contractId}/buyer-equipment`;
-    return await this.makeRequest('POST', url, { equipment_item: equipmentItem }, userJWT, tenantId, environment);
+    return await this.makeRequest('POST', url, { equipment_item: equipmentItem, replaces_item_id: replacesItemId ?? null }, userJWT, tenantId, environment);
   }
 
   async buyerRemoveEquipment(
@@ -488,10 +489,11 @@ class ContractService {
     equipmentItem: any,
     userJWT: string,
     tenantId: string,
-    environment: string = 'live'
+    environment: string = 'live',
+    replacesItemId?: string | null
   ): Promise<EdgeFunctionResponse> {
     const url = `${this.edgeFunctionUrl}/${contractId}/seller-equipment`;
-    return await this.makeRequest('POST', url, { equipment_item: equipmentItem }, userJWT, tenantId, environment);
+    return await this.makeRequest('POST', url, { equipment_item: equipmentItem, replaces_item_id: replacesItemId ?? null }, userJWT, tenantId, environment);
   }
 
   async sellerRemoveEquipment(

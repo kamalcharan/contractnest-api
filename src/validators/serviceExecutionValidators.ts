@@ -85,6 +85,11 @@ export const createTicketValidation: ValidationChain[] = [
     .isString().withMessage('created_by_name must be a string')
     .isLength({ max: 255 }).withMessage('created_by_name cannot exceed 255 characters'),
 
+  // B3.1: Start Service births the ticket in_progress with started_at
+  body('start_now')
+    .optional()
+    .isBoolean().withMessage('start_now must be a boolean'),
+
   body('notes')
     .optional()
     .isString().withMessage('notes must be a string')

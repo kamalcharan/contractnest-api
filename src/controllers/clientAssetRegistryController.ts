@@ -70,6 +70,8 @@ export const listAssets = async (req: Request, res: Response) => {
     if (req.query.ownership_type) params.ownership_type = req.query.ownership_type;
     if (req.query.is_live === 'false') params.is_live = false;
     // Note: is_live defaults to true in the edge function, no need to send it explicitly
+    if (req.query.include_inactive === 'true') params.include_inactive = 'true';  // R2: inactive filter
+    if (req.query.with_contracts === 'true') params.with_contracts = 'true';      // R4: contract chips
     if (req.query.limit) params.limit = Number(req.query.limit);
     if (req.query.offset && Number(req.query.offset) > 0) params.offset = Number(req.query.offset);
 

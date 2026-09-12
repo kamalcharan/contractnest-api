@@ -48,6 +48,11 @@ export const createSubmissionValidation: ValidationChain[] = [
     .optional()
     .isUUID().withMessage('mapping_id must be a valid UUID'),
 
+  // B2.5: per-asset submission binding (gated server-side by trigger)
+  body('event_asset_id')
+    .optional()
+    .isUUID().withMessage('event_asset_id must be a valid UUID'),
+
   body('responses')
     .optional()
     .isObject().withMessage('responses must be an object'),
@@ -59,6 +64,13 @@ export const createSubmissionValidation: ValidationChain[] = [
   body('device_info')
     .optional()
     .isObject().withMessage('device_info must be an object'),
+];
+
+// ---- MAPPINGS (B2.5: resolved form mappings for a contract) ----
+
+export const listMappingsValidation: ValidationChain[] = [
+  query('contract_id')
+    .isUUID().withMessage('contract_id must be a valid UUID'),
 ];
 
 export const updateSubmissionValidation: ValidationChain[] = [
