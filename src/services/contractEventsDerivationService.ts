@@ -112,7 +112,7 @@ export interface ComputedEventPayload {
 // Mirrors contractnest-ui/src/utils/catalog-studio/categories.ts:
 // categoryHasPricing() — true only for categories whose wizard steps include
 // 'pricing'. In CATEGORY_METADATA those are 'service' and 'spare'.
-const PRICED_CATEGORY_IDS = new Set(['service', 'spare']);
+const PRICED_CATEGORY_IDS = new Set(['service', 'spare', 'billing']);
 
 export function categoryHasPricing(categoryId: string): boolean {
   return PRICED_CATEGORY_IDS.has(categoryId);
@@ -162,7 +162,7 @@ function addMonths(date: Date, months: number): Date {
 
 /** Deterministic event ID */
 function makeEventId(blockId: string, eventType: EventType, seq: number): string {
-  return `evt_${eventType}_${blockId.slice(0, 8)}_${seq}`;
+  return `evt_${eventType}_${blockId}_${seq}`;
 }
 
 /** How many recurring periods fit in the contract duration */
@@ -314,7 +314,7 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
         total_occurrences: emiMonths,
         scheduled_date: date,
         original_date: new Date(date),
-        amount: installment,
+        amount: i === emiMonths - 1 ? Math.round((grandTotal - installment * (emiMonths - 1)) * 100) / 100 : installment,
         currency,
         status: 'scheduled',
       });
@@ -323,13 +323,14 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
     // Per-block billing: each block generates its own billing events
     for (const block of selectedBlocks) {
       const hasPricing = categoryHasPricing(block.categoryId || '');
-      if (!hasPricing || block.unlimited) continue;
+      if (!hasPricing) continue;
 
       const blockCycle = block.cycle || 'prepaid';
       const blockPayType = perBlockPaymentType[block.id] || 'prepaid';
       const blockTotal = (block.totalPrice || 0) * discountFactor;
 
-      if (blockCycle === 'prepaid' || blockPayType === 'prepaid') {
+      // Timing is not frequency: monthly/prepaid still means monthly bills.
+      if (blockCycle === 'prepaid') {
         // On acceptance — 1 event
         events.push({
           id: makeEventId(block.id, 'billing', 1),
@@ -470,14 +471,18 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
         // ROUND, not ceil — "monthly over 1 year" must mean 12 bills
         // (365/30 ceils to 13; quarterly would ceil to 5).
         const billsAreSeparateFromVisits = blockGeneratesVisits && periodDays !== serviceCycleDays;
-        const count = billsAreSeparateFromVisits
+        const count = (billsAreSeparateFromVisits || block.unlimited)
           ? Math.max(1, Math.round(totalDays / periodDays))
           : Math.max(1, qty);
         const perPeriodAmount = Math.round((blockTotal / count) * 100) / 100;
 
         const startIdx = events.length;
         for (let i = 0; i < count; i++) {
-          const date = addDays(startDate, i * periodDays);
+          const periodStart = addDays(startDate, i * periodDays);
+          const periodEnd = addDays(startDate, (i + 1) * periodDays);
+          const date = blockPayType === 'postpaid'
+            ? (periodEnd > endDate ? new Date(endDate) : periodEnd) : periodStart;
+          if (periodStart > endDate) break;
           // Don't generate events past the contract end
           if (date > endDate) break;
 
@@ -520,6 +525,21 @@ export function deriveContractEvents(input: DeriveEventsInput): DerivedEvent[] {
     return 0;
   });
 
+  // Mirrors UI: absorb only bounded cent rounding on a COMPLETE schedule.
+  // Missing periods or material discrepancies must remain visible.
+  const bills = events.filter(e => e.event_type === 'billing');
+  bills.forEach(e => { if (e.amount !== undefined) e.amount = Math.round(e.amount * 100) / 100; });
+  if (paymentMode === 'defined' && bills.length) {
+    const counts = new Map<string, number>();
+    bills.forEach(e => counts.set(e.block_id, (counts.get(e.block_id) ?? 0) + 1));
+    const complete = bills.every(e => counts.get(e.block_id) === e.total_occurrences);
+    const residue = Math.round((grandTotal - bills.reduce((n,e) => n + (e.amount ?? 0),0)) * 100) / 100;
+    const last = bills[bills.length - 1];
+    const limit = selectedBlocks.filter(b => categoryHasPricing(b.categoryId || '')).length * 0.01;
+    if (complete && Math.abs(residue) <= limit + 0.000001 && (last.amount ?? 0) + residue >= 0) {
+      last.amount = Math.round(((last.amount ?? 0) + residue) * 100) / 100;
+    }
+  }
   return events;
 }
 
