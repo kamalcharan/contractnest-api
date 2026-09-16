@@ -50,6 +50,15 @@ class ContactController {
         type,
         search,
         classifications,
+        // FIX (2026-09-16): these three were silently dropped here, so the
+        // tag chips (and user-status / duplicates filters) counted correctly
+        // via /stats but never filtered the list — the edge list route has
+        // supported all three all along.
+        tags,
+        user_status,
+        show_duplicates,
+        sort_by,
+        sort_order,
         page = '1',
         limit = '20',
         includeInactive = 'false',
@@ -62,6 +71,11 @@ class ContactController {
         type: type as string,
         search: search as string,
         classifications: classifications ? (classifications as string).split(',') : undefined,
+        tags: tags ? (tags as string).split(',').filter(Boolean) : undefined,
+        user_status: user_status as string,
+        show_duplicates: show_duplicates === 'true' ? 'true' : undefined,
+        sort_by: sort_by as string,
+        sort_order: sort_order as string,
         page: parseInt(page as string, 10),
         limit: Math.min(parseInt(limit as string, 10), 100),
         includeInactive: includeInactive === 'true',
