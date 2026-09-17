@@ -24,6 +24,10 @@ export interface BoardFilters {
   to?: string;
   bands?: [number, number];
   kinds?: string[];
+  /** 'collections' | 'services' — absent = all lanes */
+  lanes?: string[];
+  /** services only: 'confirmed' | 'proposed' | 'none' */
+  slot?: 'confirmed' | 'proposed' | 'none';
   channel?: 'email' | 'whatsapp' | 'call';
   age?: '0-7' | '8-30' | '31-90' | '90+';
   cycle?: string;
@@ -84,9 +88,78 @@ class CollectionsService {
    * `userId` is only used by the who=mine filter.
    */
   board(tenantId: string, isLive: boolean, filters: BoardFilters, userId: string | null) {
-    return this.call('jtd_collections_board', {
+    // jtd_ops_board (migration 014) serves BOTH lanes — collections + services — in one row model.
+    return this.call('jtd_ops_board', {
       p_tenant: tenantId, p_is_live: isLive, p_filters: filters, p_user: userId
     });
+  }
+
+  // ── Services lane: visit tools (migration 014). The event id IS the row/job id. ──
+  assignVisit(tenantId: string, eventId: string, assignTo: string, actor: Actor, note: string | null) {
+    return this.call('jtd_assign_visit', {
+      p_tenant: tenantId, p_event_id: eventId, p_assign_to: assignTo,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_note: note
+    });
+  }
+
+  scheduleVisit(tenantId: string, eventId: string, scheduledAt: string, confirmed: boolean, actor: Actor, note: string | null) {
+    return this.call('jtd_schedule_visit', {
+      p_tenant: tenantId, p_event_id: eventId, p_scheduled_at: scheduledAt, p_confirmed: confirmed,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_note: note
+    });
+  }
+
+  confirmVisitSlot(tenantId: string, eventId: string, actor: Actor, note: string | null) {
+    return this.call('jtd_confirm_visit_slot', {
+      p_tenant: tenantId, p_event_id: eventId,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_note: note
+    });
+  }
+
+  startVisit(tenantId: string, eventId: string, actor: Actor, note: string | null) {
+    return this.call('jtd_start_visit', {
+      p_tenant: tenantId, p_event_id: eventId,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_note: note
+    });
+  }
+
+  /**
+   * Ask the customer to confirm the slot (migration 015). `share` sends nothing
+   * and returns the message + link (+ phone/email) for wa.me / copy; email and
+   * whatsapp queue a communication row and need a registered provider template.
+   * `linkBase` is the public app origin the /slot/:token link is built on.
+   */
+  askVisitSlot(tenantId: string, eventId: string, channel: 'share' | 'email' | 'whatsapp', actor: Actor, note: string | null, linkBase: string) {
+    return this.call('jtd_ask_visit_slot', {
+      p_tenant: tenantId, p_event_id: eventId, p_channel: channel,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_note: note, p_link_base: linkBase
+    });
+  }
+
+  completeVisit(tenantId: string, eventId: string, actor: Actor, notes: string | null) {
+    return this.call('jtd_complete_visit', {
+      p_tenant: tenantId, p_event_id: eventId,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_notes: notes
+    });
+  }
+
+  /**
+   * The Commitments Register's Activity tab (migration jtd-nucleus/016): the
+   * tenant-wide activity timeline — appointments · follow-ups · calls ·
+   * reminders · visits · payments — with from/to, groups, who, q, paging.
+   */
+  activity(tenantId: string, isLive: boolean, filters: Record<string, unknown>) {
+    return this.call('jtd_activity', { p_tenant: tenantId, p_is_live: isLive, p_filters: filters });
+  }
+
+  /**
+   * The Commitments Register's Follow-ups lane (migration jtd-nucleus/017):
+   * every call task, open or closed — due date, assignee, kind (follow_up |
+   * escalation), the payment it is about, how it closed. Filters from/to,
+   * who, kind, state, q, paging.
+   */
+  tasks(tenantId: string, isLive: boolean, filters: Record<string, unknown>) {
+    return this.call('jtd_tasks', { p_tenant: tenantId, p_is_live: isLive, p_filters: filters });
   }
 
   /**

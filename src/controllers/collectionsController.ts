@@ -40,6 +40,21 @@ const REFUSAL_STATUS: Record<string, number> = {
   invalid_outcome: 400,
   promise_date_required: 400,
   due_in_past: 400,
+  // services lane
+  visit_not_found: 404,
+  visit_closed: 409,
+  visit_in_progress: 409,
+  visit_already_started: 409,
+  // ask the customer (migration 015) — no_address / no_template are shared with the nudge tool above
+  no_customer: 404,
+  group_contract: 409,
+  bad_channel: 400,
+  already_assigned: 409,
+  already_confirmed: 409,
+  no_slot_to_confirm: 409,
+  scheduled_at_required: 400,
+  slot_in_past: 400,
+  downstream_refused: 409,
   invalid_reason: 400,
   actor_required: 401,
 };
@@ -141,6 +156,10 @@ class CollectionsController {
       }
       const kinds = list(qs.kinds);
       if (kinds) filters.kinds = kinds;
+      const lanes = list(qs.lanes)?.filter((l) => l === 'collections' || l === 'services');
+      if (lanes?.length) filters.lanes = lanes;
+      const slot = oneOf(qs.slot, ['confirmed', 'proposed', 'none'] as const);
+      if (slot) filters.slot = slot;
       const channel = oneOf(qs.channel, ['email', 'whatsapp', 'call'] as const);
       if (channel) filters.channel = channel;
       const age = oneOf(qs.age, ['0-7', '8-30', '31-90', '90+'] as const);
@@ -175,6 +194,66 @@ class CollectionsController {
   };
 
   /** GET /contracts/:contractId/activity?sources=service,billing,collections&limit=50&offset=0 */
+  /**
+   * GET /activity?from&to&groups&who&q&contract_id&limit&offset
+   * The Commitments Register's Activity tab (migration 016). Dates are IST
+   * calendar days; the RPC defaults the window to the last 30 days.
+   */
+  activity = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const qs = req.query as Record<string, unknown>;
+      const isoDate = (v: unknown) => { const s = this.str(v); return s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) ? s : undefined; };
+      const uuid = (v: unknown) => { const s = this.str(v); return s && /^[0-9a-f-]{36}$/i.test(s) ? s : undefined; };
+      const allowedGroups = ['appointments', 'followups', 'calls', 'reminders', 'visits', 'payments', 'other'];
+      const groups = (this.str(qs.groups) || '').split(',').map((g) => g.trim()).filter((g) => allowedGroups.includes(g));
+      const filters: Record<string, unknown> = {};
+      const from = isoDate(qs.from); const to = isoDate(qs.to);
+      if (from) filters.from = from;
+      if (to) filters.to = to;
+      if (groups.length) filters.groups = groups;
+      const who = uuid(qs.who); if (who) filters.who = who;
+      const contractId = uuid(qs.contract_id); if (contractId) filters.contract_id = contractId;
+      const q = this.str(qs.q); if (q) filters.q = q.slice(0, 80);
+      filters.limit = Math.min(Math.max(parseInt(String(qs.limit ?? '50'), 10) || 50, 1), 500);
+      filters.offset = Math.max(parseInt(String(qs.offset ?? '0'), 10) || 0, 0);
+      const result = await collectionsService.activity(this.tenantId(req), this.isLive(req), filters);
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] activity error:', error);
+      internalError(res, 'Failed to load the activity');
+    }
+  };
+
+  /**
+   * GET /tasks?from&to&who&kind&state&q&limit&offset
+   * The Commitments Register's Follow-ups lane (migration 017): call tasks,
+   * open or closed. Dates are IST calendar days on the task's due date.
+   */
+  tasks = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const qs = req.query as Record<string, unknown>;
+      const isoDate = (v: unknown) => { const s = this.str(v); return s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) ? s : undefined; };
+      const uuid = (v: unknown) => { const s = this.str(v); return s && /^[0-9a-f-]{36}$/i.test(s) ? s : undefined; };
+      const filters: Record<string, unknown> = {};
+      const from = isoDate(qs.from); const to = isoDate(qs.to);
+      if (from) filters.from = from;
+      if (to) filters.to = to;
+      const who = uuid(qs.who); if (who) filters.who = who;
+      const kind = this.str(qs.kind); if (kind === 'follow_up' || kind === 'escalation') filters.kind = kind;
+      const state = this.str(qs.state); if (state === 'open' || state === 'closed' || state === 'all') filters.state = state;
+      const q = this.str(qs.q); if (q) filters.q = q.slice(0, 80);
+      filters.limit = Math.min(Math.max(parseInt(String(qs.limit ?? '100'), 10) || 100, 1), 500);
+      filters.offset = Math.max(parseInt(String(qs.offset ?? '0'), 10) || 0, 0);
+      const result = await collectionsService.tasks(this.tenantId(req), this.isLive(req), filters);
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] tasks error:', error);
+      internalError(res, 'Failed to load the follow-ups');
+    }
+  };
+
   contractActivity = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
       const contractId = String(req.params.contractId || '');
@@ -191,6 +270,126 @@ class CollectionsController {
     } catch (error) {
       console.error('[CollectionsController] contractActivity error:', error);
       internalError(res, 'Failed to load the contract activity');
+    }
+  };
+
+  // ── Services lane: visit tools. :eventId is the service event (= the board row id). ──
+  private eventId(req: AuthRequest): string | null {
+    const id = String(req.params.eventId || '');
+    return /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+  }
+
+  /** POST /visits/:eventId/assign  {assign_to, note} */
+  assignVisit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to assign a visit', 401); return; }
+      const eventId = this.eventId(req);
+      const assignTo = this.str(req.body?.assign_to);
+      if (!eventId || !assignTo) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'eventId and assign_to are required', 400); return; }
+      const result = await collectionsService.assignVisit(this.tenantId(req), eventId, assignTo, actor, this.str(req.body?.note));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] assignVisit error:', error);
+      internalError(res, 'Failed to assign the visit');
+    }
+  };
+
+  /** POST /visits/:eventId/schedule  {scheduled_at (ISO or YYYY-MM-DD[THH:mm]), confirmed, note} */
+  scheduleVisit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to schedule a visit', 401); return; }
+      const eventId = this.eventId(req);
+      let when = this.str(req.body?.scheduled_at);
+      if (!eventId || !when) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'eventId and scheduled_at are required', 400); return; }
+      // A bare date means 10:00 IST; a local date-time without zone is read as IST.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(when)) when = `${when}T10:00:00+05:30`;
+      else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(when)) when = `${when}${when.length === 16 ? ':00' : ''}+05:30`;
+      if (Number.isNaN(Date.parse(when))) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'scheduled_at must be a date or date-time', 400); return; }
+      const confirmed = req.body?.confirmed === true || String(req.body?.confirmed) === 'true';
+      const result = await collectionsService.scheduleVisit(this.tenantId(req), eventId, new Date(when).toISOString(), confirmed, actor, this.str(req.body?.note));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] scheduleVisit error:', error);
+      internalError(res, 'Failed to schedule the visit');
+    }
+  };
+
+  /**
+   * POST /visits/:eventId/ask  {channel: share|email|whatsapp, note}
+   * Ask the customer to confirm the slot. `share` returns the message + the
+   * /slot/:token link (+ phone/email) for wa.me or copy and sends nothing;
+   * email/whatsapp queue a send through the JTD worker (registered template
+   * required — the RPC refuses no_template otherwise).
+   */
+  askVisitSlot = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to ask the customer', 401); return; }
+      const eventId = this.eventId(req);
+      if (!eventId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'eventId is required', 400); return; }
+      const channel = this.str(req.body?.channel) || 'share';
+      if (!['share', 'email', 'whatsapp'].includes(channel)) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'channel must be share, email or whatsapp', 400); return; }
+      // The public link is built on the app origin: configured, else the caller's origin (the app itself), else production.
+      const origin = typeof req.headers.origin === 'string' && /^https?:\/\//.test(req.headers.origin) ? req.headers.origin : null;
+      const linkBase = process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || origin || 'https://app.contractnest.com';
+      const result = await collectionsService.askVisitSlot(this.tenantId(req), eventId, channel as 'share' | 'email' | 'whatsapp', actor, this.str(req.body?.note), linkBase);
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] askVisitSlot error:', error);
+      internalError(res, 'Failed to ask the customer');
+    }
+  };
+
+  /** POST /visits/:eventId/confirm-slot  {note} */
+  confirmVisitSlot = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to confirm a slot', 401); return; }
+      const eventId = this.eventId(req);
+      if (!eventId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'eventId is required', 400); return; }
+      const result = await collectionsService.confirmVisitSlot(this.tenantId(req), eventId, actor, this.str(req.body?.note));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] confirmVisitSlot error:', error);
+      internalError(res, 'Failed to confirm the slot');
+    }
+  };
+
+  /** POST /visits/:eventId/start  {note} */
+  startVisit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to start a visit', 401); return; }
+      const eventId = this.eventId(req);
+      if (!eventId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'eventId is required', 400); return; }
+      const result = await collectionsService.startVisit(this.tenantId(req), eventId, actor, this.str(req.body?.note));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] startVisit error:', error);
+      internalError(res, 'Failed to start the visit');
+    }
+  };
+
+  /** POST /visits/:eventId/complete  {notes} */
+  completeVisit = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to complete a visit', 401); return; }
+      const eventId = this.eventId(req);
+      if (!eventId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'eventId is required', 400); return; }
+      const result = await collectionsService.completeVisit(this.tenantId(req), eventId, actor, this.str(req.body?.notes));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] completeVisit error:', error);
+      internalError(res, 'Failed to complete the visit');
     }
   };
 

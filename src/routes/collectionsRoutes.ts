@@ -13,6 +13,12 @@
 //   POST /payments/:jobId/escalate       jtd_escalate_payment_call {assign_to, note, due_at}  (self + due_at = Follow up)
 //   POST /payments/:jobId/pause          jtd_pause_dunning      {reason, until, note}
 //   POST /payments/:jobId/resume         jtd_resume_dunning     {note}
+//   GET  /board?lanes=collections,services&slot=…  jtd_ops_board (both lanes, migration 014)
+//   POST /visits/:eventId/assign         jtd_assign_visit       {assign_to, note}
+//   POST /visits/:eventId/schedule       jtd_schedule_visit     {scheduled_at, confirmed, note}
+//   POST /visits/:eventId/confirm-slot   jtd_confirm_visit_slot {note}
+//   POST /visits/:eventId/start          jtd_start_visit        {note}
+//   POST /visits/:eventId/complete       jtd_complete_visit     {notes}
 // ============================================================================
 
 import express from 'express';
@@ -52,10 +58,23 @@ const toolLimit = rateLimit({
 router.get('/worklist', readLimit, controller.worklist);
 router.get('/board', readLimit, controller.board);
 router.get('/contracts/:contractId/activity', readLimit, controller.contractActivity);
+// Commitments Register · Activity tab (migration 016): tenant-wide, ?from&to&groups&who&q&contract_id&limit&offset
+router.get('/activity', readLimit, controller.activity);
+// Commitments Register · Follow-ups lane (migration 017): call tasks open or closed, ?from&to&who&kind&state&q&limit&offset
+router.get('/tasks', readLimit, controller.tasks);
 router.post('/payments/:jobId/nudge', toolLimit, controller.nudge);
 router.post('/payments/:jobId/call', toolLimit, controller.logCall);
 router.post('/payments/:jobId/escalate', toolLimit, controller.escalate);
 router.post('/payments/:jobId/pause', toolLimit, controller.pause);
 router.post('/payments/:jobId/resume', toolLimit, controller.resume);
+// Services lane (migration 014) — :eventId is the service event = the board row id
+router.post('/visits/:eventId/assign', toolLimit, controller.assignVisit);
+router.post('/visits/:eventId/schedule', toolLimit, controller.scheduleVisit);
+router.post('/visits/:eventId/confirm-slot', toolLimit, controller.confirmVisitSlot);
+router.post('/visits/:eventId/start', toolLimit, controller.startVisit);
+router.post('/visits/:eventId/complete', toolLimit, controller.completeVisit);
+// Appointments = the visit's slot, closed with the customer (migration 015)
+//   {channel: share|email|whatsapp, note} → share returns message+link+phone for wa.me/copy; email/whatsapp queue a send
+router.post('/visits/:eventId/ask', toolLimit, controller.askVisitSlot);
 
 export default router;

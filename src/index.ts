@@ -485,6 +485,23 @@ try {
   }
 }
 
+// Load the public Visit Slot routes (customer confirms a service-visit slot from
+// the /slot/:token link — Ops on JTD, migration jtd-nucleus/015). Same pattern as
+// the public check-in router: token in the URL is the grant, no auth.
+let visitSlotPublicRoutes;
+try {
+  visitSlotPublicRoutes = require('./routes/visitSlotPublicRoutes').default;
+  console.log('✅ Visit Slot (public) routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Visit Slot (public) routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Visit Slot (public) routes...');
+    visitSlotPublicRoutes = null;
+  }
+}
+
 // Load Invoice routes (standalone, non-contract-scoped) with error handling.
 // ⚠ Restored 2026-08-13: originally registered on 2026-08-09 (2cc04a1) and
 // silently DELETED on 2026-08-10 (e3900b2) by a whole-file index.ts copy
@@ -1083,6 +1100,12 @@ try {
     console.log('✅ Session Check-in (public) routes registered at /api/checkin');
   } else {
     console.log('⚠️  Session Check-in (public) routes skipped (not loaded)');
+  }
+  if (visitSlotPublicRoutes) {
+    app.use('/api/visit-slot', visitSlotPublicRoutes);
+    console.log('✅ Visit Slot (public) routes registered at /api/visit-slot');
+  } else {
+    console.log('⚠️  Visit Slot (public) routes skipped (not loaded)');
   }
 } catch (error) {
   console.error('❌ Failed to register Session Check-in routes:', error);
