@@ -28,6 +28,7 @@ import integrationRoutes from './routes/integrationRoutes';
 import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
 import jtdRoutes from './routes/jtd';
+import collectionsRoutes from './routes/collectionsRoutes';
 import productsRoutes from './routes/productsRoutes';
 
 import resourcesRoutes from './routes/resourcesRoutes';
@@ -1182,6 +1183,12 @@ try {
     tags: { source: 'route_registration', route_type: 'product_config' }
   });
 }
+
+// Ops on JTD — Collections lane (ladder tools + cockpit reader). Mounted
+// under the JTD prefix but on its own router; the legacy /api/jtd router
+// below only serves /events and /webhooks, so the paths never overlap.
+app.use('/api/jtd/collections', collectionsRoutes);
+console.log('✅ JTD collections routes registered at /api/jtd/collections');
 
 // JTD Routes
 app.use('/api/jtd', jtdRoutes);

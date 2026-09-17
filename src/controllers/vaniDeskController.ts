@@ -97,7 +97,7 @@ class VaniDeskController {
         return;
       }
       if (config !== undefined && (typeof config !== 'object' || Array.isArray(config) || config === null)) {
-        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'config must be an object of numeric fields', 400);
+        sendError(res, ERROR_CODES.VALIDATION_ERROR, 'config must be an object of rule fields', 400);
         return;
       }
       if (is_enabled !== undefined && typeof is_enabled !== 'boolean') {

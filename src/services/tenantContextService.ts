@@ -60,6 +60,21 @@ export interface TenantContextFlags {
   can_send_email: boolean;
   credits_low: boolean;
   near_limit: boolean;
+  /**
+   * Tenant-level VaNi switch — the single truth (vani_is_enabled() over
+   * t_tenants.vani_enabled / vani_enabled_until; admin tenants always true).
+   * Emitted by get_tenant_context since migration vani-agent/003.
+   */
+  vani_enabled: boolean;
+}
+
+/** Detail behind flags.vani_enabled (same migration). */
+export interface TenantContextVani {
+  enabled: boolean;
+  /** ISO timestamp when a trial lapses; null = open-ended. */
+  until: string | null;
+  /** 'trial' | 'plan' | 'admin' | 'admin_tenant' | null */
+  source: string | null;
 }
 
 export interface TenantContext {
@@ -73,6 +88,8 @@ export interface TenantContext {
   usage: TenantContextUsage;
   addons: TenantContextAddons;
   flags: TenantContextFlags;
+  /** Absent on edge builds predating migration vani-agent/003. */
+  vani?: TenantContextVani;
   retrieved_at: string;
   error?: string;
 }
@@ -208,7 +225,7 @@ export const tenantContextService = {
         limits: { users: null, contracts: null, storage_mb: null },
         usage: { users: 0, contracts: 0, storage_mb: 0 },
         addons: { vani_ai: false, rfp: false },
-        flags: { can_access: false, can_send_whatsapp: false, can_send_sms: false, can_send_email: false, credits_low: false, near_limit: false },
+        flags: { can_access: false, can_send_whatsapp: false, can_send_sms: false, can_send_email: false, credits_low: false, near_limit: false, vani_enabled: false },
         retrieved_at: new Date().toISOString()
       };
     }

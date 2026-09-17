@@ -10,6 +10,7 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import vaniEntitlementService from './vaniEntitlementService';
+import { tenantContextService } from './tenantContextService';
 
 export interface VaniServiceResult<T = any> {
   success: boolean;
@@ -52,8 +53,12 @@ class VaniDeskService {
         };
       }
 
-      // Entitlement may flip immediately — don't serve a stale cached "no"
+      // Entitlement may flip immediately — don't serve a stale cached "no".
+      // start_vani_trial also sets t_tenants.vani_enabled, which the
+      // tenant-context API caches for 30s — drop that too so the landing page,
+      // Automation Rules and Briefing see the new state on their next fetch.
       vaniEntitlementService.clearCache(tenantId);
+      tenantContextService.invalidateCache('contractnest', tenantId);
 
       return { success: true, data };
     } catch (e: any) {
@@ -100,7 +105,9 @@ class VaniDeskService {
   async updateRule(
     tenantId: string,
     ruleKey: string,
-    config: Record<string, number> | null,
+    // Numbers, integer arrays (schedules) or strings — the RPC validates each
+    // field against the template's type and constraints.
+    config: Record<string, unknown> | null,
     isEnabled: boolean | null,
     expectedVersion: number | null,
     updatedBy: string | null
