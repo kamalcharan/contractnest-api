@@ -37,6 +37,15 @@ export interface BoardFilters {
   limits?: Record<string, number>;
 }
 
+/** jtd_plan's p_filters: a window (≤120 days, defaults today + 13), lanes, Who, search. */
+export interface PlanFilters {
+  from?: string;   // YYYY-MM-DD
+  to?: string;
+  lanes?: string[];
+  who?: 'team' | 'mine' | 'unassigned';
+  q?: string;
+}
+
 export interface ToolResult<T = any> {
   success: boolean;
   data?: T;
@@ -87,10 +96,18 @@ class CollectionsService {
    * kind + anchor + bucket, filters and per-bucket paging applied server-side.
    * `userId` is only used by the who=mine filter.
    */
-  board(tenantId: string, isLive: boolean, filters: BoardFilters, userId: string | null) {
+  board(tenantId: string, isLive: boolean, filters: BoardFilters, userId: string | null, perspective: 'revenue' | 'expense' = 'revenue') {
     // jtd_ops_board (migration 014) serves BOTH lanes — collections + services — in one row model.
-    return this.call('jtd_ops_board', {
+    // jtd_ops_board_expense (migration 021) is the buyer's board — same shape, lanes payables · services · acceptance.
+    return this.call(perspective === 'expense' ? 'jtd_ops_board_expense' : 'jtd_ops_board', {
       p_tenant: tenantId, p_is_live: isLive, p_filters: filters, p_user: userId
+    });
+  }
+
+  /** Expense side (migration 021): the buyer answers a proposed slot from inside the app — same tool as /slot/:token. */
+  respondSlot(tenantId: string, appointmentId: string, action: 'accept' | 'propose' | 'decline', proposedAt: string | null, note: string | null) {
+    return this.call('jtd_buyer_respond_slot', {
+      p_tenant: tenantId, p_appointment_id: appointmentId, p_action: action, p_proposed_at: proposedAt, p_note: note
     });
   }
 
@@ -171,6 +188,32 @@ class CollectionsService {
     return this.call('jtd_contract_activity', {
       p_tenant: tenantId, p_contract_id: contractId, p_is_live: isLive,
       p_sources: sources, p_limit: limit, p_offset: offset
+    });
+  }
+
+  // ── Plan view (migration jtd-nucleus/023) ─────────────────────────────────
+  /**
+   * The Commitments Register's Plan tab: every day of the window with its board
+   * cards lined up (jtd_ops_board regrouped by IST anchor day), per-day counts,
+   * carried (overdue) and parked rows, and whether VaNi is on for the tenant.
+   */
+  plan(tenantId: string, isLive: boolean, filters: PlanFilters, userId: string | null) {
+    return this.call('jtd_plan', { p_tenant: tenantId, p_is_live: isLive, p_filters: filters, p_user: userId });
+  }
+
+  /** "Plan this day" — proposes a slot for every unslotted service on the day. VaNi leverage: the RPC refuses vani_off. */
+  planDay(tenantId: string, day: string, actor: Actor, isLive: boolean) {
+    return this.call('jtd_plan_day', {
+      p_tenant: tenantId, p_day: day,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_is_live: isLive
+    });
+  }
+
+  /** "Ask everyone" — asks every proposed-not-asked slot of the day on email or WhatsApp. VaNi leverage: refuses vani_off. */
+  askDay(tenantId: string, day: string, channel: 'email' | 'whatsapp', actor: Actor, isLive: boolean, linkBase: string) {
+    return this.call('jtd_ask_day', {
+      p_tenant: tenantId, p_day: day, p_channel: channel,
+      p_actor_type: actor.type, p_actor_id: actor.id, p_actor_name: actor.name, p_is_live: isLive, p_link_base: linkBase
     });
   }
 

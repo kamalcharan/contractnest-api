@@ -46,6 +46,23 @@ class CadenceSettingsController {
     sendSuccess(res, result.data);
   };
 
+  /** PUT /api/settings/cadence/hours  body: { work_start:'HH:MM', work_end:'HH:MM', default_visit_minutes:number } (024) */
+  updateHours = async (req: AuthRequest, res: Response): Promise<void> => {
+    const tenantId = this.tenantId(req);
+    if (!tenantId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant is required', 400); return; }
+    const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const workStart = String(req.body?.work_start ?? '');
+    const workEnd = String(req.body?.work_end ?? '');
+    const minutes = parseInt(String(req.body?.default_visit_minutes ?? ''), 10);
+    if (!hhmm.test(workStart) || !hhmm.test(workEnd)) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'work_start and work_end must be HH:MM', 400); return; }
+    if (workEnd <= workStart) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'The working day must end after it starts', 400); return; }
+    if (!Number.isFinite(minutes) || minutes < 15 || minutes > 480) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'default_visit_minutes must be between 15 and 480', 400); return; }
+    const result = await cadenceSettingsService.updateHours(tenantId, workStart, workEnd, minutes);
+    if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to save working hours', 500); return; }
+    if (result.data && result.data.success === false) { sendError(res, ERROR_CODES.VALIDATION_ERROR, result.data.message || result.data.reason || 'Could not save working hours', 400); return; }
+    sendSuccess(res, result.data);
+  };
+
   addHoliday = async (req: AuthRequest, res: Response): Promise<void> => {
     const tenantId = this.tenantId(req);
     if (!tenantId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Tenant is required', 400); return; }

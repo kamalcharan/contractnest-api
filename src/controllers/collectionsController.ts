@@ -11,7 +11,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError, internalError, ERROR_CODES } from '../utils/apiResponseHelpers';
-import collectionsService, { Actor, BoardFilters } from '../services/collectionsService';
+import collectionsService, { Actor, BoardFilters, PlanFilters } from '../services/collectionsService';
 import { invoiceService } from '../services/invoiceService';
 
 const CHANNELS = ['email', 'whatsapp'] as const;
@@ -57,6 +57,10 @@ const REFUSAL_STATUS: Record<string, number> = {
   downstream_refused: 409,
   invalid_reason: 400,
   actor_required: 401,
+  // plan view (migration 023)
+  vani_off: 403,
+  day_required: 400,
+  day_passed: 400,
 };
 
 class CollectionsController {
@@ -156,7 +160,7 @@ class CollectionsController {
       }
       const kinds = list(qs.kinds);
       if (kinds) filters.kinds = kinds;
-      const lanes = list(qs.lanes)?.filter((l) => l === 'collections' || l === 'services');
+      const lanes = list(qs.lanes)?.filter((l) => l === 'collections' || l === 'services' || l === 'payables' || l === 'acceptance');
       if (lanes?.length) filters.lanes = lanes;
       const slot = oneOf(qs.slot, ['confirmed', 'proposed', 'none'] as const);
       if (slot) filters.slot = slot;
@@ -184,7 +188,9 @@ class CollectionsController {
         if (Object.keys(limits).length) filters.limits = limits;
       }
 
-      const result = await collectionsService.board(this.tenantId(req), this.isLive(req), filters, req.user?.id || null);
+      // perspective=expense → the buyer's board (migration 021); anything else is the revenue board.
+      const perspective = oneOf(qs.perspective, ['revenue', 'expense'] as const) || 'revenue';
+      const result = await collectionsService.board(this.tenantId(req), this.isLive(req), filters, req.user?.id || null, perspective);
       if (!result.success) { this.refuse(res, result.error!); return; }
       sendSuccess(res, result.data);
     } catch (error) {
@@ -273,11 +279,112 @@ class CollectionsController {
     }
   };
 
+  /**
+   * POST /slots/:appointmentId/respond  {action: accept|propose|decline, proposed_at?, note?}
+   * Expense side (migration 021): the buyer answers the seller's proposed slot
+   * in-app. proposed_at: ISO, or a local date-time read as IST.
+   */
+  respondSlot = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to answer a slot', 401); return; }
+      const id = String(req.params.appointmentId || '');
+      if (!/^[0-9a-f-]{36}$/i.test(id)) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'appointmentId is required', 400); return; }
+      const action = this.str(req.body?.action);
+      if (action !== 'accept' && action !== 'propose' && action !== 'decline') { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'action must be accept, propose or decline', 400); return; }
+      let when = this.str(req.body?.proposed_at);
+      if (action === 'propose') {
+        if (!when) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'proposed_at is required to propose a time', 400); return; }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(when)) when = `${when}T10:00:00+05:30`;
+        else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(when)) when = `${when}${when.length === 16 ? ':00' : ''}+05:30`;
+        if (Number.isNaN(Date.parse(when))) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'proposed_at must be a date or date-time', 400); return; }
+      }
+      const result = await collectionsService.respondSlot(this.tenantId(req), id, action, action === 'propose' ? new Date(when!).toISOString() : null, this.str(req.body?.note));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] respondSlot error:', error);
+      internalError(res, 'Failed to answer the slot');
+    }
+  };
+
   // ── Services lane: visit tools. :eventId is the service event (= the board row id). ──
   private eventId(req: AuthRequest): string | null {
     const id = String(req.params.eventId || '');
     return /^[0-9a-f-]{36}$/i.test(id) ? id : null;
   }
+
+  /** :day as an ISO calendar day (YYYY-MM-DD), else null. */
+  private day(req: AuthRequest): string | null {
+    const d = String(req.params.day || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) ? d : null;
+  }
+
+  /** The public app origin the /slot/:token link is built on (same rule as askVisitSlot). */
+  private linkBase(req: AuthRequest): string {
+    const origin = typeof req.headers.origin === 'string' && /^https?:\/\//.test(req.headers.origin) ? req.headers.origin : null;
+    return process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || origin || 'https://app.contractnest.com';
+  }
+
+  // ── Plan view (migration jtd-nucleus/023) ─────────────────────────────────
+  /** GET /plan?from=&to=&lanes=&who=&q=  — every day of the window with its cards lined up */
+  plan = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const qs = req.query as Record<string, unknown>;
+      const isoDate = (v: unknown): string | undefined => {
+        const s = this.str(v);
+        return s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) ? s : undefined;
+      };
+      const filters: PlanFilters = {};
+      const from = isoDate(qs.from); if (from) filters.from = from;
+      const to = isoDate(qs.to); if (to) filters.to = to;
+      const lanes = (this.str(qs.lanes) || '').split(',').map((x) => x.trim()).filter((l) => l === 'collections' || l === 'services');
+      if (lanes.length) filters.lanes = lanes;
+      const who = this.str(qs.who);
+      if (who === 'team' || who === 'mine' || who === 'unassigned') filters.who = who;
+      const q = this.str(qs.q); if (q) filters.q = q.slice(0, 80);
+      const result = await collectionsService.plan(this.tenantId(req), this.isLive(req), filters, req.user?.id || null);
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] plan error:', error);
+      internalError(res, 'Failed to load the plan');
+    }
+  };
+
+  /** POST /plan/:day/place — "Plan this day": propose a slot for every unslotted service on the day (VaNi leverage) */
+  planDay = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to plan the day', 401); return; }
+      const day = this.day(req);
+      if (!day) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'day must be YYYY-MM-DD', 400); return; }
+      const result = await collectionsService.planDay(this.tenantId(req), day, actor, this.isLive(req));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] planDay error:', error);
+      internalError(res, 'Failed to plan the day');
+    }
+  };
+
+  /** POST /plan/:day/ask {channel: email|whatsapp} — "Ask everyone" on the day (VaNi leverage) */
+  askDay = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const actor = this.actor(req);
+      if (!actor) { sendError(res, ERROR_CODES.UNAUTHORIZED, 'Sign in to ask the customers', 401); return; }
+      const day = this.day(req);
+      if (!day) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'day must be YYYY-MM-DD', 400); return; }
+      const channel = this.str(req.body?.channel);
+      if (channel !== 'email' && channel !== 'whatsapp') { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'channel must be email or whatsapp', 400); return; }
+      const result = await collectionsService.askDay(this.tenantId(req), day, channel, actor, this.isLive(req), this.linkBase(req));
+      if (!result.success) { this.refuse(res, result.error!); return; }
+      sendSuccess(res, result.data);
+    } catch (error) {
+      console.error('[CollectionsController] askDay error:', error);
+      internalError(res, 'Failed to ask the customers');
+    }
+  };
 
   /** POST /visits/:eventId/assign  {assign_to, note} */
   assignVisit = async (req: AuthRequest, res: Response): Promise<void> => {

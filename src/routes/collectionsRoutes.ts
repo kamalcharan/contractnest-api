@@ -19,6 +19,9 @@
 //   POST /visits/:eventId/confirm-slot   jtd_confirm_visit_slot {note}
 //   POST /visits/:eventId/start          jtd_start_visit        {note}
 //   POST /visits/:eventId/complete       jtd_complete_visit     {notes}
+//   GET  /plan                           jtd_plan               the register's Plan tab (023)
+//   POST /plan/:day/place                jtd_plan_day           "Plan this day" (VaNi leverage)
+//   POST /plan/:day/ask                  jtd_ask_day            "Ask everyone"  (VaNi leverage)
 // ============================================================================
 
 import express from 'express';
@@ -76,5 +79,14 @@ router.post('/visits/:eventId/complete', toolLimit, controller.completeVisit);
 // Appointments = the visit's slot, closed with the customer (migration 015)
 //   {channel: share|email|whatsapp, note} → share returns message+link+phone for wa.me/copy; email/whatsapp queue a send
 router.post('/visits/:eventId/ask', toolLimit, controller.askVisitSlot);
+// Plan view (migration 023): the register's Plan tab
+//   GET  /plan?from&to&lanes&who&q      jtd_plan — every day of the window with its cards, counts, VaNi on/off
+//   POST /plan/:day/place               jtd_plan_day — "Plan this day" (VaNi leverage: refuses vani_off)
+//   POST /plan/:day/ask {channel}       jtd_ask_day  — "Ask everyone"  (VaNi leverage: refuses vani_off)
+router.get('/plan', readLimit, controller.plan);
+router.post('/plan/:day/place', toolLimit, controller.planDay);
+router.post('/plan/:day/ask', toolLimit, controller.askDay);
+// Expense side (migration 021): the buyer answers a proposed slot in-app — {action: accept|propose|decline, proposed_at?, note?}
+router.post('/slots/:appointmentId/respond', toolLimit, controller.respondSlot);
 
 export default router;

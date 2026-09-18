@@ -198,6 +198,21 @@ try {
   }
 }
 
+// Load Availability routes (who works when — migration 024) with error handling
+let availabilityRoutes;
+try {
+  availabilityRoutes = require('./routes/availabilityRoutes').default;
+  console.log('✅ Availability routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load availability routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without availability routes...');
+    availabilityRoutes = null;
+  }
+}
+
 // Load Cadence Settings routes with error handling
 let cadenceSettingsRoutes;
 try {
@@ -803,6 +818,10 @@ try {
 
 // Register Cadence Settings routes with error handling
 try {
+  if (availabilityRoutes) {
+    app.use('/api/availability', availabilityRoutes);
+    console.log('✅ Availability routes registered at /api/availability');
+  }
   if (cadenceSettingsRoutes) {
     app.use('/api/settings/cadence', cadenceSettingsRoutes);
     console.log('✅ Cadence settings routes registered at /api/settings/cadence');

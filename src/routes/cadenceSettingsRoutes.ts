@@ -16,6 +16,8 @@ router.use(authenticate);
 router.get('/', cadenceSettingsController.getSettings);
 // PUT    /api/settings/cadence            body: { weekly_holidays:number[], default_shift:'next'|'previous' }
 router.put('/', cadenceSettingsController.updateSettings);
+// PUT    /api/settings/cadence/hours      body: { work_start:'HH:MM', work_end:'HH:MM', default_visit_minutes:number }  (024)
+router.put('/hours', cadenceSettingsController.updateHours);
 // POST   /api/settings/cadence/holidays   body: { date:'YYYY-MM-DD', label?:string }
 router.post('/holidays', cadenceSettingsController.addHoliday);
 // DELETE /api/settings/cadence/holidays?date=YYYY-MM-DD

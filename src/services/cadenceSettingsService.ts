@@ -8,6 +8,7 @@
 //   upsert_tenant_cadence_settings(p_tenant, p_weekly_holidays, p_default_shift)
 //   add_tenant_holiday(p_tenant, p_date, p_label)
 //   remove_tenant_holiday(p_tenant, p_date)
+//   upsert_tenant_working_hours(p_tenant, p_work_start, p_work_end, p_default_visit_minutes)   (024)
 // ============================================================================
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -53,6 +54,13 @@ class CadenceSettingsService {
       p_tenant: tenantId,
       p_weekly_holidays: weeklyHolidays,
       p_default_shift: defaultShift,
+    });
+  }
+
+  /** 024: the organisation's working hours and default visit length → upsert_tenant_working_hours */
+  updateHours(tenantId: string, workStart: string, workEnd: string, defaultVisitMinutes: number) {
+    return this.call('upsert_tenant_working_hours', {
+      p_tenant: tenantId, p_work_start: workStart, p_work_end: workEnd, p_default_visit_minutes: defaultVisitMinutes,
     });
   }
 

@@ -1316,7 +1316,11 @@ class ContractController {
    */
   claimContract = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-      const { cnak } = req.body;
+      // CNAK-lite v2: the RPC rejects a bare CNAK. The review-link secret
+      // (auto-claim) or the mobile the seller has on file (manual claim) must
+      // reach it — the service and edge already forward both; this controller
+      // used to drop them, so every manual claim failed VERIFICATION_REQUIRED.
+      const { cnak, secret, mobile } = req.body;
       const tenantId = req.headers['x-tenant-id'] as string;
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
       const userId = req.user?.id || '';
@@ -1335,7 +1339,9 @@ class ContractController {
         cnak,
         userJWT,
         tenantId,
-        userId
+        userId,
+        typeof secret === 'string' && secret.trim() ? secret.trim() : undefined,
+        typeof mobile === 'string' && mobile.trim() ? mobile.trim() : undefined
       );
 
       res.status(result.success ? 200 : 400).json(result);
