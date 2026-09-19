@@ -26,6 +26,12 @@ import {
   EVENT_TYPE_DISPLAY_NAMES,
   getStatusPreviewByEventType
 } from './eventStatuses.seed';
+import {
+  jtdTemplatesSeedDefinition,
+  JTD_TEMPLATE_SEED_DATA,
+  JTD_CHANNEL_DISPLAY_NAMES,
+  getTemplatePreviewByChannel
+} from './jtdTemplates.seed';
 
 // =================================================================
 // SEED REGISTRY
@@ -36,10 +42,10 @@ export const SeedRegistry: Record<string, SeedDefinition> = {
   sequences: sequencesSeedDefinition,
   relationships: relationshipsSeedDefinition,
   eventStatuses: eventStatusesSeedDefinition,
+  jtdTemplates: jtdTemplatesSeedDefinition,
   // Future seeds:
   // roles: rolesSeedDefinition,
   // tags: tagsSeedDefinition,
-  // notifications: notificationsSeedDefinition,
 };
 
 // =================================================================
@@ -174,6 +180,13 @@ export const getSeedPreview = (category: string): SeedPreview | null => {
       name: EVENT_TYPE_DISPLAY_NAMES[eventType] || eventType,
       preview: `${statuses.length} statuses`
     }));
+  } else if (category === 'jtdTemplates') {
+    const grouped = getTemplatePreviewByChannel();
+    items = Object.entries(grouped).map(([channel, templates]) => ({
+      code: channel,
+      name: JTD_CHANNEL_DISPLAY_NAMES[channel] || channel,
+      preview: `${templates.length} templates`
+    }));
   } else {
     // Generic mapping for other seed types
     items = definition.data.map(item => ({
@@ -242,5 +255,14 @@ export {
   getStatusPreviewByEventType,
   eventStatusesSeedDefinition
 } from './eventStatuses.seed';
+
+export {
+  JTD_TEMPLATE_SEED_DATA,
+  PLATFORM_SOURCE_TYPES,
+  JTD_CHANNEL_DISPLAY_NAMES,
+  getTemplatePreviewByChannel,
+  getTemplateCountByChannel,
+  jtdTemplatesSeedDefinition
+} from './jtdTemplates.seed';
 
 export * from './types';
