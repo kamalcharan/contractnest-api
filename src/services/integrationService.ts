@@ -4,6 +4,7 @@ import { initializeApp, FirebaseApp } from 'firebase/app';
 import { getStorage, ref, uploadBytes, getDownloadURL, FirebaseStorage } from 'firebase/storage';
 import { getAuth, signInAnonymously, Auth, User, onAuthStateChanged } from 'firebase/auth';
 import { v4 as uuidv4 } from 'uuid';
+import evidenceStorageService from './evidenceStorageService';
 import { captureException } from '../utils/sentry';
 import { SUPABASE_URL } from '../utils/supabaseConfig';
 
@@ -680,19 +681,26 @@ export const integrationService = {
     }
 
     try {
-      const { storage } = await initializeIntegrationFirebase();
+      // Storage swapped to the one path in the product (Admin SDK →
+      // tenants/{tenant}/integration_qr/… + a registry row). The QR DECODE
+      // above is deliberately untouched: it is what recovers org_id and mcc
+      // from the bank's own sticker, and those two fields are the whole reason
+      // UPI merchant payments work. A durable url, because this image is shown
+      // on the integrations page and referenced from payment config.
+      const saved = await evidenceStorageService.saveIdentityAsset(
+        tenantId,
+        null,
+        'integration_qr',
+        file.originalname,
+        file.mimetype,
+        file.buffer
+      );
 
-      const fileId = uuidv4();
-      const fileExtension = file.originalname.split('.').pop() || 'png';
-      const filePath = `tenant_integration_assets/${tenantId}/qr_${fileId}.${fileExtension}`;
+      if (!saved.success || !saved.data) {
+        throw new Error(saved.detail || saved.reason || 'QR upload failed');
+      }
 
-      const storageRef = ref(storage, filePath);
-      await uploadBytes(storageRef, file.buffer, {
-        contentType: file.mimetype,
-        customMetadata: { tenantId, originalName: file.originalname, uploadedAt: new Date().toISOString() }
-      });
-
-      return await getDownloadURL(storageRef);
+      return saved.data.public_url;
     } catch (error) {
       console.error('Error in uploadQrImage service:', error);
       captureException(error instanceof Error ? error : new Error(String(error)), {

@@ -7,6 +7,12 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "moduleResolution": "node",
+    // Silences TS5107/TS5101 for the deprecated moduleResolution+baseUrl above.
+    // WITHOUT THIS, tsc REPORTS THOSE TWO AND ABORTS BEFORE COMPILING ANY FILE:
+    // `npx tsc --noEmit` exited 0 having checked nothing, so type errors only
+    // surfaced when ts-node compiled at runtime and crashed the dev server.
+    // Proper fix later: move to "bundler"/"node16" and drop baseUrl.
+    "ignoreDeprecations": "6.0",
     "resolveJsonModule": true,
     "strict": true,
     "skipLibCheck": true,

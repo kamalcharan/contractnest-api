@@ -29,6 +29,9 @@ import businessModelRoutes from './routes/businessModelRoutes';
 import systemRoutes from './routes/systemRoutes';
 import jtdRoutes from './routes/jtd';
 import collectionsRoutes from './routes/collectionsRoutes';
+import evidenceRoutes from './routes/evidenceRoutes';
+import storageAdminRoutes from './routes/storageAdminRoutes';
+import { startStorageCleanupTimer } from './services/storageCleanupService';
 import productsRoutes from './routes/productsRoutes';
 
 import resourcesRoutes from './routes/resourcesRoutes';
@@ -503,6 +506,20 @@ try {
 // Load the public Visit Slot routes (customer confirms a service-visit slot from
 // the /slot/:token link — Ops on JTD, migration jtd-nucleus/015). Same pattern as
 // the public check-in router: token in the URL is the grant, no auth.
+let evidencePublicRoutes;
+try {
+  evidencePublicRoutes = require('./routes/evidencePublicRoutes').default;
+  console.log('✅ Evidence (public/CNAK) routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Evidence (public/CNAK) routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Evidence (public/CNAK) routes...');
+    evidencePublicRoutes = null;
+  }
+}
+
 let visitSlotPublicRoutes;
 try {
   visitSlotPublicRoutes = require('./routes/visitSlotPublicRoutes').default;
@@ -1126,6 +1143,15 @@ try {
   } else {
     console.log('⚠️  Visit Slot (public) routes skipped (not loaded)');
   }
+  // Evidence read for a counterparty who is not a tenant — CNAK + secret in the
+  // URL, checked by contract_membership(). No auth by design: this is the path
+  // by which a buyer verifies proof before ever signing up.
+  if (evidencePublicRoutes) {
+    app.use('/api/public/evidence', evidencePublicRoutes);
+    console.log('✅ Evidence (public/CNAK) routes registered at /api/public/evidence');
+  } else {
+    console.log('⚠️  Evidence (public/CNAK) routes skipped (not loaded)');
+  }
 } catch (error) {
   console.error('❌ Failed to register Session Check-in routes:', error);
   captureException(error instanceof Error ? error : new Error(String(error)), {
@@ -1231,6 +1257,18 @@ try {
 // below only serves /events and /webhooks, so the paths never overlap.
 app.use('/api/jtd/collections', collectionsRoutes);
 console.log('✅ JTD collections routes registered at /api/jtd/collections');
+
+// Evidence storage — the ONLY door to Firebase. Slot → direct PUT → confirm,
+// and a short-TTL signed URL for every read. Authorisation is contract_membership()
+// in Postgres (migrations evidence-storage/001 + 002), never here.
+app.use('/api/evidence', evidenceRoutes);
+console.log('✅ Evidence storage routes registered at /api/evidence');
+
+// Storage admin — platform admin only. The sweep runs on its own timer; these
+// let it be inspected and triggered on demand. The batch H folder browser will
+// hang off this same router.
+app.use('/api/admin/storage', storageAdminRoutes);
+console.log('✅ Storage admin routes registered at /api/admin/storage');
 
 // JTD Routes
 app.use('/api/jtd', jtdRoutes);
@@ -1628,6 +1666,16 @@ const startServer = async () => {
     // Start HTTP server
     const server = httpServer.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT}`);
+
+      // StorageCleanup. Hourly tick; storage_cleanup_due() decides whether a
+      // sweep actually happens, so this settles to ~daily and a restart storm
+      // cannot cause a run storm. Skips quietly when Firebase is unconfigured.
+      try {
+        startStorageCleanupTimer();
+        console.log('🧹 StorageCleanup sweep scheduled');
+      } catch (error) {
+        console.error('❌ Failed to schedule StorageCleanup sweep:', error);
+      }
       console.log(`📚 API Documentation available at http://localhost:${PORT}/api-docs`);
 
       console.log('📍 Registered business model routes:');

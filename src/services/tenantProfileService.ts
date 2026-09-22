@@ -12,6 +12,7 @@ import {
 } from 'firebase/storage';
 import { getAuth, signInAnonymously, Auth, User, onAuthStateChanged } from 'firebase/auth';
 import { v4 as uuidv4 } from 'uuid';
+import evidenceStorageService from './evidenceStorageService';
 import { captureException } from '../utils/sentry';
 import { SUPABASE_URL } from '../utils/supabaseConfig';
 
@@ -406,30 +407,29 @@ export const tenantProfileService = {
 
       console.log(`Uploading logo for tenant ${tenantId}, file: ${file.originalname}, size: ${file.size}`);
 
-      // ✅ Initialize Firebase and upload directly
-      const { storage } = await initializeFirebase();
+      // The bytes now go through the one storage path in the product: the
+      // Admin SDK, into tenants/{tenant}/logo/…, with a registry row. What
+      // changed is only WHERE they land and that they are now recorded — this
+      // route, its multipart contract and its response shape are untouched, so
+      // both UI callers (useTenantProfile and TenantContext) are unaffected.
+      //
+      // A logo is an identity asset: unmetered, and it keeps a DURABLE url
+      // because it is rendered on invoices, on the contract document and on the
+      // public review page, long after any signed url would have expired.
+      const saved = await evidenceStorageService.saveIdentityAsset(
+        tenantId,
+        null,
+        'logo',
+        file.originalname,
+        file.mimetype,
+        file.buffer
+      );
 
-      // Generate unique file path
-      const fileId = uuidv4();
-      const fileExtension = file.originalname.split('.').pop() || 'png';
-      const sanitizedFileName = `logo_${fileId}.${fileExtension}`;
-      const filePath = `tenant_logos/${tenantId}/${sanitizedFileName}`;
+      if (!saved.success || !saved.data) {
+        throw new Error(saved.detail || saved.reason || 'Logo upload failed');
+      }
 
-      console.log(`Firebase storage path: ${filePath}`);
-
-      // Create storage reference and upload
-      const storageRef = ref(storage, filePath);
-      await uploadBytes(storageRef, file.buffer, {
-        contentType: file.mimetype,
-        customMetadata: {
-          tenantId,
-          originalName: file.originalname,
-          uploadedAt: new Date().toISOString()
-        }
-      });
-
-      // Get the download URL
-      const downloadURL = await getDownloadURL(storageRef);
+      const downloadURL = saved.data.public_url;
       console.log(`Logo uploaded successfully: ${downloadURL}`);
 
       // ✅ Update the profile with the new logo URL via Edge function
