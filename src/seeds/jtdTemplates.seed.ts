@@ -22,6 +22,8 @@ import { SeedDefinition, SeedItem } from './types';
 // =================================================================
 
 export const JTD_TEMPLATE_SEED_DATA: SeedItem[] = [
+  { code: 'rfp_invitation', channel: 'email', name: 'RFP Invitation Email' },
+  { code: 'rfp_invitation', channel: 'whatsapp', name: 'RFP Invitation WhatsApp' },
   { code: 'appointment_reminder',    channel: 'sms',      name: 'Appointment Reminder SMS' },
   { code: 'beyond_scope_invoice',    channel: 'whatsapp', name: 'Beyond-scope invoice' },
   { code: 'contract_accepted',       channel: 'email',    name: 'Contract Accepted Email' },
