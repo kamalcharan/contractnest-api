@@ -23,6 +23,10 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
+import {
+  ComposerContext, ComposerContextError, assertVerifiedContext, contextDatabase,
+  loadComposerFacts, publicScope, requireRelationship, classificationsOf, verifyComposerContact,
+} from './composerContext';
 import { catBlocksService } from './catBlocksService';
 import { catTemplatesService } from './catTemplatesService';
 import { taxSettingsService } from './taxSettingsService';
@@ -41,25 +45,37 @@ import { RequestContext } from '../types/catalogStudioTypes';
 
 // ─── Types ───
 
-export interface ComposerCallContext {
-  tenantId: string;
-  userId: string;
-  userJWT: string;
-  environment: string; // 'live' | 'test'
-}
+export type ComposerCallContext = ComposerContext;
 
 export interface ParsedIntent {
   contract_kind: string;
   nomenclature: string;
   buyer_text: string;
-  duration: { value: number; unit: 'days' | 'months' | 'years' };
+  duration: { value: number; unit: 'days' | 'months' | 'years' | '' };
   start_date: string;
   grace_period_days: number;
   acceptance: 'payment' | 'signoff' | 'auto' | '';
-  billing: { mode: 'prepaid' | 'emi' | 'per_block'; emi_months: number; cycle: string };
+  billing: { mode: 'prepaid' | 'emi' | 'per_block' | ''; emi_months: number; cycle: string };
   equipment_hint: string;
   activities: string[];
   special_asks: string[];
+}
+
+/** Unknown terms remain unknown until explicitly supplied or inherited from a saved template. */
+export function requireComposerIntent(intent: ParsedIntent, ctx: ComposerCallContext): asserts intent is ParsedIntent & {
+  acceptance: 'payment' | 'signoff' | 'auto';
+  billing: { mode: 'prepaid' | 'emi' | 'per_block'; emi_months: number; cycle: string };
+} {
+  assertVerifiedContext(ctx);
+  const missing: string[] = [];
+  if (!Number.isFinite(intent.duration.value) || intent.duration.value <= 0 || !intent.duration.unit) missing.push('duration');
+  if (!intent.billing.mode) missing.push('billing');
+  if (intent.billing.mode === 'emi' && intent.billing.emi_months < 2) missing.push('emi_months');
+  if (intent.billing.mode === 'per_block' && !intent.billing.cycle) missing.push('billing_cycle');
+  if (!intent.acceptance) missing.push('acceptance');
+  if (ctx.workflow !== 'template' && !intent.start_date) missing.push('start_date');
+  if (missing.length) throw new ComposerContextError('MISSING_AGREEMENT_DETAILS',
+    'Confirm the missing agreement details before VaNi continues.', 422, { missingFields: missing, intent });
 }
 
 export interface NomenclatureItem {
@@ -250,6 +266,11 @@ export interface StepReadiness {
 }
 
 export interface ComposeResult {
+  context: ReturnType<typeof publicScope> & {
+    schemaVersion: 1; currencySource: 'request' | 'catalogue' | 'template';
+    template?: { id: string; revision: string | null };
+    calendar: 'agreement' | 'illustrative';
+  };
   draft: {
     contractName: string;
     buyerId: string;
@@ -326,12 +347,13 @@ class ContractComposerService {
   }
 
   private toCatalogContext(ctx: ComposerCallContext): RequestContext {
+    assertVerifiedContext(ctx);
     return {
       tenantId: ctx.tenantId,
       userId: ctx.userId,
       product: 'contractnest',
       isAdmin: false,
-      environment: (ctx.environment === 'test' ? 'test' : 'live'),
+      environment: ctx.environment,
       accessToken: ctx.userJWT,
     };
   }
@@ -343,108 +365,24 @@ class ContractComposerService {
     return createClient(url, key);
   }
 
-  // Service-role read for tenant-scoped ICP tables (smartprofile, semantic
-  // clusters, materialized resources). The composer is already tenant-guarded
-  // (auth + entitlement), and every query below is filtered by ctx.tenantId,
-  // so this only ever reads the calling tenant's own rows.
-  private supabaseServiceRead() {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-    if (!url || !key) return null;
-    return createClient(url, key);
-  }
-
-  // ==========================================================================
-  // ICP signal for smart chips — the tenant's REAL Smart Profile vocabulary
-  // (approved keywords + semantic clusters) and their materialized resources.
-  // Read-only, tenant-scoped, never throws (chips degrade to empty on any gap).
-  // ==========================================================================
-  async fetchTenantIcp(ctx: ComposerCallContext): Promise<{
-    vocabulary: string[];
-    clusters: Array<{ primary_term: string; category: string }>;
-    persona: string;
-    resources: Array<{ name: string; type: string }>;
-    industryIds: string[];
-  }> {
-    const empty = { vocabulary: [] as string[], clusters: [] as Array<{ primary_term: string; category: string }>, persona: '', resources: [] as Array<{ name: string; type: string }>, industryIds: [] as string[] };
-    const supabase = this.supabaseServiceRead();
-    if (!supabase) return empty;
-    try {
-      const [profileRes, clusterRes, resourceRes, tprofRes, servedRes] = await Promise.all([
-        supabase
-          .from('t_tenant_smartprofiles')
-          .select('approved_keywords, suggested_keywords, profile_type')
-          .eq('tenant_id', ctx.tenantId)
-          .eq('is_active', true)
-          .limit(1),
-        supabase
-          .from('t_semantic_clusters')
-          .select('primary_term, related_terms, category')
-          .eq('tenant_id', ctx.tenantId)
-          .eq('is_active', true),
-        supabase
-          .from('t_category_resources_master')
-          .select('display_name, name, resource_type_id, sequence_no')
-          .eq('tenant_id', ctx.tenantId)
-          .eq('is_active', true)
-          .eq('is_live', true)
-          .order('sequence_no', { ascending: true })
-          .limit(12),
-        supabase
-          .from('t_tenant_profiles')
-          .select('industry_id')
-          .eq('tenant_id', ctx.tenantId)
-          .limit(1),
-        supabase
-          .from('t_tenant_served_industries')
-          .select('industry_id')
-          .eq('tenant_id', ctx.tenantId),
-      ]);
-
-      const profile: any = (profileRes.data || [])[0] || {};
-      const clusters: any[] = clusterRes.data || [];
-      const resourceRows: any[] = resourceRes.data || [];
-
-      const industryIds = new Set<string>();
-      const ownInd = (tprofRes.data || [])[0]?.industry_id;
-      if (ownInd) industryIds.add(String(ownInd));
-      for (const s of (servedRes.data || [])) if (s.industry_id) industryIds.add(String(s.industry_id));
-
-      const vocab = new Set<string>();
-      for (const k of [...(profile.approved_keywords || []), ...(profile.suggested_keywords || [])]) {
-        if (k) vocab.add(String(k).toLowerCase());
-      }
-      for (const c of clusters) {
-        if (c.primary_term) vocab.add(String(c.primary_term).toLowerCase());
-        for (const rt of (c.related_terms || [])) if (rt) vocab.add(String(rt).toLowerCase());
-      }
-
-      const seen = new Set<string>();
-      const resources = resourceRows
-        .map((r: any) => ({ name: String(r.display_name || r.name || '').trim(), type: String(r.resource_type_id || '') }))
-        .filter((r) => r.name && !seen.has(r.name.toLowerCase()) && seen.add(r.name.toLowerCase()));
-
-      return {
-        vocabulary: Array.from(vocab),
-        clusters: clusters
-          .filter((c: any) => c.primary_term)
-          .map((c: any) => ({ primary_term: String(c.primary_term), category: String(c.category || '') })),
-        persona: String(profile.profile_type || ''),
-        resources,
-        industryIds: Array.from(industryIds),
-      };
-    } catch (e: any) {
-      console.warn('⚠️ Composer: ICP fetch failed (chips degrade):', e.message);
-      return empty;
-    }
+  // Kept as an adapter for the existing suggestion/nomenclature callers.
+  // Shared context owns the reads; only approved vocabulary is a fact.
+  async fetchTenantIcp(ctx: ComposerCallContext) {
+    const shared = await loadComposerFacts(ctx);
+    return {
+      vocabulary: shared.facts.approvedKeywords,
+      clusters: shared.suggestions.clusters,
+      persona: shared.facts.persona || '',
+      resources: shared.facts.resources,
+      industryIds: shared.facts.industryIds,
+    };
   }
 
   // ==========================================================================
   // ICP chips — Phase B: borrowed chips for thin/cold-start tenants.
   //   1) Curated ICP archetype (m_icp_archetypes) matched by industry / persona
   //      / vocabulary — works from day one, even with an empty profile.
-  //   2) Embedding neighbours (icp_similar_tenants) — borrow the vocabulary of
-  //      the most similar profiled tenants once this tenant has an embedding.
+  //   Tenant-neighbour borrowing was removed: other tenants are not context.
   // Both are grounded starters; they only fill slots the tenant's OWN data left
   // empty (called only when the own-data candidate pool is short).
   // ==========================================================================
@@ -452,8 +390,8 @@ class ContractComposerService {
     ctx: ComposerCallContext,
     icp: { vocabulary: string[]; persona: string; industryIds: string[] }
   ): Promise<{ archetype: string[]; neighbour: string[] }> {
-    const supabase = this.supabaseServiceRead();
-    if (!supabase) return { archetype: [], neighbour: [] };
+    assertVerifiedContext(ctx);
+    const supabase = contextDatabase();
 
     const archetype: string[] = [];
     const neighbour: string[] = [];
@@ -486,28 +424,7 @@ class ContractComposerService {
       console.warn('⚠️ Composer: archetype chips failed:', e.message);
     }
 
-    // 2) Embedding neighbours — borrow their cluster vocabulary (needs an embedding)
-    try {
-      const { data: sim } = await supabase.rpc('icp_similar_tenants', { p_tenant_id: ctx.tenantId, p_limit: 5 });
-      const neighbourIds: string[] = (sim || []).map((r: any) => r.tenant_id).filter(Boolean);
-      if (neighbourIds.length) {
-        const { data: nclusters } = await supabase
-          .from('t_semantic_clusters')
-          .select('primary_term')
-          .in('tenant_id', neighbourIds)
-          .eq('is_active', true)
-          .limit(20);
-        const seen = new Set<string>();
-        const terms = (nclusters || [])
-          .map((c: any) => String(c.primary_term || '').trim())
-          .filter((t: string) => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
-          .slice(0, 3);
-        const tc = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
-        for (const t of terms) neighbour.push(`1 year ${tc(t)} service package, billed quarterly`);
-      }
-    } catch (e: any) {
-      console.warn('⚠️ Composer: neighbour chips failed:', e.message);
-    }
+    // Curated public examples only. Never borrow another tenant's profile or vocabulary.
 
     return { archetype, neighbour };
   }
@@ -603,7 +520,7 @@ class ContractComposerService {
 
     const systemPrompt = this.loadSkill('vani-intent-parser.md', {
       '{{NOMENCLATURES}}': nomenclatureLines,
-      '{{USER_CONTEXT}}': `Today's date: ${new Date().toISOString().slice(0, 10)}.`,
+      '{{USER_CONTEXT}}': JSON.stringify({ today: new Date().toISOString().slice(0, 10), context: await loadComposerFacts(ctx), rule: 'Profile facts describe the workspace, not this agreement. Suggestions are not confirmed terms. Never infer relationship or missing terms from the profile.' }),
     });
 
     const { parsed, interactionId } = await vaniInteractionLogger.loggedJSONCall<Partial<ParsedIntent>>(
@@ -611,7 +528,7 @@ class ContractComposerService {
         tenantId: ctx.tenantId,
         userId: ctx.userId,
         skill: 'contract_composer:intent_parse',
-        contextPayload: { input_chars: text.length, nomenclature_options: nomenclatures.length },
+        contextPayload: { ...publicScope(ctx), input_chars: text.length, nomenclature_options: nomenclatures.length },
       },
       systemPrompt,
       text,
@@ -630,21 +547,24 @@ class ContractComposerService {
   normalizeIntent(raw: Partial<ParsedIntent>): ParsedIntent {
     const durUnit = ['days', 'months', 'years'].includes(raw.duration?.unit as string)
       ? (raw.duration!.unit as 'days' | 'months' | 'years')
-      : 'years';
-    const durValue = Math.max(1, Math.min(3650, Number(raw.duration?.value) || 1));
+      : '';
+    const suppliedDuration = Number(raw.duration?.value);
+    const durValue = Number.isFinite(suppliedDuration) && suppliedDuration > 0 && suppliedDuration <= 3650 ? suppliedDuration : 0;
 
     const mode = ['prepaid', 'emi', 'per_block'].includes(raw.billing?.mode as string)
       ? raw.billing!.mode
-      : 'prepaid';
-    const cycle = ['monthly', 'fortnightly', 'quarterly'].includes(raw.billing?.cycle as string)
+      : '';
+    const cycle = ['monthly', 'fortnightly', 'quarterly', 'halfyearly', 'annual', 'prepaid', 'postpaid', 'weekly', 'daily'].includes(raw.billing?.cycle as string)
       ? raw.billing!.cycle
       : '';
 
     let activities = (Array.isArray(raw.activities) ? raw.activities : [])
       .filter((a) => VALID_ACTIVITIES.includes(a));
-    if (activities.length === 0) activities = ['pm', 'inspection'];
 
-    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(raw.start_date || '') ? raw.start_date! : '';
+
+    const dateText = raw.start_date || '';
+    const dateValue = new Date(dateText);
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(dateText) && !Number.isNaN(dateValue.getTime()) && dateValue.toISOString().slice(0, 10) === dateText ? dateText : '';
     const acceptance = ['payment', 'signoff', 'auto'].includes(raw.acceptance as string)
       ? (raw.acceptance as ParsedIntent['acceptance'])
       : '';
@@ -659,8 +579,8 @@ class ContractComposerService {
       acceptance,
       billing: {
         mode: mode as ParsedIntent['billing']['mode'],
-        emi_months: mode === 'emi' ? Math.max(2, Math.min(60, Number(raw.billing?.emi_months) || 12)) : 0,
-        cycle: mode === 'per_block' ? (cycle || 'quarterly') : '',
+        emi_months: mode === 'emi' && Number.isInteger(Number(raw.billing?.emi_months)) && Number(raw.billing?.emi_months) >= 2 && Number(raw.billing?.emi_months) <= 60 ? Number(raw.billing?.emi_months) : 0,
+        cycle: mode === 'per_block' ? cycle : '',
       },
       equipment_hint: (raw.equipment_hint || '').slice(0, 60),
       activities,
@@ -673,17 +593,20 @@ class ContractComposerService {
   // ==========================================================================
 
   async resolveBuyer(buyerText: string, ctx: ComposerCallContext): Promise<BuyerResolution> {
+    const relationship = requireRelationship(ctx);
     if (!buyerText.trim()) return { status: 'not_found' };
 
     const result = await this.contactService.listContacts(
-      { search: buyerText.trim(), per_page: 10, status: 'active' },
+      { search: buyerText.trim(), per_page: 10, status: 'active', classifications: [relationship] },
       ctx.userJWT,
       ctx.tenantId,
       ctx.environment
     );
 
-    const items: any[] = Array.isArray(result?.data) ? result.data : (result?.data?.items || []);
-    if (!result?.success || items.length === 0) return { status: 'not_found' };
+    if (!result?.success) throw new ComposerContextError('CONTACT_UNAVAILABLE', 'Contact lookup failed. Retry before choosing a contact.', 503);
+    const rows: any[] = Array.isArray(result?.data) ? result.data : (result?.data?.items || []);
+    const items = rows.filter(c => classificationsOf(c.classifications).includes(relationship));
+    if (items.length === 0) return { status: 'not_found' };
 
     const norm = (s: string) => (s || '').toLowerCase().trim();
     const needle = norm(buyerText);
@@ -711,6 +634,7 @@ class ContractComposerService {
   // ==========================================================================
 
   async buildShortlist(intent: ParsedIntent, ctx: ComposerCallContext): Promise<ShortlistStepResult> {
+    requireComposerIntent(intent, ctx);
     const allBlocks = await this.fetchTenantBlocks(ctx);
     const equipmentNames = await this.fetchResourceTemplateNames(allBlocks);
 
@@ -725,8 +649,7 @@ class ContractComposerService {
     const scored = allBlocks
       .map((b) => {
         const activity = b.config?.kt_service_activity || '';
-        if (!activity || !intent.activities.includes(activity)) return null;
-        if (activity === 'spare_part' && !intent.activities.includes('spare_part')) return null;
+        if (!activity || (intent.activities.length > 0 && !intent.activities.includes(activity))) return null;
 
         const equipment = equipmentNames.get(b.resource_template_id) || '';
         const haystack = `${b.name} ${equipment}`.toLowerCase();
@@ -795,15 +718,15 @@ class ContractComposerService {
     const nomenclatureMatch = this.matchNomenclature(text, nomenclatures);
     if (!durMatch || !nomenclatureMatch) return null;
 
-    // Billing: per-block cycle keywords, EMI, else prepaid
-    let mode: ParsedIntent['billing']['mode'] = 'prepaid';
+    // Missing billing remains unknown, not prepaid.
+    let mode: ParsedIntent['billing']['mode'] = /\b(upfront|prepaid|advance)\b/.test(lower) ? 'prepaid' : '';
     let cycle = '';
     let emiMonths = 0;
     const cycleMatch = lower.match(/\b(monthly|fortnightly|quarterly)\b/);
     if (/\bemi\b|instal?lments?/.test(lower)) {
       mode = 'emi';
       const em = lower.match(/(\d+)[\s-]*(?:month\s*)?emi|emi[^0-9]{0,10}(\d+)/);
-      emiMonths = Number(em?.[1] || em?.[2]) || 12;
+      emiMonths = Number(em?.[1] || em?.[2]) || 0;
     } else if (cycleMatch && /\bbill|payment|paid\b/.test(lower)) {
       mode = 'per_block';
       cycle = cycleMatch[1];
@@ -845,7 +768,7 @@ class ContractComposerService {
     return templates.filter((t) => {
       const s = t.settings || {};
       return (
-        t.tenant_id &&
+        t.tenant_id === ctx.tenantId && t.is_live === (ctx.environment === 'live') &&
         s.lifecycle === 'signed_off' &&
         Array.isArray(s.wizard_state?.selectedBlocks) &&
         s.wizard_state.selectedBlocks.length > 0
@@ -992,7 +915,8 @@ class ContractComposerService {
   ): Promise<ComposeResult> {
     const res = await catTemplatesService.getTemplate(this.toCatalogContext(ctx), templateId);
     const t: any = (res.data as any)?.template || res.data;
-    if (!res.success || !t?.id) throw new Error('Template not found');
+    if (!res.success || !t?.id || t.tenant_id !== ctx.tenantId || t.is_live !== (ctx.environment === 'live'))
+      throw new ComposerContextError('TEMPLATE_OUT_OF_SCOPE', 'Template not found in this workspace and environment.', 404);
 
     const settings = t.settings || {};
     if (settings.lifecycle !== 'signed_off') {
@@ -1001,6 +925,14 @@ class ContractComposerService {
     const wizardBlocks: any[] = settings.wizard_state?.selectedBlocks || [];
     if (wizardBlocks.length === 0) throw new Error('Template has no blocks');
 
+    const ws = settings.wizard_state || {};
+    if (!intent.duration.value || !intent.duration.unit) {
+      intent = this.normalizeIntent({ ...intent, duration: {
+        value: Number(settings.defaults?.duration_value ?? ws.durationValue ?? 0),
+        unit: settings.defaults?.duration_unit ?? ws.durationUnit ?? '',
+      } });
+    }
+    if (!intent.duration.value || !intent.duration.unit) requireComposerIntent(intent, ctx);
     const durationDays = durationToDays(intent.duration.value, intent.duration.unit);
 
     // Synthetic candidates from the template's saved block configs. cycle_days
@@ -1017,7 +949,7 @@ class ContractComposerService {
         cycle_days: Number(b.serviceCycleDays) || Math.max(1, Math.floor(durationDays / qty)),
         cycle: String(b.cycle || ''),
         price: Number(b.config?.customPrice ?? b.price) || 0,
-        currency: b.currency || t.currency || 'INR',
+        currency: b.currency || t.currency || '',
         tax_rate: Number(b.taxRate) || 0,
         form_template_id: null,
         equipment: '',
@@ -1039,22 +971,22 @@ class ContractComposerService {
 
     // Template defaults become the baseline setup when instantiating — billing,
     // EMI, grace and acceptance carry over — but an EXPLICIT user request wins.
-    const defaults = settings.defaults || {};
+    const defaults = { payment_mode: ws.paymentMode, billing_cycle_type: ws.billingCycleType, emi_months: ws.emiMonths,
+      acceptance_method: ws.acceptanceMethod, nomenclature_name: ws.nomenclatureName, ...(settings.defaults || {}) };
     const tplPay = String(defaults.payment_mode || '');
     const tplCycleType = String(defaults.billing_cycle_type || '');
     const blockCycles = wizardBlocks
       .map((b: any) => String(b.cycle || ''))
       .filter((c: string) => c && c !== 'prepaid');
-    const userAskedBilling =
-      intent.billing.mode === 'emi' || (intent.billing.mode === 'per_block' && !!intent.billing.cycle);
+    const userAskedBilling = !!intent.billing.mode;
 
     let billing = intent.billing;
     if (!userAskedBilling && tplPay) {
       if (tplPay === 'emi' && (Number(defaults.emi_months) || 0) > 0) {
         billing = { mode: 'emi', emi_months: Number(defaults.emi_months), cycle: '' };
       } else if (tplPay === 'defined' || tplCycleType === 'mixed' || blockCycles.length > 0) {
-        billing = { mode: 'per_block', emi_months: 0, cycle: blockCycles[0] || intent.billing.cycle || 'monthly' };
-      } else {
+        billing = { mode: 'per_block', emi_months: 0, cycle: blockCycles[0] || intent.billing.cycle || '' };
+      } else if (tplPay === 'prepaid') {
         billing = { mode: 'prepaid', emi_months: 0, cycle: '' };
       }
     }
@@ -1065,13 +997,13 @@ class ContractComposerService {
           ? durationToDays(Number(defaults.grace_period_value), defaults.grace_period_unit || 'days')
           : intent.grace_period_days);
 
-    const mergedIntent: ParsedIntent = {
+    const mergedIntent: ParsedIntent = this.normalizeIntent({
       ...intent,
       acceptance: intent.acceptance || (defaults.acceptance_method as ParsedIntent['acceptance']) || '',
       nomenclature: intent.nomenclature || String(defaults.nomenclature_name || ''),
       grace_period_days: graceDays,
       billing,
-    };
+    });
 
     const result = await this.assembleDraft(
       mergedIntent,
@@ -1085,6 +1017,9 @@ class ContractComposerService {
       ctx,
       defaultCurrency || t.currency
     );
+
+    result.context.template = { id: t.id, revision: t.updated_at || null };
+    if (!defaultCurrency && t.currency) result.context.currencySource = 'template';
 
     // Template-carried evidence policy wins over the generic proposal
     if (defaults.evidence_policy_type) {
@@ -1334,6 +1269,7 @@ class ContractComposerService {
         userId: ctx.userId,
         skill: 'contract_composer:block_select',
         contextPayload: {
+          ...publicScope(ctx),
           contract_kind: intent.contract_kind,
           nomenclature: nomenclature?.name || null,
           equipment: intent.equipment_hint,
@@ -1390,9 +1326,13 @@ class ContractComposerService {
     candidates: CandidatePayload[],
     selection: Pick<SelectStepResult, 'selections' | 'gaps' | 'summary'>,
     ctx: ComposerCallContext,
-    /** Tenant default currency (UI-supplied); contract currency unless blocks force otherwise */
+    /** Explicit caller currency; the UI's application preference is not a tenant profile fact. */
     defaultCurrency?: string
   ): Promise<ComposeResult> {
+    requireComposerIntent(intent, ctx);
+    if (ctx.workflow === 'rfq') throw new ComposerContextError('WORKFLOW_NOT_CONNECTED', 'RFQ drafting is not connected to this contract assembly endpoint.');
+    if (ctx.workflow !== 'template') requireRelationship(ctx);
+    if (buyer) buyer = await verifyComposerContact(ctx, buyer.id);
     // Nomenclature: re-resolve server-side (source of truth)
     const nomenclatures = await this.fetchNomenclatures(ctx);
     const nomenclature =
@@ -1429,7 +1369,7 @@ class ContractComposerService {
         // to the request's cycle (or prepaid for non-per-block billing).
         const cycle = cadTerm
           ? String(cand.cycle)
-          : (perBlock ? (cand.cycle || intent.billing.cycle || 'monthly') : 'prepaid');
+          : (perBlock ? (cand.cycle || intent.billing.cycle) : 'prepaid');
         // Cadence blocks always bill on their own recurring cadence
         if (perBlock || cadTerm) perBlockPaymentType[cand.block_id] = 'postpaid';
         blockReasons[cand.block_id] = s.reason;
@@ -1466,10 +1406,11 @@ class ContractComposerService {
       throw new Error('Selections did not match the shortlist — rerun the shortlist step.');
     }
 
-    // Contract currency: tenant default wins; block-price currency mismatches
+    // Contract currency: explicit request wins; block-price currency mismatches
     // are flagged, never silently converted.
-    const blockCurrency = selectedBlocks[0]?.currency || 'INR';
+    const blockCurrency = selectedBlocks[0]?.currency || '';
     const currency = (defaultCurrency || '').trim().toUpperCase() || blockCurrency;
+    if (!/^[A-Z]{3}$/.test(currency)) throw new ComposerContextError('CURRENCY_REQUIRED', 'Choose the agreement currency.');
     const mismatched = Array.from(new Set(
       selectedBlocks.map((b) => b.currency).filter((c) => c && c !== currency)
     ));
@@ -1510,14 +1451,8 @@ class ContractComposerService {
       .filter((c): c is CandidatePayload => !!c);
     const evidence = await this.buildEvidenceProposal(selectedCandidates, isAssetGroup);
 
-    // Acceptance
-    const acceptanceMethod = intent.acceptance || 'signoff';
-    if (!intent.acceptance) {
-      gaps.push({
-        severity: 'info',
-        message: 'Acceptance defaulted to Sign-off (buyer approves) — change it if needed.',
-      });
-    }
+    // Explicit request or saved template setting; never invent acceptance.
+    const acceptanceMethod = intent.acceptance;
 
     gaps.push(...selection.gaps);
 
@@ -1570,9 +1505,10 @@ class ContractComposerService {
     // Contact names are free-text (often ALL CAPS from bulk imports) — title-case
     // for the generated heading only; buyer.name / buyerName below stay verbatim.
     const toTitleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-    const buyerLabel = toTitleCase(buyer?.name || intent.buyer_text || 'New Client');
+    const buyerLabel = toTitleCase(buyer?.name || intent.buyer_text || 'Select contact');
 
     return {
+      context: { ...publicScope(ctx), schemaVersion: 1, currencySource: defaultCurrency ? 'request' : 'catalogue', calendar: ctx.workflow === 'template' ? 'illustrative' : 'agreement' },
       draft: {
         contractName: `${kindLabel} — ${buyerLabel} — ${durText}`,
         buyerId: buyer?.id || '',
@@ -1623,12 +1559,17 @@ class ContractComposerService {
   // Feedback passthrough
   // ==========================================================================
 
-  recordFeedback(
+  async recordFeedback(
     interactionIds: string[],
-    feedback: { wasAccepted?: boolean; wasEdited?: boolean; userRating?: number }
-  ): void {
-    for (const id of interactionIds) {
-      if (id) vaniInteractionLogger.recordFeedback(id, feedback);
+    feedback: { wasAccepted?: boolean; wasEdited?: boolean; userRating?: number },
+    ctx: ComposerCallContext
+  ): Promise<void> {
+    assertVerifiedContext(ctx);
+    const { data, error } = await contextDatabase().from('vn_interaction_log').select('id, context_payload')
+      .eq('tenant_id', ctx.tenantId).eq('user_id', ctx.userId).in('id', interactionIds);
+    if (error) throw new ComposerContextError('FEEDBACK_UNAVAILABLE', 'Could not verify feedback ownership.', 503);
+    for (const row of data || []) {
+      if (row.context_payload?.environment === ctx.environment) vaniInteractionLogger.recordFeedback(row.id, feedback);
     }
   }
 

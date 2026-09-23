@@ -15,21 +15,35 @@ import rateLimit from 'express-rate-limit';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import vaniComposerController from '../controllers/vaniComposerController';
 import vaniEntitlementService from '../services/vaniEntitlementService';
+import { verifyComposerContext, ComposerContextError } from '../services/composerContext';
 
 const router = Router();
 
 router.use(authenticate);
 
-// Tenant guard — composer is strictly tenant-scoped
-router.use((req: AuthRequest, res: Response, next: NextFunction) => {
-  if (!req.headers['x-tenant-id']) {
-    res.status(400).json({
-      success: false,
-      error: { code: 'MISSING_TENANT', message: 'x-tenant-id header is required' },
+// Verify active membership BEFORE entitlement, profile or any service-role reads.
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const infoOnly = ['/health', '/entitlement', '/feedback'].includes(req.path);
+    let expected = req.body?.context;
+    if (req.method === 'GET' && req.query.context) {
+      try { expected = JSON.parse(String(req.query.context)); }
+      catch { throw new ComposerContextError('INVALID_CONTEXT', 'Invalid context.', 400); }
+    }
+    const ctx = await verifyComposerContext({
+      // The existing auth/profile merge replaces id with t_user_profiles.id.
+      // user_id is the verified profile's FK to auth.users, which membership uses.
+      tenantId: req.headers['x-tenant-id'], userId: (req.user as any)?.user_id || req.user?.id,
+      userJWT: req.headers.authorization?.replace(/^Bearer\s+/i, '') || '',
+      environment: req.headers['x-environment'], expected, infoOnly,
     });
-    return;
+    (req as any).composerContext = ctx;
+    next();
+  } catch (error) {
+    const err = error instanceof ComposerContextError ? error
+      : new ComposerContextError('CONTEXT_UNAVAILABLE', 'Could not verify workspace access.', 503);
+    res.status(err.status).json({ success: false, error: { code: err.code, message: err.message } });
   }
-  next();
 });
 
 // Ungated info endpoints (UI decides visibility from these)
@@ -71,7 +85,9 @@ const fastRateLimit = rateLimit({
 });
 
 // Per-step pipeline (VaNi Canvas)
+router.get('/context', fastRateLimit, vaniComposerController.context);
 router.post('/parse-intent', llmRateLimit, vaniComposerController.parseIntent);
+router.post('/validate-contacts', fastRateLimit, vaniComposerController.validateContacts);
 router.post('/resolve-buyer', fastRateLimit, vaniComposerController.resolveBuyer);
 // Smart suggestion chips — deterministic, cosmetic
 router.get('/suggestions', fastRateLimit, vaniComposerController.suggestions);

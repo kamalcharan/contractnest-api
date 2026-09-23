@@ -28,18 +28,44 @@ import contractComposerService, {
 // Template tier:
 //   POST /match-template        { text, intent? }                    (fast)
 //   POST /assemble-from-template{ template_id, intent, buyer?, ... } (fast)
+import { ComposerContextError, loadComposerFacts, verifyComposerContact, contextWithRelationship } from '../services/composerContext';
 import vaniLLMClient from '../services/vaniLLMClient';
 import vaniEntitlementService from '../services/vaniEntitlementService';
 
 class VaniComposerController {
   private getContext(req: AuthRequest): ComposerCallContext {
-    return {
-      tenantId: (req.headers['x-tenant-id'] as string) || '',
-      userId: req.user?.id || '',
-      userJWT: req.headers.authorization?.replace('Bearer ', '') || '',
-      environment: (req.headers['x-environment'] as string) || 'live',
-    };
+    return (req as any).composerContext;
   }
+
+  private report(res: Response, error: any, fallback: string): void {
+    if (error instanceof ComposerContextError) {
+      res.status(error.status).json({ success: false, error: {
+        code: error.code, message: error.message, details: error.details,
+      } });
+      return;
+    }
+    internalError(res, fallback);
+  }
+
+  context = async (req: AuthRequest, res: Response): Promise<void> => {
+    try { sendSuccess(res, await loadComposerFacts(this.getContext(req))); }
+    catch (error) { this.report(res, error, 'Workspace context is unavailable'); }
+  };
+
+  validateContacts = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const contacts = req.body?.contacts;
+      if (!Array.isArray(contacts) || contacts.length < 1 || contacts.length > 100)
+        throw new ComposerContextError('INVALID_CONTACTS', 'Select between 1 and 100 contacts.', 400);
+      const ctx = this.getContext(req);
+      const verified = [];
+      for (const c of contacts) {
+        const scoped = contextWithRelationship(ctx, c.relationship);
+        verified.push({ ...(await verifyComposerContact(scoped, String(c.id || ''))), relationship: scoped.relationship });
+      }
+      sendSuccess(res, { contacts: verified });
+    } catch (error) { this.report(res, error, 'Could not verify the selected contacts'); }
+  };
 
   /** Re-validate an intent object arriving from the client */
   private validIntent(raw: any): ParsedIntent | null {
@@ -66,7 +92,7 @@ class VaniComposerController {
         llm_enabled: vaniLLMClient.isEnabled(),
       });
     } catch (error: any) {
-      internalError(res, error.message || 'Entitlement check failed');
+      this.report(res, error, error.message || 'Entitlement check failed');
     }
   };
 
@@ -82,7 +108,7 @@ class VaniComposerController {
       sendSuccess(res, result);
     } catch (error: any) {
       console.error('❌ VaniComposer parse-intent failed:', error.message);
-      internalError(res, error.message || 'Intent parsing failed');
+      this.report(res, error, error.message || 'Intent parsing failed');
     }
   };
 
@@ -94,7 +120,7 @@ class VaniComposerController {
       sendSuccess(res, result);
     } catch (error: any) {
       console.error('❌ VaniComposer resolve-buyer failed:', error.message);
-      internalError(res, error.message || 'Buyer resolution failed');
+      this.report(res, error, error.message || 'Buyer resolution failed');
     }
   };
 
@@ -109,6 +135,7 @@ class VaniComposerController {
       const result = await contractComposerService.buildShortlist(intent, this.getContext(req));
       sendSuccess(res, result);
     } catch (error: any) {
+      if (error instanceof ComposerContextError) { this.report(res, error, error.message); return; }
       const msg = error?.message || 'Shortlist failed';
       // "No matching catalog blocks" is a user-actionable condition (the
       // tenant's catalog has nothing for this request — e.g. a template-only
@@ -120,7 +147,7 @@ class VaniComposerController {
         return;
       }
       console.error('❌ VaniComposer shortlist failed:', msg);
-      internalError(res, msg);
+      this.report(res, error, msg);
     }
   };
 
@@ -151,7 +178,7 @@ class VaniComposerController {
       sendSuccess(res, result);
     } catch (error: any) {
       console.error('❌ VaniComposer match-template failed:', error.message);
-      internalError(res, error.message || 'Template match failed');
+      this.report(res, error, error.message || 'Template match failed');
     }
   };
 
@@ -184,7 +211,7 @@ class VaniComposerController {
       sendSuccess(res, result);
     } catch (error: any) {
       console.error('❌ VaniComposer assemble-from-template failed:', error.message);
-      internalError(res, error.message || 'Template assembly failed');
+      this.report(res, error, error.message || 'Template assembly failed');
     }
   };
 
@@ -210,7 +237,7 @@ class VaniComposerController {
       sendSuccess(res, result);
     } catch (error: any) {
       console.error('❌ VaniComposer select-blocks failed:', error.message);
-      internalError(res, error.message || 'Block selection failed');
+      this.report(res, error, error.message || 'Block selection failed');
     }
   };
 
@@ -253,7 +280,7 @@ class VaniComposerController {
       sendSuccess(res, result);
     } catch (error: any) {
       console.error('❌ VaniComposer assemble failed:', error.message);
-      internalError(res, error.message || 'Assembly failed');
+      this.report(res, error, error.message || 'Assembly failed');
     }
   };
 
@@ -268,14 +295,14 @@ class VaniComposerController {
         return;
       }
 
-      contractComposerService.recordFeedback(ids, {
+      await contractComposerService.recordFeedback(ids, {
         wasAccepted: typeof req.body?.was_accepted === 'boolean' ? req.body.was_accepted : undefined,
         wasEdited: typeof req.body?.was_edited === 'boolean' ? req.body.was_edited : undefined,
         userRating: typeof req.body?.user_rating === 'number' ? req.body.user_rating : undefined,
-      });
+      }, this.getContext(req));
       sendSuccess(res, { recorded: ids.length });
     } catch (error: any) {
-      internalError(res, error.message || 'Feedback recording failed');
+      this.report(res, error, error.message || 'Feedback recording failed');
     }
   };
 }
