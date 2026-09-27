@@ -21,6 +21,9 @@ const STATUS_FOR: Record<string, number> = {
   NOT_FOUND: 404,
   VENDOR_NOT_ON_RFQ: 404,
   NO_QUOTE: 409,
+  FORBIDDEN: 403,
+  INVALID_STATE: 409,
+  INVALID_INPUT: 400,
 };
 
 class RfqController {
@@ -107,7 +110,9 @@ class RfqController {
     if (!contractId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'contractId is required', 400); return; }
     if (!vendorId) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'vendor_id is required', 400); return; }
 
-    const userId = req.user?.id || req.user?.user_id || null;
+    // Auth profile.id identifies the profile row; profile.user_id is the
+    // authenticated account used by tenant memberships. SDK-only fallback has id.
+    const userId = req.user?.user_id || req.user?.id || null;
     const userName = req.user?.name || req.user?.full_name || req.user?.email || null;
 
     const result = await rfqService.award(
@@ -116,10 +121,21 @@ class RfqController {
       vendorId,
       userId,
       userName,
-      (req.body?.note as string) || null
+      (req.body?.note as string) || null,
+      typeof req.body?.is_live === 'boolean' ? req.body.is_live : req.headers['x-environment'] !== 'test'
     );
 
     if (!result.success) { this.fail(res, result.error, 'Failed to award RFQ'); return; }
+    sendSuccess(res, result.data);
+  };
+
+  prepareContract = async (req: AuthRequest, res: Response): Promise<void> => {
+    if (typeof req.body?.is_live !== 'boolean') {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'Choose the live or test workspace.', 400); return;
+    }
+    const result = await rfqService.prepareContract(req.params.contractId, this.tenantId(req),
+      req.user?.user_id || req.user?.id || null, req.body.is_live);
+    if (!result.success) { this.fail(res, result.error, 'Could not prepare contract draft'); return; }
     sendSuccess(res, result.data);
   };
 }

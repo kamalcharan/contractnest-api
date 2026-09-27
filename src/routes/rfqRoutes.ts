@@ -18,5 +18,6 @@ router.use(authenticate);
 //   Marks the winner accepted, the rest declined, RFQ → 'awarded'.
 //   Deliberately does NOT create a contract — the vendor initiates that.
 router.post('/:contractId/award', rfqController.award);
+router.post('/:contractId/prepare-contract', rfqController.prepareContract);
 
 export default router;

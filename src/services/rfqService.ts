@@ -95,9 +95,12 @@ class RfqService {
     vendorId: string,
     userId: string | null,
     userName: string | null,
-    note: string | null
+    note: string | null,
+    isLive?: boolean
   ) {
-    return this.call('rfq_award', {
+    return this.call('rfp_buyer_action', {
+      p_action: 'award',
+      p_is_live: typeof isLive === 'boolean' ? isLive : null,
       p_contract_id: contractId,
       p_tenant_id: tenantId,
       p_vendor_id: vendorId,
@@ -105,6 +108,11 @@ class RfqService {
       p_user_name: userName,
       p_note: note,
     });
+  }
+
+  prepareContract(contractId: string, tenantId: string, userId: string | null, isLive: boolean) {
+    return this.call('rfp_buyer_action', { p_action: 'prepare_contract', p_contract_id: contractId,
+      p_tenant_id: tenantId, p_user_id: userId, p_is_live: isLive });
   }
 }
 

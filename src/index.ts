@@ -4,6 +4,7 @@ dotenv.config();
 
 
 import express from 'express';
+import rfqRoutes from './routes/rfqRoutes';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -1158,6 +1159,9 @@ try {
     tags: { source: 'route_registration', route_type: 'session_checkin' }
   });
 }
+
+// Buyer mutations are authenticated inside this router. Do not silently skip it.
+app.use('/api/rfq', rfqRoutes);
 
 // Register RFQ public (vendor quote) routes with error handling — must NOT
 // sit behind any global authenticate; a vendor answering a quote has no
