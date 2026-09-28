@@ -37,6 +37,7 @@ export interface ListSelectionsResponse {
 // ---- SUBMISSIONS ----
 
 export interface CreateSubmissionRequest {
+  status?: 'draft' | 'submitted';
   form_template_id: string;
   service_event_id: string;
   contract_id: string;

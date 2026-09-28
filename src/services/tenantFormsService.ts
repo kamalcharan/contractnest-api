@@ -125,6 +125,22 @@ export class TenantFormsService {
 
   // ---- SUBMISSIONS ----
 
+  async getServiceStartProblem(authHeader: string, tenantId: string, eventId: string): Promise<{problem:string|null}> {
+    const response = await axios.get(`${BASE_URL}/submissions/start-check?event_id=${encodeURIComponent(eventId)}`, {
+      headers: this.getHeaders(authHeader, tenantId),
+    });
+    return response.data;
+  }
+
+  async getExecutionContext(authHeader: string, tenantId: string, eventId: string, templateId: string, eventAssetId?: string): Promise<any> {
+    const params = new URLSearchParams({ event_id: eventId, template_id: templateId });
+    if (eventAssetId) params.set('event_asset_id', eventAssetId);
+    const response = await axios.get(`${BASE_URL}/submissions/context?${params}`, {
+      headers: this.getHeaders(authHeader, tenantId),
+    });
+    return response.data;
+  }
+
   async listSubmissions(
     authHeader: string,
     tenantId: string,

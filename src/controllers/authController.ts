@@ -126,7 +126,7 @@ export const register = async (req: Request, res: Response) => {
     // cnakRef/cnakSecret: CNAK-lite signup (buyer arriving from a contract
     // review link) — forwarded to the edge so the tenant is flagged
     // onboarding_type='cnak' and the contract is auto-claimed.
-    const { email, password, firstName, lastName, workspaceName, countryCode, mobileNumber, cnakRef, cnakSecret } = req.body;
+    const { email, password, firstName, lastName, workspaceName, countryCode, mobileNumber, cnakRef, cnakSecret, rfpTracking } = req.body;
 
     // Validate required fields
     if (!email || !password) {
@@ -152,7 +152,7 @@ export const register = async (req: Request, res: Response) => {
         workspaceName,
         countryCode,
         mobileNumber,
-        ...(cnakRef ? { cnakRef, cnakSecret } : {})
+        ...(cnakRef && rfpTracking !== true ? { cnakRef, cnakSecret } : {})
       },
       {
         headers: {
@@ -163,6 +163,18 @@ export const register = async (req: Request, res: Response) => {
       }
     );
 
+    if (rfpTracking === true && cnakRef && cnakSecret) {
+      const registered = response.data?.data || response.data;
+      try {
+        const tracked = await axios.post(`${supabaseUrl}/rest/v1/rpc/rfp_track_request`, {
+          p_cnak: cnakRef, p_secret: cnakSecret, p_tenant: registered.tenant?.id
+        }, { headers: { apikey: supabaseKey, Authorization: `Bearer ${registered.access_token}` } });
+        registered.rfp_tracking = tracked.data;
+      } catch {
+        // Account creation succeeded. Never turn a failed link into a duplicate signup retry.
+        registered.rfp_tracking = { success: false };
+      }
+    }
     console.log('Registration successful for:', email);
 
     return res.status(201).json(response.data);

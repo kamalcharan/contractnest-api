@@ -160,6 +160,44 @@ router.get(
   }
 );
 
+// GET /api/forms/submissions/start-check — preflight the database start rule
+router.get('/submissions/start-check', async (req: Request, res: Response) => {
+  const requestId = generateRequestId();
+  try {
+    const eventId = String(req.query.event_id || '');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId))
+      return res.status(400).json({ error: 'Invalid service' });
+    const result = await tenantFormsService.getServiceStartProblem(
+      req.headers.authorization || '', String(req.headers['x-tenant-id'] || ''), eventId,
+    );
+    return res.json(result);
+  } catch (error: any) {
+    console.error(`[TenantFormsRoutes] GET /submissions/start-check error [${requestId}]:`, error.message);
+    return handleEdgeError(res, error, requestId);
+  }
+});
+
+// GET /api/forms/submissions/context — trusted registry/service values
+router.get('/submissions/context', async (req: Request, res: Response) => {
+  const requestId = generateRequestId();
+  try {
+    const eventId = String(req.query.event_id || '');
+    const templateId = String(req.query.template_id || '');
+    const eventAssetId = req.query.event_asset_id ? String(req.query.event_asset_id) : undefined;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(eventId) || !uuid.test(templateId) || (eventAssetId && !uuid.test(eventAssetId)))
+      return res.status(400).json({ error: 'Invalid form context' });
+    const result = await tenantFormsService.getExecutionContext(
+      req.headers.authorization || '', String(req.headers['x-tenant-id'] || ''),
+      eventId, templateId, eventAssetId,
+    );
+    return res.json(result);
+  } catch (error: any) {
+    console.error(`[TenantFormsRoutes] GET /submissions/context error [${requestId}]:`, error.message);
+    return handleEdgeError(res, error, requestId);
+  }
+});
+
 // GET /api/forms/submissions/:id — Get single submission
 router.get(
   '/submissions/:id',
@@ -192,6 +230,7 @@ router.post(
       const tenantId = (req.headers['x-tenant-id'] as string) || '';
 
       const result = await tenantFormsService.createSubmission(authHeader, tenantId, {
+        status: req.body.status,
         form_template_id: req.body.form_template_id,
         service_event_id: req.body.service_event_id,
         contract_id: req.body.contract_id,
