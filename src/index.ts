@@ -521,6 +521,20 @@ try {
   }
 }
 
+let vaniSitePublicRoutes;
+try {
+  vaniSitePublicRoutes = require('./routes/vaniSitePublicRoutes').default;
+  console.log('✅ VaNi Site (public) routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load VaNi Site (public) routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without VaNi Site (public) routes...');
+    vaniSitePublicRoutes = null;
+  }
+}
+
 let visitSlotPublicRoutes;
 try {
   visitSlotPublicRoutes = require('./routes/visitSlotPublicRoutes').default;
@@ -853,6 +867,29 @@ try {
   });
 }
 
+// Leads — contacts tagged 'lead' + their interests (migration business-model-v2/039)
+let leadsRoutes;
+try {
+  leadsRoutes = require('./routes/leadsRoutes').default;
+  console.log('✅ Leads routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load Leads routes:', error);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  } else {
+    console.warn('⚠️  Continuing without Leads routes...');
+    leadsRoutes = null;
+  }
+}
+try {
+  if (leadsRoutes) {
+    app.use('/api/leads', leadsRoutes);
+    console.log('✅ Leads routes registered at /api/leads');
+  }
+} catch (error) {
+  console.error('❌ Failed to register Leads routes:', error);
+}
+
 // Register Extend (touchpoints) routes with error handling
 try {
   if (storefrontPublicRoutes) {
@@ -1137,6 +1174,11 @@ try {
     console.log('✅ Session Check-in (public) routes registered at /api/checkin');
   } else {
     console.log('⚠️  Session Check-in (public) routes skipped (not loaded)');
+  }
+  // VaNi on the tenant's own website: key-gated chat + lead capture (migration 040)
+  if (vaniSitePublicRoutes) {
+    app.use('/api/vani-site', vaniSitePublicRoutes);
+    console.log('✅ VaNi Site (public) routes registered at /api/vani-site');
   }
   if (visitSlotPublicRoutes) {
     app.use('/api/visit-slot', visitSlotPublicRoutes);

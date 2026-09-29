@@ -269,7 +269,7 @@ class ContractControllerV2 {
       const tenantId = req.headers['x-tenant-id'] as string;
       const environment = (req.headers['x-environment'] as string) || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
-      const userId = req.user?.id || '';
+      const userId = (req.user as any)?.user_id || req.user?.id || '';
 
       // One key per submission attempt, sent by the client. Each item derives
       // a stable key from it so a replayed request (network retry, duplicate

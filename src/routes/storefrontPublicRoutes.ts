@@ -1,12 +1,14 @@
 // ============================================================================
 // Public Storefront Routes — mounted at /api/storefront (see index.ts)
 // ============================================================================
-// NO authentication: these drive the hosted checkout page /buy/:key. Every
-// route is gated by the opaque storefront key in the URL; the RPCs resolve
-// tenant + template from it and never expose config/wizard internals.
-// Keep this router free of `authenticate`.
+// NO authentication: these drive the hosted package page /p/:key, the
+// checkout /buy/:key and the widget frame /w/:key. Every route is gated by the
+// opaque storefront key in the URL; the RPCs resolve tenant + packages from it
+// and never expose config/wizard internals. Keep this router free of
+// `authenticate`.
 
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
+import rateLimit from 'express-rate-limit';
 import extendController from '../controllers/extendController';
 
 const router = express.Router();
@@ -21,34 +23,27 @@ router.use((_req, res, next) => {
   next();
 });
 
-// Light in-memory throttle: this is a public, unauthenticated surface that
-// writes rows on POST. Not a real rate limiter — a tripwire against dumb
-// loops. 60 requests/min per IP, window resets each minute.
-const hits = new Map<string, { count: number; windowStart: number }>();
-const WINDOW_MS = 60_000;
-const MAX_PER_WINDOW = 60;
-router.use((req: Request, res: Response, next: NextFunction) => {
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
-  const now = Date.now();
-  const entry = hits.get(ip);
-  if (!entry || now - entry.windowStart > WINDOW_MS) {
-    hits.set(ip, { count: 1, windowStart: now });
-    if (hits.size > 10_000) hits.clear(); // memory backstop
-    next();
-    return;
-  }
-  entry.count += 1;
-  if (entry.count > MAX_PER_WINDOW) {
-    res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests' } });
-    return;
-  }
-  next();
-});
+const readLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 300,
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again shortly' } } });
+const writeLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40,
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, please try again shortly' } } });
+// OTP sends cost money: 10 per IP per 15 minutes on top of the RPC's 3-per-phone rule
+const otpLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10,
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many codes requested, please try again later' } } });
 
-// GET  /api/storefront/:key            → display-safe template + seller info
-router.get('/:key', extendController.resolveStorefront);
-// POST /api/storefront/:key/purchase   body:{name, company?, email?, phone?}
+// GET  /api/storefront/:key[?preview=1]   → seller, card style, FAQ, packages
+router.get('/:key', readLimit, extendController.resolveStorefront);
+// POST /api/storefront/:key/start         → checkout opened (counter only)
+router.post('/:key/start', readLimit, extendController.markStarted);
+// POST /api/storefront/:key/otp           body:{phone}         → {otp_id, expires_in}
+router.post('/:key/otp', otpLimit, extendController.otpIssue);
+// POST /api/storefront/:key/otp/verify    body:{otp_id, code}  → {verify_token, phone}
+router.post('/:key/otp/verify', writeLimit, extendController.otpVerify);
+// POST /api/storefront/:key/identify      body:{name, phone, otp_token, template_id?, email?, company?, channel?}
+//      → the verified buyer is a lead now, whether or not they finish (migration 039)
+router.post('/:key/identify', writeLimit, extendController.identify);
+// POST /api/storefront/:key/purchase      body:{name, phone, otp_token, template_id?, email?, company?}
 //      → contact in seller's book + contract + CNAK review link
-router.post('/:key/purchase', extendController.purchase);
+router.post('/:key/purchase', writeLimit, extendController.purchase);
 
 export default router;

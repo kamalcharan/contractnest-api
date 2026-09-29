@@ -554,7 +554,7 @@ class ContractComposerService {
     const mode = ['prepaid', 'emi', 'per_block'].includes(raw.billing?.mode as string)
       ? raw.billing!.mode
       : '';
-    const cycle = ['monthly', 'fortnightly', 'quarterly', 'halfyearly', 'annual', 'prepaid', 'postpaid', 'weekly', 'daily'].includes(raw.billing?.cycle as string)
+    const cycle = ['monthly', 'fortnightly', 'quarterly', 'halfyearly', 'annual', 'prepaid', 'postpaid', 'weekly', 'daily', 'custom'].includes(raw.billing?.cycle as string)
       ? raw.billing!.cycle
       : '';
 
