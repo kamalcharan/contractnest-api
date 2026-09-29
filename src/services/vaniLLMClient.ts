@@ -48,6 +48,18 @@ export interface VaniLLMJSONResult<T = any> extends VaniLLMResult {
 const DEFAULT_MAX_TOKENS = 300;
 const DEFAULT_TEMPERATURE = 0.3;
 
+export class VaniModelUnavailableError extends Error {
+  constructor(public readonly reason: 'authorization' | 'service') {
+    super(reason === 'authorization'
+      ? 'The VaNi model connection needs administrator attention. No draft was created.'
+      : 'VaNi drafting is temporarily unavailable. No draft was created.');
+    this.name = 'VaniModelUnavailableError';
+  }
+}
+
+const modelUnavailable = (error: any): VaniModelUnavailableError =>
+  new VaniModelUnavailableError([401, 403].includes(Number(error?.response?.status)) ? 'authorization' : 'service');
+
 class VaniLLMClient {
   private readonly url: string;
   private readonly apiKey: string;
@@ -111,11 +123,15 @@ class VaniLLMClient {
       const retryable = !status || status >= 500;
       if (!retryable) {
         console.error(`❌ VaniLLM [${label}] error (${status}):`, firstErr.response?.data || firstErr.message);
-        throw new Error(`VaniLLM call failed: ${firstErr.message}`);
+        throw modelUnavailable(firstErr);
       }
       console.warn(`⚠️ VaniLLM [${label}] retrying after error: ${firstErr.message}`);
       await new Promise((r) => setTimeout(r, 2000));
-      response = await this.post(body, callTimeout);
+      try { response = await this.post(body, callTimeout); }
+      catch (retryErr: any) {
+        console.error(`❌ VaniLLM [${label}] retry failed (${retryErr.response?.status || 'network'}):`, retryErr.response?.data || retryErr.message);
+        throw modelUnavailable(retryErr);
+      }
     }
     const latencyMs = Date.now() - started;
 

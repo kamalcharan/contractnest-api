@@ -29,7 +29,7 @@ import contractComposerService, {
 //   POST /match-template        { text, intent? }                    (fast)
 //   POST /assemble-from-template{ template_id, intent, buyer?, ... } (fast)
 import { ComposerContextError, loadComposerFacts, verifyComposerContact, contextWithRelationship } from '../services/composerContext';
-import vaniLLMClient from '../services/vaniLLMClient';
+import vaniLLMClient, { VaniModelUnavailableError } from '../services/vaniLLMClient';
 import vaniEntitlementService from '../services/vaniEntitlementService';
 
 class VaniComposerController {
@@ -38,6 +38,13 @@ class VaniComposerController {
   }
 
   private report(res: Response, error: any, fallback: string): void {
+    if (error instanceof VaniModelUnavailableError) {
+      res.status(503).json({ success: false, error: {
+        code: error.reason === 'authorization' ? 'VANI_MODEL_AUTH' : 'VANI_MODEL_UNAVAILABLE',
+        message: error.message,
+      } });
+      return;
+    }
     if (error instanceof ComposerContextError) {
       res.status(error.status).json({ success: false, error: {
         code: error.code, message: error.message, details: error.details,
