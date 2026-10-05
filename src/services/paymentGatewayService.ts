@@ -162,7 +162,11 @@ class PaymentGatewayService {
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${userJWT}`,
+        // The public pay page has no signed-in user. The edge function trusts
+        // the HMAC signature below, not the caller, but Supabase's gateway
+        // still rejects an empty bearer before the function runs (401) — so
+        // send the project's public key when there is no user token.
+        'Authorization': `Bearer ${userJWT || process.env.SUPABASE_KEY || ''}`,
         'x-tenant-id': tenantId,
         'x-environment': environment
       };

@@ -310,13 +310,16 @@ export class CatBlocksService {
 
     // Lazy import to avoid circular dependency at module load time
     const { ktCatBlockMapperService } = await import('./ktCatBlockMapperService');
+    const { resolveCatalogTax } = await import('./catalogPricingService');
+    // Tenant currency + the tax master's default rate (no picker on this path).
+    const tax = await resolveCatalogTax(context.tenantId, undefined, `Bearer ${context.accessToken}`);
 
     // Build payloads for each KT sequentially (mapper is read-only, safe to parallelize)
     const kts: BulkSeedKtInput[] = [];
 
     for (const resourceTemplateId of resourceTemplateIds) {
       try {
-        const { blocks } = await ktCatBlockMapperService.buildBlocksForTemplate(resourceTemplateId);
+        const { blocks } = await ktCatBlockMapperService.buildCatalogBlocks(resourceTemplateId, tax, `Bearer ${context.accessToken}`);
         kts.push({
           resource_template_id: resourceTemplateId,
           kt_name: blocks[0]

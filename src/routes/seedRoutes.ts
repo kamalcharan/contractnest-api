@@ -19,6 +19,18 @@ import {
 import { SeedResult, TenantSeedResult } from '../seeds/types';
 import { seedSampleContacts } from '../services/seedSampleContactsService';
 import { seedTenantTemplates } from '../services/seedTenantTemplatesService';
+import { resolveCatalogTax, CatalogTaxError } from '../services/catalogPricingService';
+
+// Taxes chosen where the user seeds (onboarding Tax screen / VaNi Seeding picker).
+// Absent → undefined (the tax master's default rate); [] → no tax.
+// Accepts an array or a comma list; anything that is not a uuid is refused.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function parseTaxRateIds(raw: unknown): string[] | undefined | 'invalid' {
+  if (raw === undefined || raw === null) return undefined;
+  const list = Array.isArray(raw) ? raw : String(raw).split(',').map((x) => x.trim()).filter(Boolean);
+  if (list.some((x) => typeof x !== 'string' || !UUID_RE.test(x))) return 'invalid';
+  return list as string[];
+}
 
 const router = express.Router();
 
@@ -233,8 +245,13 @@ router.get('/tenant/seed-preview', async (req: Request, res: Response) => {
     if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
     if (!templateId) return res.status(400).json({ error: 'resource_template_id is required' });
 
+    const taxRateIds = parseTaxRateIds(req.query.tax_rate_ids);
+    if (taxRateIds === 'invalid') return res.status(400).json({ success: false, error: 'tax_rate_ids must be tax rate ids' });
+
+    // The preview shows exactly what a load would write: tenant currency + taxes.
+    const tax = await resolveCatalogTax(tenantId, taxRateIds, authHeader);
     const { ktCatBlockMapperService } = await import('../services/ktCatBlockMapperService');
-    const { blocks } = await ktCatBlockMapperService.buildBlocksForTemplate(templateId, authHeader);
+    const { blocks } = await ktCatBlockMapperService.buildCatalogBlocks(templateId, tax, authHeader);
 
     const SPARE_TYPE = '1221e2dd-a603-47fb-9063-c393193514b7';
     const services = blocks.filter(b => b.block_type_id !== SPARE_TYPE);
@@ -248,7 +265,15 @@ router.get('/tenant/seed-preview', async (req: Request, res: Response) => {
       variants: (b.config?.selectedVariants || []).length,
       kt_price_min: b.config?.kt_price_min ?? null,
       kt_price_max: b.config?.kt_price_max ?? null,
+      tax_rate: b.tax_rate ?? 0,
+      kt_currency_missing: !!b.config?.kt_currency_missing,
+      variant_ids: (b.config?.selectedVariants || []).map((v: any) => v.variant_id),
+      variant_prices: (b.config?.variantPricingRecords || []).map((r: any) => ({
+        variant_id: r.variant_id, variant_name: r.variant_name, amount: r.amount,
+      })),
     });
+    const variantNames = new Map<string, string>();
+    blocks.forEach((b: any) => (b.config?.selectedVariants || []).forEach((v: any) => v?.variant_id && variantNames.set(v.variant_id, v.variant_name)));
 
     const variantIds = new Set<string>();
     blocks.forEach((b: any) => (b.config?.selectedVariants || []).forEach((v: any) => v?.variant_id && variantIds.add(v.variant_id)));
@@ -257,6 +282,8 @@ router.get('/tenant/seed-preview', async (req: Request, res: Response) => {
       success: true,
       data: {
         resource_template_id: templateId,
+        tax: { currency: tax.currency, inclusion: tax.inclusion, taxes: tax.taxes, total: tax.total, source: tax.source, display_mode: tax.display_mode },
+        variants: [...variantNames.entries()].map(([id, name]) => ({ id, name })),
         counts: {
           services: services.length,
           spares: spares.length,
@@ -270,7 +297,8 @@ router.get('/tenant/seed-preview', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[SeedRoutes] seed-preview error:', error.message);
-    return res.status(500).json({ success: false, error: error.message });
+    const status = error instanceof CatalogTaxError ? 422 : 500;
+    return res.status(status).json({ success: false, error: error.message, code: error?.code });
   }
 });
 
@@ -285,6 +313,8 @@ router.post('/tenant/seed-equipment', async (req: Request, res: Response) => {
 
     const { resourceTemplateId, purpose } = req.body || {};
     if (!resourceTemplateId) return res.status(400).json({ error: 'resourceTemplateId is required' });
+    const taxRateIds = parseTaxRateIds(req.body?.taxRateIds);
+    if (taxRateIds === 'invalid') return res.status(400).json({ success: false, error: 'taxRateIds must be tax rate ids' });
 
     const { seedSingleEquipment } = await import('../services/seedTenantTemplatesService');
     const result = await seedSingleEquipment({
@@ -293,6 +323,7 @@ router.post('/tenant/seed-equipment', async (req: Request, res: Response) => {
       purpose: purpose === 'own' ? 'own' : 'sell',
       authToken: authHeader,
       userId: (req as any).user?.id || null,
+      taxRateIds,
     });
 
     return res.status(result.success ? 200 : 207).json({ success: result.success, status: result.status, data: result });
@@ -320,13 +351,47 @@ router.post('/tenant/sync-equipment', async (req: Request, res: Response) => {
 
     const { resourceTemplateId } = req.body || {};
     if (!resourceTemplateId) return res.status(400).json({ error: 'resourceTemplateId is required' });
+    const taxRateIds = parseTaxRateIds(req.body?.taxRateIds);
+    if (taxRateIds === 'invalid') return res.status(400).json({ success: false, error: 'taxRateIds must be tax rate ids' });
 
     const { ktCatBlockMapperService } = await import('../services/ktCatBlockMapperService');
-    const result = await ktCatBlockMapperService.syncBlocksForTemplate(tenantId, resourceTemplateId, authHeader);
+    const result = await ktCatBlockMapperService.syncBlocksForTemplate(tenantId, resourceTemplateId, authHeader, taxRateIds);
 
     return res.status(200).json({ success: true, data: result });
   } catch (error: any) {
     console.error('[SeedRoutes] sync-equipment error:', error.message);
+    const status = error instanceof CatalogTaxError ? 422 : 500;
+    return res.status(status).json({ success: false, error: error.message, code: error?.code });
+  }
+});
+
+// POST /tenant/pricing-review — body { prices: [{ blockId, amount }] }
+// Onboarding pricing review "Confirm": one transaction (catalog_review_set_prices,
+// catalog-studio/009) sets base_price AND the price line the contract wizard
+// reads, on the block and on its not-yet-edited twin in the other environment.
+router.post('/tenant/pricing-review', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const tenantId   = req.headers['x-tenant-id'] as string;
+    if (!authHeader) return res.status(401).json({ error: 'Authorization header is required' });
+    if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
+
+    const prices = Array.isArray(req.body?.prices) ? req.body.prices : null;
+    if (!prices || prices.length === 0 || prices.length > 1000) {
+      return res.status(400).json({ success: false, error: 'prices must be a non-empty list' });
+    }
+    const items = prices.map((p: any) => ({ block_id: String(p?.blockId || ''), amount: Number(p?.amount) }));
+    if (items.some((i: any) => !UUID_RE.test(i.block_id) || !Number.isFinite(i.amount) || i.amount < 0)) {
+      return res.status(400).json({ success: false, error: 'Each price needs a block id and an amount of 0 or more' });
+    }
+
+    const sb = jwtClient(authHeader);
+    const { data, error } = await sb.rpc('catalog_review_set_prices', { p_tenant: tenantId, p_items: items });
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    if (!data?.success) return res.status(data?.reason === 'forbidden' ? 403 : 400).json({ success: false, error: data?.reason || 'refused' });
+    return res.status(200).json({ success: true, data });
+  } catch (error: any) {
+    console.error('[SeedRoutes] pricing-review error:', error.message);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -457,6 +522,8 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
     if (!tenantId)   return res.status(400).json({ error: 'x-tenant-id header is required' });
 
     const { equipmentTemplateIds = [], facilityTemplateIds = [], serviceTemplateIds = [], businessType, industryId, industryIds } = req.body;
+    const taxRateIds = parseTaxRateIds(req.body?.taxRateIds);
+    if (taxRateIds === 'invalid') return res.status(400).json({ error: 'taxRateIds must be tax rate ids' });
 
     if (!businessType || !['buyer', 'seller', 'both'].includes(businessType)) {
       return res.status(400).json({ error: 'businessType must be buyer, seller, or both' });
@@ -477,6 +544,7 @@ router.post('/tenant/templates', async (req: Request, res: Response) => {
       industryIds: Array.isArray(industryIds) ? industryIds : undefined,
       authToken: authHeader,
       userId: (req as any).user?.id || null,
+      taxRateIds,
     });
 
     // no_coverage is an honest, non-exceptional outcome — 200 with status field so

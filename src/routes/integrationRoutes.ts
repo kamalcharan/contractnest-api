@@ -28,6 +28,8 @@ router.post('/integrations/test', testConnectionValidation, integrationControlle
 router.post('/integrations', createIntegrationValidation, integrationController.createUpdateIntegration);
 
 // Toggle integration status
+// The UI sends PUT /api/integrations/:id/status; the older path is kept.
+router.put('/integrations/:id/status', toggleStatusValidation, integrationController.toggleIntegrationStatus);
 router.put('/integrations/status/:id', toggleStatusValidation, integrationController.toggleIntegrationStatus);
 
 // Delete a tenant integration (remove the stored config)

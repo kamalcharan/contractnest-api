@@ -23,6 +23,27 @@ class PaymentGatewayController {
   }
 
   // ═══════════════════════════════════════════════════════════
+  // GET /api/payments/options — what can this tenant collect with, in the
+  // current environment? Drives the Pay modal (Online only with a gateway;
+  // Request payment whenever anything is set up).
+  // ═══════════════════════════════════════════════════════════
+  getOptions = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { tenantId, environment } = this.extractContext(req);
+      const result: any = await publicPaymentService.paymentOptions(tenantId, environment !== 'test');
+      const data = result?.data ?? result;
+      if (result?.success === false || !data) {
+        res.status(500).json({ success: false, error: 'Could not read payment options', code: 'OPTIONS_FAILED' });
+        return;
+      }
+      res.status(200).json({ success: true, data: { gateway: !!data.gateway, offline_upi: !!data.offline_upi, any: !!data.any, environment } });
+    } catch (error: any) {
+      console.error('[PaymentGatewayController] getOptions error:', error);
+      res.status(500).json({ success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' });
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════
   // POST /api/payments/create-order
   // ═══════════════════════════════════════════════════════════
   createOrder = async (req: Request, res: Response): Promise<void> => {

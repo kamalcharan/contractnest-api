@@ -555,10 +555,10 @@ export const integrationService = {
         throw new Error('integrationId is required');
       }
 
-      const response = await axios.patch(
-        `${SUPABASE_URL}/functions/v1/integrations/toggle-status`,
+      // The edge function serves PUT /integrations/status/{id}.
+      const response = await axios.put(
+        `${SUPABASE_URL}/functions/v1/integrations/status/${encodeURIComponent(integrationId)}`,
         {
-          id: integrationId,
           is_active: isActive
         },
         {
@@ -683,10 +683,11 @@ export const integrationService = {
     try {
       // Storage swapped to the one path in the product (Admin SDK →
       // tenants/{tenant}/integration_qr/… + a registry row). The QR DECODE
-      // above is deliberately untouched: it is what recovers org_id and mcc
-      // from the bank's own sticker, and those two fields are the whole reason
-      // UPI merchant payments work. A durable url, because this image is shown
-      // on the integrations page and referenced from payment config.
+      // lives in the controller (utils/upiQrDecode): it is what recovers
+      // org_id and mcc from the bank's own sticker, and those two fields are
+      // the whole reason UPI merchant payments work. A durable url, because
+      // this image is shown on the integrations page and referenced from
+      // payment config.
       const saved = await evidenceStorageService.saveIdentityAsset(
         tenantId,
         null,

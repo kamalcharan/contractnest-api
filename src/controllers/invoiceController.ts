@@ -142,7 +142,6 @@ class InvoiceController {
   sendInvoice = async (req: AuthRequest, res: Response): Promise<void> => {
     const tenantId = this.tenantId(req);
     const invoiceId = req.params.id;
-    const isLive = this.isLive(req);
     const channel = (req.body?.channel || 'email') as 'email' | 'whatsapp';
 
     if (!tenantId || !invoiceId) {
@@ -154,14 +153,56 @@ class InvoiceController {
       return;
     }
 
+    const outcome = await this.requestPayment(req, invoiceId, channel);
+    if (!outcome.ok) {
+      sendError(res, outcome.status === 400 ? ERROR_CODES.VALIDATION_ERROR : ERROR_CODES.INTERNAL_ERROR,
+        outcome.message, outcome.status, outcome.details ? { details: outcome.details } : undefined);
+      return;
+    }
+    sendSuccess(res, outcome.data);
+  };
+
+  /**
+   * THE payment request: links the buyer's pay page (or a gateway / UPI link
+   * when there is none) and queues the WhatsApp or email. Used by "Request
+   * payment" and by sending a pay-to-accept contract.
+   */
+  requestPayment = async (
+    req: AuthRequest,
+    invoiceId: string,
+    channel: 'email' | 'whatsapp',
+  ): Promise<{ ok: true; data: any } | { ok: false; status: number; message: string; details?: any }> => {
+    const tenantId = this.tenantId(req);
+    const isLive = this.isLive(req);
+
     let paymentLink: string | null = null;
     let qrUrl: string | null = null;
     let upiId: string | null = null;
 
     try {
-      const gatewayConfigured = await publicPaymentService.checkGatewayConfigured(tenantId);
+      // 1. The buyer's PAY PAGE (contract-review link) — preferred whenever the
+      //    contract has a buyer grant: one page carries Razorpay (when set up in
+      //    that environment), the UPI ID, the bank QR and "I've paid", so the
+      //    message never has to choose. UPI ID + QR still ride along (QR is the
+      //    WhatsApp header image) for buyers who pay without opening the page.
+      const access = await invoiceService.getInvoicePayAccess({ tenantId, invoiceId });
+      const invoiceIsLive = access.data?.ok && typeof access.data.is_live === 'boolean' ? access.data.is_live : isLive;
+      if (access.data?.ok && access.data.cnak && access.data.secret) {
+        paymentLink = `${this.appBaseUrl(req)}/contract-review?cnak=${encodeURIComponent(access.data.cnak)}&secret=${encodeURIComponent(access.data.secret)}`;
+        const cfg = await invoiceService.getTenantPaymentConfig({ tenantId, isLive: invoiceIsLive });
+        if (cfg.data?.configured) {
+          qrUrl = cfg.data.qr_image_url || null;
+          upiId = cfg.data.upi_id || null;
+        }
+      }
 
-      if (gatewayConfigured) {
+      const gatewayConfigured = paymentLink
+        ? false
+        : await publicPaymentService.checkGatewayConfigured(tenantId, invoiceIsLive);
+
+      if (paymentLink) {
+        // already resolved above
+      } else if (gatewayConfigured) {
         // Amount and customer are resolved by the RPC, not trusted from the
         // client, so ask it first with a dry run — it also tells us up front
         // if the send would be refused, before we mint a link nobody uses.
@@ -186,7 +227,7 @@ class InvoiceController {
           paymentLink = (link as any)?.data?.gateway_short_url || (link as any)?.gateway_short_url || null;
         }
       } else {
-        const cfg = await invoiceService.getTenantPaymentConfig({ tenantId, isLive });
+        const cfg = await invoiceService.getTenantPaymentConfig({ tenantId, isLive: invoiceIsLive });
         if (cfg.data?.configured) {
           // Same upi:// intent shape the check-in page uses, including the
           // mc=0000 merchant category NPCI's spec requires.
@@ -212,19 +253,26 @@ class InvoiceController {
     });
 
     if (!result.success) {
-      sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to send invoice', 500);
-      return;
+      return { ok: false, status: 500, message: result.error?.message || 'Failed to send invoice' };
     }
     // The RPC reports every refusal as {ok:false, reason, message} so the user
     // is told WHY nothing was sent — a silent no-op reads as success.
     if (result.data && result.data.ok === false) {
-      sendError(res, ERROR_CODES.VALIDATION_ERROR,
-        result.data.message || result.data.reason || 'Invoice could not be sent', 400,
-        { details: { reason: result.data.reason, rule_key: result.data.rule_key } });
-      return;
+      return {
+        ok: false, status: 400,
+        message: result.data.message || result.data.reason || 'Invoice could not be sent',
+        details: { reason: result.data.reason, rule_key: result.data.rule_key },
+      };
     }
-    sendSuccess(res, { ...result.data, payment_link: paymentLink, qr_url: qrUrl });
+    return { ok: true, data: { ...result.data, payment_link: paymentLink, qr_url: qrUrl } };
   };
+
+  /** Public app address for buyer links. Never the request's origin or
+   *  FRONTEND_URL (both are localhost in local dev): a request sent while
+   *  testing must still give the buyer a link that opens on their phone. */
+  private appBaseUrl(_req: AuthRequest): string {
+    return (process.env.PUBLIC_APP_URL || 'https://www.contractnest.com').replace(/\/+$/, '');
+  }
 
   /** Same shape paymentGatewayController.extractContext builds. */
   private gatewayContext(req: AuthRequest) {

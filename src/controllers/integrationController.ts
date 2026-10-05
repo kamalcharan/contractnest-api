@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { captureException } from '../utils/sentry';
 import { validateSupabaseConfig } from '../utils/supabaseConfig';
 import { integrationService } from '../services/integrationService';
+import { detectUpiMerchantFields } from '../utils/upiQrDecode';
 
 /**
  * Get integrations - handles multiple cases based on query params
@@ -219,8 +220,16 @@ export const uploadQrImage = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const qrImageUrl = await integrationService.uploadQrImage(tenantId, (req as any).file);
-    return res.status(200).json({ success: true, qr_image_url: qrImageUrl });
+    const file = (req as any).file;
+    const qrImageUrl = await integrationService.uploadQrImage(tenantId, file);
+
+    // Best-effort: if this is a genuine UPI merchant QR, also return org_id/mcc
+    // so the form saves them with the QR — the tenant's payment links then
+    // classify the payment as a merchant payment, without ever asking what
+    // these mean. Never blocks the upload (the decoder never throws).
+    const detected = await detectUpiMerchantFields(file.buffer);
+
+    return res.status(200).json({ success: true, qr_image_url: qrImageUrl, ...(detected || {}) });
   } catch (error: any) {
     console.error('Error in uploadQrImage controller:', error.message);
     captureException(error instanceof Error ? error : new Error(String(error)), {

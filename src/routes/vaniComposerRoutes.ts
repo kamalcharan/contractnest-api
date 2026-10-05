@@ -50,8 +50,21 @@ router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
 router.get('/health', vaniComposerController.health);
 router.get('/entitlement', vaniComposerController.entitlement);
 
-// Entitlement gate — everything below is subscriber-only
+// Deterministic composer steps a non-VaNi tenant may use in the TEST
+// environment: the onboarding "First contract" rehearsal (FirstContractStep)
+// reads the workspace facts (/context — the client fetches it before any
+// step), shortlists the tenant's own services and assembles a test contract
+// from them. None of the three calls the LLM. Everything else — the LLM steps, and every
+// step in Live — stays VaNi-only. The environment is the one verifyComposerContext
+// checked above (header and request scope must agree), not the raw header.
+const OPEN_IN_TEST = new Set(['/context', '/shortlist', '/assemble']);
+
+// Entitlement gate — everything below is subscriber-only (except OPEN_IN_TEST)
 router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (OPEN_IN_TEST.has(req.path) && (req as any).composerContext?.environment === 'test') {
+    next();
+    return;
+  }
   const tenantId = (req.headers['x-tenant-id'] as string) || '';
   const entitled = await vaniEntitlementService.isEntitled(tenantId);
   if (!entitled) {

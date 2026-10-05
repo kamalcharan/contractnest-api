@@ -202,6 +202,16 @@ try {
   }
 }
 
+// Load Catalog defaults routes (business currency + catalog tax — catalog-studio/008)
+let catalogDefaultsRoutes;
+try {
+  catalogDefaultsRoutes = require('./routes/catalogDefaultsRoutes').default;
+  console.log('✅ Catalog defaults routes loaded');
+} catch (error) {
+  console.error('❌ Failed to load catalog defaults routes:', error);
+  catalogDefaultsRoutes = null;
+}
+
 // Load Availability routes (who works when — migration 024) with error handling
 let availabilityRoutes;
 try {
@@ -850,6 +860,10 @@ try {
 
 // Register Cadence Settings routes with error handling
 try {
+  if (catalogDefaultsRoutes) {
+    app.use('/api/catalog-defaults', catalogDefaultsRoutes);
+    console.log('✅ Catalog defaults routes registered at /api/catalog-defaults');
+  }
   if (availabilityRoutes) {
     app.use('/api/availability', availabilityRoutes);
     console.log('✅ Availability routes registered at /api/availability');

@@ -84,13 +84,17 @@ class PublicPaymentService {
    * under, so an unpinned lookup could match offline_upi and misreport.
    * Never decrypts credentials — only checks the RPC's success flag.
    */
-  async checkGatewayConfigured(tenantId: string): Promise<boolean> {
+  // isLive: the environment of the contract / invoice being paid. Without it a
+  // TEST Razorpay row answered "configured" for a LIVE contract, and the live
+  // link creation then failed (the payment-gateway edge function is env-exact).
+  async checkGatewayConfigured(tenantId: string, isLive?: boolean): Promise<boolean> {
     const supabase = this.client();
     if (!supabase || !tenantId) return false;
     try {
       const { data, error } = await supabase.rpc('get_tenant_gateway_credentials', {
         p_tenant_id: tenantId,
         p_provider: 'razorpay',
+        p_is_live: typeof isLive === 'boolean' ? isLive : null,
       });
       if (error) return false;
       return !!data?.success;
@@ -100,6 +104,12 @@ class PublicPaymentService {
   }
 
   // ── Tenant-side (authenticated) ──
+  /** What this tenant can collect with in an environment: {gateway, offline_upi, any}
+   *  (fn_tenant_payment_options — the same truth the storefront and wizard use). */
+  paymentOptions(tenantId: string, isLive: boolean) {
+    return this.call('fn_tenant_payment_options', { p_tenant_id: tenantId, p_is_live: isLive });
+  }
+
   listDeclarations(tenantId: string, status: string | null = 'pending') {
     return this.call('list_public_payment_declarations', {
       p_tenant_id: tenantId,

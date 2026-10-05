@@ -110,6 +110,54 @@ class InvoiceService {
   }
 
   /**
+   * The buyer's pay-page access for this invoice's contract (business-model-v2/043):
+   * {ok, cnak, secret, contract_id, is_live} or {ok:false, reason}. The caller
+   * builds <app>/contract-review?cnak=…&secret=… — the pay page serves any open
+   * invoice of an agreed contract (042).
+   */
+  getInvoicePayAccess(params: { tenantId: string; invoiceId: string }) {
+    return this.call('fn_invoice_pay_access', { p_tenant: params.tenantId, p_invoice: params.invoiceId });
+  }
+
+  /**
+   * How this contract is accepted, and the invoice the buyer should pay now
+   * (open, balance left, earliest due). Used when a contract is sent: a
+   * pay-to-accept contract sends the buyer a payment request, not a sign-off.
+   */
+  async getContractAcceptanceInvoice(params: { tenantId: string; contractId: string }): Promise<InvoiceServiceResult<{
+    acceptance_method: string | null; invoice_id: string | null;
+  }>> {
+    const supabase = this.client();
+    if (!supabase) {
+      return { success: false, error: { code: 'CONFIG', message: 'Supabase is not configured' } };
+    }
+    const { data: contract, error: cErr } = await supabase
+      .from('t_contracts')
+      .select('id, acceptance_method')
+      .eq('id', params.contractId)
+      .eq('tenant_id', params.tenantId)
+      .maybeSingle();
+    if (cErr) return { success: false, error: { code: 'QUERY_ERROR', message: cErr.message } };
+    if (!contract) return { success: false, error: { code: 'NOT_FOUND', message: 'Contract not found' } };
+
+    const { data: invoices, error: iErr } = await supabase
+      .from('t_invoices')
+      .select('id, balance, status, due_date')
+      .eq('contract_id', params.contractId)
+      .eq('tenant_id', params.tenantId)
+      .gt('balance', 0)
+      .neq('status', 'cancelled')
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .limit(1);
+    if (iErr) return { success: false, error: { code: 'QUERY_ERROR', message: iErr.message } };
+
+    return {
+      success: true,
+      data: { acceptance_method: contract.acceptance_method || null, invoice_id: invoices?.[0]?.id || null },
+    };
+  }
+
+  /**
    * Queue ONE invoice notification. The RPC owns every refusal (rule off,
    * cancelled, nothing owed, no address…) and returns {ok:false, reason}
    * rather than throwing — so the caller can show the user WHY nothing was

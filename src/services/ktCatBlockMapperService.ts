@@ -11,6 +11,7 @@
 //   - Groups checkpoints by service_name — one block per unique service name.
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { applyCatalogPricing, resolveCatalogTax, CatalogTax } from './catalogPricingService';
 
 const BLOCK_TYPE_SERVICE = 'ae7050b4-3cca-4ed9-aa02-4a1f697b75cc';
 const BLOCK_TYPE_SPARE   = '1221e2dd-a603-47fb-9063-c393193514b7';
@@ -39,6 +40,8 @@ export interface CatBlockPayload {
   is_seed:              boolean;
   is_active:            boolean;
   visible:              boolean;
+  // Set by applyCatalogPricing (catalogPricingService) — sum of the chosen tax rates.
+  tax_rate?:            number;
 }
 
 interface VariantPricingItem {
@@ -101,8 +104,8 @@ interface PricingRecord {
   currency:      string;
   amount:        number;
   price_type:    'fixed';
-  tax_inclusion: 'exclusive';
-  taxes:         [];
+  tax_inclusion: 'inclusive' | 'exclusive';
+  taxes:         Array<{ id: string; name: string; rate: number }>;
   is_active:     boolean;
 }
 
@@ -114,8 +117,8 @@ interface VariantPricingRecord {
   currency:       string;
   amount:         number;
   price_type:     'fixed';
-  tax_inclusion:  'exclusive';
-  taxes:          [];
+  tax_inclusion:  'inclusive' | 'exclusive';
+  taxes:          Array<{ id: string; name: string; rate: number }>;
   is_active:      boolean;
 }
 
@@ -225,7 +228,10 @@ export class KtCatBlockMapperService {
     }));
   }
 
-  async buildBlocksForTemplate(resourceTemplateId: string, authToken?: string): Promise<{
+  // opts.currency: the tenant's business currency — the KT price row in that
+  // currency becomes the primary one. Raw mapper output; seeding paths go
+  // through buildCatalogBlocks, which also applies currency + taxes.
+  async buildBlocksForTemplate(resourceTemplateId: string, authToken?: string, opts?: { currency?: string }): Promise<{
     blocks:   CatBlockPayload[];
     skipped:  { serviceGroups: number; spareParts: number };
   }> {
@@ -259,15 +265,25 @@ export class KtCatBlockMapperService {
     const multipliers = await this.fetchVariantMultipliers(sb, serviceRows);
 
     const { blocks: serviceBlocks, skipped: skippedServiceGroups } =
-      this.buildServiceBlocks(serviceRows, variants, variantMap, serviceDefs, multipliers, resourceTemplateId, selectedResource);
+      this.buildServiceBlocks(serviceRows, variants, variantMap, serviceDefs, multipliers, resourceTemplateId, selectedResource, opts?.currency);
 
     const { blocks: spareBlocks, skipped: skippedSpareParts } =
-      this.buildSpareBlocks(spareRows, resourceTemplateId, selectedResource);
+      this.buildSpareBlocks(spareRows, resourceTemplateId, selectedResource, opts?.currency);
 
     return {
       blocks:  [...serviceBlocks, ...spareBlocks],
       skipped: { serviceGroups: skippedServiceGroups, spareParts: skippedSpareParts },
     };
+  }
+
+  // The seeding entry point: KT blocks in the tenant's currency, with the
+  // tenant's taxes (catalogPricingService). Every seed path uses this.
+  async buildCatalogBlocks(resourceTemplateId: string, tax: CatalogTax, authToken?: string): Promise<{
+    blocks:   CatBlockPayload[];
+    skipped:  { serviceGroups: number; spareParts: number };
+  }> {
+    const built = await this.buildBlocksForTemplate(resourceTemplateId, authToken, { currency: tax.currency });
+    return { ...built, blocks: built.blocks.map((b) => applyCatalogPricing(b, tax)) };
   }
 
   // ---------------------------------------------------------------------------
@@ -289,22 +305,41 @@ export class KtCatBlockMapperService {
     tenantId: string,
     resourceTemplateId: string,
     authToken?: string,
+    taxRateIds?: string[] | null,
   ): Promise<{ added: number; repriced: number }> {
     const sb = this.clientFor(authToken);
 
-    const { blocks: freshBlocks } = await this.buildBlocksForTemplate(resourceTemplateId, authToken);
+    // Same currency + taxes as an original seed (catalogPricingService). With no
+    // explicit pick, the taxes this equipment's seeded blocks already carry are
+    // kept — a sync must not swap the tenant's CGST+SGST for the default rate.
+    let effectiveIds = taxRateIds;
+    if (effectiveIds === undefined || effectiveIds === null) {
+      const { data: carried } = await sb
+        .from('m_cat_blocks')
+        .select('config')
+        .eq('tenant_id', tenantId)
+        .eq('resource_template_id', resourceTemplateId)
+        .eq('is_seed', true)
+        .limit(1);
+      const rec = (carried?.[0] as any)?.config?.pricingRecords?.[0];
+      if (rec && Array.isArray(rec.taxes)) {
+        effectiveIds = rec.taxes.map((t: any) => t?.id).filter(Boolean);
+      }
+    }
+    let tax: CatalogTax;
+    try {
+      tax = await resolveCatalogTax(tenantId, effectiveIds, authToken);
+    } catch (err: any) {
+      // A carried rate was since deleted in Tax settings → the tax master's default.
+      if (effectiveIds !== taxRateIds && err?.code === 'UNKNOWN_TAX_RATE') {
+        tax = await resolveCatalogTax(tenantId, undefined, authToken);
+      } else {
+        throw err;
+      }
+    }
+    const { blocks: freshBlocks } = await this.buildCatalogBlocks(resourceTemplateId, tax, authToken);
     if (freshBlocks.length === 0) return { added: 0, repriced: 0 };
     const freshByName = new Map(freshBlocks.map((b) => [b.name, b]));
-
-    const { rate: taxRate, inclusion: taxInclusion } = await this.fetchTaxDefaults(sb, tenantId);
-    const stampTax = (config: Record<string, any> | undefined) => {
-      if (!config) return config;
-      const stamp = (rec: any) => ({ ...rec, tax_inclusion: taxInclusion });
-      return {
-        ...config,
-        pricingRecords: Array.isArray(config.pricingRecords) ? config.pricingRecords.map(stamp) : config.pricingRecords,
-      };
-    };
 
     let added = 0;
     let repriced = 0;
@@ -337,6 +372,7 @@ export class KtCatBlockMapperService {
           .update({
             base_price: fresh.base_price,
             currency:   fresh.currency,
+            tax_rate:   fresh.tax_rate,
             config:     { ...((row as any).config || {}), ...fresh.config },
             updated_at: new Date().toISOString(),
           })
@@ -361,7 +397,8 @@ export class KtCatBlockMapperService {
         pricing_mode_id:      b.pricing_mode_id,
         base_price:           b.base_price,
         currency:             b.currency,
-        config:               stampTax(b.config) || {},
+        config:               b.config || {},
+        variant_pricing:      b.variant_pricing || null,
         knowledge_tree_ref:   b.knowledge_tree_ref || null,
         resource_template_id: resourceTemplateId,
         kt_checkpoint_ids:    (b as any).kt_checkpoint_ids || null,
@@ -372,7 +409,7 @@ export class KtCatBlockMapperService {
         is_admin:             false,
         is_deletable:         true,
         is_live:              isLive,
-        tax_rate:             taxRate,
+        tax_rate:             b.tax_rate ?? 0,
       }));
 
       const { data: inserted, error: insertError } = await sb
@@ -390,35 +427,6 @@ export class KtCatBlockMapperService {
     return { added, repriced };
   }
 
-  // Tenant's configured tax default — same lookup the cat-blocks/bulk edge
-  // function uses at original seed time, so newly-synced blocks match.
-  private async fetchTaxDefaults(sb: SupabaseClient, tenantId: string): Promise<{ rate: number; inclusion: 'inclusive' | 'exclusive' }> {
-    let rate = 18.0;
-    let inclusion: 'inclusive' | 'exclusive' = 'exclusive';
-    try {
-      const { data: taxSettings } = await sb
-        .from('t_tax_settings')
-        .select('display_mode, default_tax_rate_id')
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-      if (taxSettings?.display_mode === 'including_tax') inclusion = 'inclusive';
-
-      let rateRow: any = null;
-      if (taxSettings?.default_tax_rate_id) {
-        const { data } = await sb.from('t_tax_rates').select('rate').eq('id', taxSettings.default_tax_rate_id).maybeSingle();
-        rateRow = data;
-      }
-      if (!rateRow) {
-        const { data } = await sb.from('t_tax_rates').select('rate').eq('tenant_id', tenantId).eq('is_default', true).eq('is_active', true).maybeSingle();
-        rateRow = data;
-      }
-      if (rateRow?.rate != null) rate = Number(rateRow.rate);
-    } catch (err) {
-      console.warn('KtCatBlockMapper: tax settings lookup failed, using defaults:', err);
-    }
-    return { rate, inclusion };
-  }
-
   // ---------------------------------------------------------------------------
   // Service blocks — one block per unique service_name
   // ---------------------------------------------------------------------------
@@ -431,6 +439,7 @@ export class KtCatBlockMapperService {
     multipliers:      Map<string, Map<string, number>>,
     resourceTemplateId: string,
     selectedResource: SelectedResource,
+    preferredCurrency?: string,
   ): { blocks: CatBlockPayload[]; skipped: number } {
     // Group rows into chargeable Services (founder taxonomy):
     //   named work packages (cycle.catalog_name) first — e.g. "DG Set
@@ -461,7 +470,8 @@ export class KtCatBlockMapperService {
 
       // Multi-currency: one pricing entry per currency present on the group's
       // cycles (KT holds one currency per cycle row, per geo). Primary currency
-      // prefers INR, else the first currency seen.
+      // = the tenant's business currency when the KT has it, else the first seen
+      // (applyCatalogPricing then seeds a foreign-only block at 0, never relabelled).
       const byCurrency = new Map<string, ServiceGroupRow>();
       for (const r of groupRows) {
         if (r.price_median != null && !byCurrency.has(r.price_currency || 'INR')) {
@@ -469,7 +479,9 @@ export class KtCatBlockMapperService {
         }
       }
       const currencies = [...byCurrency.keys()];
-      const primaryCurrency = currencies.includes('INR') ? 'INR' : (currencies[0] || 'INR');
+      const primaryCurrency = (preferredCurrency && currencies.includes(preferredCurrency))
+        ? preferredCurrency
+        : (currencies[0] || preferredCurrency || 'INR');
       const representative = byCurrency.get(primaryCurrency) || groupRows[0];
       const referencePrice = representative.price_median ?? 0;
       const currency = primaryCurrency;
@@ -619,15 +631,16 @@ export class KtCatBlockMapperService {
     rows:             SparePartRow[],
     resourceTemplateId: string,
     selectedResource: SelectedResource,
+    preferredCurrency?: string,
   ): { blocks: CatBlockPayload[]; skipped: number } {
     const blocks: CatBlockPayload[] = [];
 
     for (const spare of rows) {
-      // Multi-currency: all active geo-pricings, INR primary when present
+      // All active geo-pricings; the tenant's currency is primary when present
       const priceList = (spare.prices && spare.prices.length)
         ? spare.prices
         : [{ currency: spare.price_currency || 'INR', price_min: spare.price_min, price_median: spare.price_median, price_max: spare.price_max }];
-      const primary = priceList.find(p => p.currency === 'INR') || priceList[0];
+      const primary = priceList.find(p => p.currency === preferredCurrency) || priceList[0];
       const price    = primary.price_median ?? 0;
       const currency = primary.currency || 'INR';
 

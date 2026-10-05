@@ -26,6 +26,7 @@
 import axios from 'axios';
 import crypto from 'crypto';
 import { ktCatBlockMapperService, CatBlockPayload } from './ktCatBlockMapperService';
+import { applyCatalogPricing, resolveCatalogTax, CatalogTax } from './catalogPricingService';
 import { seedSampleContacts } from './seedSampleContactsService';
 import { SEQUENCE_SEED_DATA } from '../seeds';
 import {
@@ -45,6 +46,9 @@ export interface SeedTemplatesInput {
   industryIds?:           string[];   // all selected industries (preferred)
   authToken:              string;
   userId?:                string | null;
+  // Taxes chosen on the onboarding Tax screen (tax-master rate ids).
+  // undefined = the tax master's default rate; [] = no tax.
+  taxRateIds?:            string[] | null;
 }
 
 export interface PerTemplateResult {
@@ -148,6 +152,7 @@ const PRICING_MODE_INDEPENDENT = '718f839d-9d41-4212-b2b0-553a2198fb86';
 async function buildServiceCatBlocks(
   serviceTemplateIds: string[],
   authToken: string,
+  tax: CatalogTax,
 ): Promise<Array<{ resource_template_id: string; kt_name: string; blocks: CatBlockPayload[] }>> {
   if (!serviceTemplateIds.length) return [];
 
@@ -173,14 +178,14 @@ async function buildServiceCatBlocks(
   return templates.map((tmpl: any) => ({
     resource_template_id: tmpl.id,
     kt_name: tmpl.name,
-    blocks: [{
+    blocks: [applyCatalogPricing({
       name:                 tmpl.name,
       display_name:         tmpl.name,
       description:          tmpl.description ?? null,
       block_type_id:        BLOCK_TYPE_SERVICE,
       pricing_mode_id:      PRICING_MODE_INDEPENDENT,
       base_price:           0,
-      currency:             'INR',
+      currency:             tax.currency,
       resource_template_id: tmpl.id,
       knowledge_tree_ref:   { resource_template_id: tmpl.id },
       config: {
@@ -189,7 +194,7 @@ async function buildServiceCatBlocks(
         pricingMode:          'independent',
         priceType:            'fixed',
         deliveryMode:         'onsite',
-        pricingRecords:       [{ id: '1', currency: 'INR', amount: 0, price_type: 'fixed', tax_inclusion: 'exclusive', taxes: [], is_active: true }],
+        pricingRecords:       [{ id: '1', currency: tax.currency, amount: 0, price_type: 'fixed', tax_inclusion: 'exclusive', taxes: [], is_active: true }],  // stamped by applyCatalogPricing
         variantPricingMode:   'all',
         kt_reference_price:   null,
         kt_service_activity:  'service_delivery',
@@ -197,7 +202,7 @@ async function buildServiceCatBlocks(
       is_seed:   true,
       is_active: true,
       visible:   true,
-    }],
+    } as CatBlockPayload, tax)],
   }));
 }
 
@@ -234,6 +239,7 @@ export async function seedSingleEquipment(input: {
   purpose?: 'sell' | 'own';
   authToken: string;
   userId?: string | null;
+  taxRateIds?: string[] | null;   // VaNi Seeding tax picker; undefined = default rate
 }): Promise<{
   success: boolean;
   status: 'success' | 'already_seeded' | 'no_kt_data' | 'error';
@@ -241,8 +247,16 @@ export async function seedSingleEquipment(input: {
   alreadySeeded: boolean;
   errors: string[];
 }> {
-  const { tenantId, resourceTemplateId, purpose = 'sell', authToken, userId = null } = input;
+  const { tenantId, resourceTemplateId, purpose = 'sell', authToken, userId = null, taxRateIds } = input;
   const errors: string[] = [];
+
+  // Resolve currency + taxes BEFORE anything is written — a bad pick refuses cleanly.
+  let tax: CatalogTax;
+  try {
+    tax = await resolveCatalogTax(tenantId, taxRateIds, authToken);
+  } catch (err: any) {
+    return { success: false, status: 'error', blocksCreated: 0, alreadySeeded: false, errors: [err?.message || 'tax lookup failed'] };
+  }
 
   const persist = await persistSelectedResources(
     tenantId,
@@ -256,7 +270,7 @@ export async function seedSingleEquipment(input: {
   let blocks: CatBlockPayload[] = [];
   let ktName = resourceTemplateId;
   try {
-    const built = await ktCatBlockMapperService.buildBlocksForTemplate(resourceTemplateId, authToken);
+    const built = await ktCatBlockMapperService.buildCatalogBlocks(resourceTemplateId, tax, authToken);
     blocks = built.blocks;
     ktName = blocks[0]?.config?.selectedResources?.[0]?.resource_name || resourceTemplateId;
   } catch (err: any) {
@@ -335,6 +349,7 @@ export async function seedTenantTemplates(
     industryIds,
     authToken,
     userId = null,
+    taxRateIds,
   } = input;
 
   const errors: string[] = [];
@@ -354,15 +369,28 @@ export async function seedTenantTemplates(
   // ── Step -2: Sequences (both envs) — BEFORE any early return ────────────────
   const sequencesSeeded = await seedSequencesBothEnvs(tenantId, authToken);
 
+  // ── Currency + taxes for every catalog block (catalogPricingService) ────────
+  // Only the seller legs need it; a lookup failure fails those legs loudly
+  // rather than seeding with an invented rate.
+  let tax: CatalogTax | null = null;
+  const needsCatalog = (businessType === 'seller' || businessType === 'both') || serviceTemplateIds.length > 0;
+  if (needsCatalog) {
+    try {
+      tax = await resolveCatalogTax(tenantId, taxRateIds, authToken);
+    } catch (err: any) {
+      errors.push(`Taxes: ${err?.message || 'tax lookup failed'}`);
+    }
+  }
+
   // ── Step -1: Seed services (no KT — always runs before coverage check) ───────
-  if (serviceTemplateIds.length > 0) {
+  if (serviceTemplateIds.length > 0 && tax) {
     try {
       const serviceSelections: ResourceSelection[] = serviceTemplateIds.map(id => ({
         resource_template_id: id, purpose: 'sell',
       }));
       await persistSelectedResources(tenantId, serviceSelections, 'onboarding', userId, authToken);
 
-      const svcKts = await buildServiceCatBlocks(serviceTemplateIds, authToken);
+      const svcKts = await buildServiceCatBlocks(serviceTemplateIds, authToken, tax);
       if (svcKts.length > 0) {
         const [testRes, liveRes] = await Promise.all([
           callBulkSeed(svcKts, tenantId, authToken, false),
@@ -461,12 +489,12 @@ export async function seedTenantTemplates(
   // ── Step 1: SELLER leg — catalog blocks from the KT mapper ───────────────────
   const isSeller = businessType === 'seller' || businessType === 'both';
 
-  if (isSeller && sellIds.length > 0) {
+  if (isSeller && sellIds.length > 0 && tax) {
     const kts: Array<{ resource_template_id: string; kt_name: string; blocks: CatBlockPayload[] }> = [];
 
     for (const templateId of sellIds) {
       try {
-        const { blocks } = await ktCatBlockMapperService.buildBlocksForTemplate(templateId, authToken);
+        const { blocks } = await ktCatBlockMapperService.buildCatalogBlocks(templateId, tax, authToken);
         const ktName = blocks[0]?.config?.selectedResources?.[0]?.resource_name || templateId;
 
         kts.push({ resource_template_id: templateId, kt_name: ktName, blocks });

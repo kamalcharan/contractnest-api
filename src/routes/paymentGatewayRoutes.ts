@@ -27,6 +27,9 @@ router.use((req, res, next) => {
 
 // ─── Routes ──────────────────────────────────────────────────
 
+// What the tenant can collect with in this environment (Pay modal)
+router.get('/options', controller.getOptions);
+
 // Create order for terminal checkout (Razorpay Standard Checkout popup)
 router.post('/create-order', controller.createOrder);
 

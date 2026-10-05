@@ -12,6 +12,8 @@ import { AuthRequest } from '../middleware/auth';
 import ContractService from '../services/contractService';
 import PaymentGatewayService from '../services/paymentGatewayService';
 import publicPaymentService from '../services/publicPaymentService';
+import invoiceService from '../services/invoiceService';
+import invoiceController from './invoiceController';
 import { getSupabaseClientFromRequest } from '../utils/supabaseConfig';
 import {
   sendSuccess,
@@ -564,6 +566,31 @@ class ContractController {
       const tenantId = req.headers['x-tenant-id'] as string;
       const environment = req.headers['x-environment'] as string || 'live';
       const userJWT = req.headers.authorization?.replace('Bearer ', '') || '';
+
+      // A pay-to-accept contract: the buyer's one step is to pay, so they get
+      // the payment request (pay page link, "Pay now" button) for the open
+      // invoice — on every channel that can carry it — not the sign-off.
+      const acceptance = await invoiceService.getContractAcceptanceInvoice({ tenantId, contractId: id });
+      if (acceptance.success && acceptance.data?.acceptance_method === 'payment' && acceptance.data.invoice_id) {
+        const invoiceId = acceptance.data.invoice_id;
+        const sent: Record<string, any> = {};
+        const refused: Record<string, string> = {};
+        for (const channel of ['whatsapp', 'email'] as const) {
+          const outcome = await invoiceController.requestPayment(req, invoiceId, channel);
+          if (outcome.ok) sent[channel] = outcome.data;
+          else refused[channel] = outcome.message;
+        }
+        if (Object.keys(sent).length === 0) {
+          res.status(400).json({
+            success: false,
+            error: Object.values(refused).join(' · ') || 'Payment request could not be sent',
+            refused,
+          });
+          return;
+        }
+        res.status(200).json({ success: true, data: { kind: 'payment_request', invoice_id: invoiceId, sent, refused } });
+        return;
+      }
 
       const result = await this.contractService.sendNotification(
         id,
@@ -1154,7 +1181,11 @@ class ContractController {
 
       // Gateway configured? Scoped to the CNAK-resolved tenant_id — never a
       // client-supplied one.
-      const gatewayConfigured = await publicPaymentService.checkGatewayConfigured(context.tenant_id);
+      // The CONTRACT's environment (business-model-v2/042 returns is_live).
+      const gatewayConfigured = await publicPaymentService.checkGatewayConfigured(
+        context.tenant_id,
+        typeof context.is_live === 'boolean' ? context.is_live : undefined,
+      );
 
       const offlineUpi = await publicPaymentService.getOfflineUpiConfig(cnak, secret_code);
       const offlineConfigured = !!offlineUpi?.configured;
@@ -1198,7 +1229,9 @@ class ContractController {
 
       const result = await this.paymentGatewayService.createOrder(
         { invoice_id: context.invoice_id, amount: context.amount, currency: context.currency, notes: { cnak } },
-        '', context.tenant_id, '', 'live'
+        // The contract's own environment: a Test contract pays through the
+        // tenant's Razorpay Test keys.
+        '', context.tenant_id, '', (context as any).is_live === false ? 'test' : 'live'
       );
 
       if (!result.success) {
@@ -1234,7 +1267,7 @@ class ContractController {
 
       const result = await this.paymentGatewayService.verifyPayment(
         { request_id, gateway_order_id, gateway_payment_id, gateway_signature },
-        '', context.tenant_id, 'live'
+        '', context.tenant_id, (context as any).is_live === false ? 'test' : 'live'
       );
 
       if (!result.success) {

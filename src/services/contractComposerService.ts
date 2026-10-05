@@ -125,6 +125,10 @@ export interface CandidatePayload {
   price: number;
   currency: string;
   tax_rate: number;
+  /** Catalog tax lines + inclusion from the block's pricing record (what the
+   *  contract wizard reads). Absent → exclusive, no named lines (tax_rate only). */
+  tax_inclusion?: 'inclusive' | 'exclusive';
+  taxes?: Array<{ id: string; name: string; rate: number }>;
   form_template_id: string | null;
   equipment: string;
   icon: string;
@@ -675,22 +679,35 @@ class ContractComposerService {
       );
     }
 
-    const candidates: CandidatePayload[] = scored.map((s, i) => ({
+    const candidates: CandidatePayload[] = scored.map((s, i) => {
+      // Same source as the contract wizard (ServiceBlocksStep): the pricing
+      // record in the block's currency — its amount, its named taxes, its
+      // inclusion. Blocks without named taxes fall back to the tax_rate column.
+      const records: any[] = Array.isArray(s.block.config?.pricingRecords) ? s.block.config.pricingRecords : [];
+      const rec = records.find((r) => r?.currency === s.block.currency && r?.is_active !== false) || records[0];
+      const recTaxes = Array.isArray(rec?.taxes)
+        ? rec.taxes.map((t: any) => ({ id: String(t.id || ''), name: String(t.name || ''), rate: Number(t.rate) || 0 }))
+        : [];
+      const recRate = recTaxes.reduce((n: number, t: { rate: number }) => n + t.rate, 0);
+      return {
       key: `B${i + 1}`,
       block_id: s.block.id,
       name: s.block.name,
       description: s.block.description || '',
       activity: s.activity,
       cycle_days: Number(s.block.config?.serviceCycles?.days) || 0,
-      price: Number(s.block.base_price) || 0,
-      currency: s.block.currency || 'INR',
-      tax_rate: Number(s.block.tax_rate) || 0,
+      price: Number(rec?.amount ?? s.block.base_price) || 0,
+      currency: s.block.currency || rec?.currency || '',
+      tax_rate: recTaxes.length ? recRate : (Number(s.block.tax_rate) || 0),
+      tax_inclusion: rec?.tax_inclusion === 'inclusive' ? 'inclusive' : 'exclusive',
+      taxes: recTaxes,
       form_template_id: s.block.form_template_id || null,
       equipment: s.equipment,
       icon: s.block.icon || 'wrench',
       // The catalog-scan tier matches service blocks only
       category_id: 'service',
-    }));
+      };
+    });
 
     return { candidates, scannedCount: allBlocks.length };
   }
@@ -1385,16 +1402,24 @@ class ContractComposerService {
           unlimited: false,
           price: cand.price,
           currency: cand.currency,
-          totalPrice: cadTerm
-            ? Math.round(cadTerm.termTotal * 100) / 100
-            : Math.round(cand.price * qty * 100) / 100,
+          // totalPrice INCLUDES tax — the wizard's convention (moneyModel
+          // lineMoney, ServiceBlocksStep unitWithTax × qty), which billing
+          // derivation and the review check both read. It used to be the
+          // pre-tax base here, so a taxed VaNi draft billed without GST and
+          // now fails the review ("saved total does not match its price, tax
+          // and term"). Catalog prices are tax-exclusive.
+          // An INCLUSIVE catalog price already holds the tax (moneyModel.lineMoney).
+          totalPrice: Math.round(
+            (cadTerm ? cadTerm.termTotal : cand.price * qty)
+              * (cand.tax_inclusion === 'inclusive' ? 1 : (1 + (Number(cand.tax_rate) || 0) / 100)) * 100
+          ) / 100,
           categoryName: CATEGORY_DISPLAY_NAMES[cand.category_id || 'service'] || 'Service',
           categoryColor: '#3B82F6',
           categoryId: cand.category_id || 'service',
           isFlyBy: false,
           taxRate: cand.tax_rate,
-          taxInclusion: 'exclusive' as const,
-          taxes: [],
+          taxInclusion: cand.tax_inclusion || ('exclusive' as const),
+          taxes: cand.taxes || [],
           // Saved config rides through untouched (billingOnly, cadence rate
           // card, seller final payment); the instantiation reason wins on notes.
           config: { showDescription: false, ...candConfig, notes: s.reason || candConfig.notes || undefined },
@@ -1411,19 +1436,67 @@ class ContractComposerService {
     const blockCurrency = selectedBlocks[0]?.currency || '';
     const currency = (defaultCurrency || '').trim().toUpperCase() || blockCurrency;
     if (!/^[A-Z]{3}$/.test(currency)) throw new ComposerContextError('CURRENCY_REQUIRED', 'Choose the agreement currency.');
+
+    // Mandatory Terms & Conditions — the same rule the contract wizard applies
+    // when it opens (ContractWizard/index.tsx): the tenant's singleton text
+    // block named "Terms & Conditions" (or the only text block) rides along
+    // at ₹0, flagged autoIncluded so the review recognises it
+    // (isAgreementTerms). The composer never added it, so every VaNi draft
+    // failed review with "Mandatory Terms & Conditions are missing".
+    if (ctx.workflow === 'contract' && !selectedBlocks.some((b) => b.categoryId === 'text')) {
+      const tnc = await this.findTenantTerms(ctx);
+      if (tnc) {
+        selectedBlocks.push({
+          id: tnc.id,
+          name: tnc.name,
+          description: tnc.description || '',
+          icon: tnc.icon || 'FileText',
+          quantity: 1,
+          cycle: 'prepaid',
+          unlimited: false,
+          price: 0,
+          currency,
+          totalPrice: 0,
+          categoryName: CATEGORY_DISPLAY_NAMES.text || 'Text',
+          categoryColor: '#8B5CF6',
+          categoryId: 'text',
+          isFlyBy: false,
+          taxRate: 0,
+          taxes: [],
+          config: {
+            showDescription: true,
+            content: (tnc.config?.content as string) || tnc.description || '',
+            autoIncluded: true,
+          },
+        });
+      }
+    }
+
     const mismatched = Array.from(new Set(
       selectedBlocks.map((b) => b.currency).filter((c) => c && c !== currency)
     ));
 
     // Totals (server-side, so the canvas review can finalize without the
     // wizard's billing step; taxInclusion is 'exclusive' for catalog prices).
-    // totalPrice is the pre-tax block base — for cadence-priced blocks it is
-    // the TERM total (payments × rate + final), for everything else price×qty.
-    const baseSubtotal = Math.round(selectedBlocks.reduce((s, b) => s + b.totalPrice, 0) * 100) / 100;
-    const taxTotal = Math.round(selectedBlocks.reduce(
-      (s, b) => s + (b.totalPrice * (b.taxRate || 0)) / 100, 0
-    ) * 100) / 100;
-    const grandTotal = Math.round((baseSubtotal + taxTotal) * 100) / 100;
+    // totalPrice is tax-INCLUSIVE (see above); the pre-tax base is recovered
+    // from it — for cadence-priced blocks the TERM total, else price×qty.
+    const preTax = (b: { totalPrice: number; taxRate?: number }) => b.totalPrice / (1 + (b.taxRate || 0) / 100);
+    const baseSubtotal = Math.round(selectedBlocks.reduce((s, b) => s + preTax(b), 0) * 100) / 100;
+    const grandTotal = Math.round(selectedBlocks.reduce((s, b) => s + b.totalPrice, 0) * 100) / 100;
+    const taxTotal = Math.round((grandTotal - baseSubtotal) * 100) / 100;
+
+    // Named tax split (CGST/SGST…) from the blocks' own tax lines — the same
+    // aggregation as the wizard's moneyTotals, so invoices carry the breakdown.
+    const taxSplit = new Map<string, { tax_rate_id: string; name: string; rate: number; amount: number }>();
+    for (const b of selectedBlocks) {
+      const base = preTax(b);
+      for (const t of (b.taxes || [])) {
+        const key = t.id || `${t.name}:${t.rate}`;
+        const prev = taxSplit.get(key);
+        taxSplit.set(key, { tax_rate_id: t.id || '', name: t.name, rate: Number(t.rate), amount: (prev?.amount || 0) + base * Number(t.rate) / 100 });
+      }
+    }
+    const taxBreakdown = [...taxSplit.values()].map((t) => ({ ...t, amount: Math.round(t.amount * 100) / 100 }));
 
     // Assets & coverage
     const gaps: ComposedGap[] = [];
@@ -1472,7 +1545,7 @@ class ContractComposerService {
       // Cadence pricing + billing-only ride through so the derivation splits
       // payments correctly (term math + seller final) and skips service
       // events for billing-only blocks. taxInclusion intentionally omitted —
-      // composer totals are pre-tax, so the derivation must not re-apply tax.
+      // totalPrice already includes tax, so the derivation must not re-apply it.
       price: blk.price,
       config: (blk.config as DerivationBlock['config']) || undefined,
     }));
@@ -1538,8 +1611,9 @@ class ContractComposerService {
         baseSubtotal,
         taxTotal,
         grandTotal,
+        // Contract-level tax ids stay empty: these taxes ride on the blocks.
         selectedTaxRateIds: [],
-        taxBreakdown: [],
+        taxBreakdown,
       },
       vani: {
         summary: selection.summary,
@@ -1788,6 +1862,21 @@ class ContractComposerService {
       totalCount: steps.length,
       needsYou,
     };
+  }
+
+  /** The tenant's T&C text block in this environment, or null (not authored yet). */
+  private async findTenantTerms(ctx: ComposerCallContext): Promise<any | null> {
+    try {
+      const blocks = await this.fetchTenantBlocks(ctx);
+      const text = blocks.filter((b) => (b.block_type_name || b.type || b.category) === 'text');
+      return (
+        text.find((b) => /terms\s*(&|and)\s*conditions|^t\s*&\s*c$/i.test(b.name || '')) ||
+        (text.length === 1 ? text[0] : null)
+      );
+    } catch (e: any) {
+      console.warn('⚠️ Composer: T&C lookup failed (review will ask for it):', e.message);
+      return null;
+    }
   }
 
   private async fetchTenantBlocks(ctx: ComposerCallContext): Promise<any[]> {
