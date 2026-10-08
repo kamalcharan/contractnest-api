@@ -77,6 +77,10 @@ export class CatBlocksService {
       'Authorization': `Bearer ${context.accessToken}`,
       'x-tenant-id': context.tenantId,
       'x-is-admin': String(context.isAdmin),
+      // The edge treats a missing environment as LIVE, so without this every
+      // Catalog Studio / wizard request made in Test read (and created) Live
+      // blocks — the wizard's environment check then refused the catalogue.
+      'x-environment': context.environment === 'live' ? 'live' : 'test',
       'x-timestamp': timestamp,  // Required by Edge Function
     };
 

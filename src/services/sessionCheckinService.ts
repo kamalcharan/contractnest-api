@@ -59,6 +59,19 @@ class SessionCheckinService {
   paymentConfig(token: string) {
     return this.call('gs_checkin_payment_config', { p_token: token });
   }
+  // Online payment of one instalment (migration 046). The gateway itself is
+  // the existing payment-gateway flow; these only bind it to the token.
+  gatewayOrderTarget(token: string, memberId: string, billingEventId: string) {
+    return this.call('gs_checkin_gateway_order', { p_token: token, p_member: memberId, p_billing_event: billingEventId });
+  }
+  gatewayAttach(token: string, memberId: string, billingEventId: string, requestId: string) {
+    return this.call('gs_checkin_gateway_attach', {
+      p_token: token, p_member: memberId, p_billing_event: billingEventId, p_request_id: requestId,
+    });
+  }
+  gatewayRequest(token: string, requestId: string) {
+    return this.call('gs_checkin_gateway_request', { p_token: token, p_request_id: requestId });
+  }
   guestCheckin(token: string, payload: {
     name: string; phone?: string | null; company?: string | null; email?: string | null;
     status?: string; responses?: Record<string, unknown> | null;

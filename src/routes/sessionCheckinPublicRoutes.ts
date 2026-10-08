@@ -45,5 +45,8 @@ router.post('/:token/substitute', sessionCheckinController.substitute);
 router.get('/:token/member/:memberId/history', sessionCheckinController.history);
 // POST /api/checkin/:token/submit                   → attendance (+ optional dues)
 router.post('/:token/submit', sessionCheckinController.submit);
+// Online payment of one instalment via the tenant's payment gateway
+router.post('/:token/pay/order', sessionCheckinController.payOrder);
+router.post('/:token/pay/verify', sessionCheckinController.payVerify);
 
 export default router;

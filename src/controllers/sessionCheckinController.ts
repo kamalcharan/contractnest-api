@@ -9,7 +9,12 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import sessionCheckinService from '../services/sessionCheckinService';
+import PaymentGatewayService from '../services/paymentGatewayService';
 import { sendSuccess, sendError, ERROR_CODES } from '../utils/apiResponseHelpers';
+
+// Same gateway service the contract pay page uses; the tenant comes from the
+// token server-side, never from the client.
+const paymentGatewayService = new PaymentGatewayService();
 
 class SessionCheckinController {
   // ── public (token-gated) ──
@@ -129,6 +134,56 @@ class SessionCheckinController {
     if (!token) { sendError(res, ERROR_CODES.VALIDATION_ERROR, 'token is required', 400); return; }
     const result = await sessionCheckinService.paymentConfig(token);
     if (!result.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, result.error?.message || 'Failed to load payment config', 500); return; }
+    sendSuccess(res, result.data);
+  };
+
+  // POST /checkin/:token/pay/order { member_id, billing_event_id }
+  // Online payment of one instalment through the tenant's payment gateway.
+  payOrder = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    const memberId = req.body?.member_id as string;
+    const billingEventId = req.body?.billing_event_id as string;
+    if (!token || !memberId || !billingEventId) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'member_id and billing_event_id are required', 400); return;
+    }
+    const target = await sessionCheckinService.gatewayOrderTarget(token, memberId, billingEventId);
+    if (!target.success) { sendError(res, ERROR_CODES.INTERNAL_ERROR, target.error?.message || 'Could not start the payment', 500); return; }
+    const t = target.data || {};
+    if (t.ok === false) { sendError(res, ERROR_CODES.VALIDATION_ERROR, t.reason || 'Payment not possible', 422); return; }
+
+    const order = await paymentGatewayService.createOrder(
+      { invoice_id: t.invoice_id, amount: Number(t.amount), currency: t.currency, notes: { source: 'group_session_checkin', billing_event_id: billingEventId } },
+      '', t.tenant_id, '', t.is_live === false ? 'test' : 'live'
+    );
+    if (!order.success || !order.data?.request_id) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, order.error || 'The payment gateway did not accept the order', 422); return;
+    }
+
+    // Bind the instalment to the request before the member can pay, so the
+    // verify (or the gateway webhook) settles exactly this instalment.
+    const attach = await sessionCheckinService.gatewayAttach(token, memberId, billingEventId, order.data.request_id);
+    if (!attach.success || attach.data?.ok === false) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, attach.data?.reason || attach.error?.message || 'Could not start the payment', 422); return;
+    }
+    sendSuccess(res, { ...order.data, label: t.label });
+  };
+
+  // POST /checkin/:token/pay/verify { request_id, gateway_order_id, gateway_payment_id, gateway_signature }
+  payVerify = async (req: Request, res: Response): Promise<void> => {
+    const token = req.params.token;
+    const b = req.body || {};
+    if (!token || !b.request_id || !b.gateway_payment_id) {
+      sendError(res, ERROR_CODES.VALIDATION_ERROR, 'request_id and gateway_payment_id are required', 400); return;
+    }
+    const check = await sessionCheckinService.gatewayRequest(token, b.request_id);
+    if (!check.success || check.data?.ok === false) {
+      sendError(res, ERROR_CODES.NOT_FOUND, 'Payment not found for this check-in', 404); return;
+    }
+    const result = await paymentGatewayService.verifyPayment(
+      { request_id: b.request_id, gateway_order_id: b.gateway_order_id, gateway_payment_id: b.gateway_payment_id, gateway_signature: b.gateway_signature },
+      '', check.data.tenant_id, check.data.is_live === false ? 'test' : 'live'
+    );
+    if (!result.success) { sendError(res, ERROR_CODES.VALIDATION_ERROR, result.error || 'Payment verification failed', 422); return; }
     sendSuccess(res, result.data);
   };
 
